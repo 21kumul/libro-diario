@@ -242,6 +242,53 @@ function LibroDiario() {
   const [editAmountError, setEditAmountError] = useState('');
 
   const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '' });
+  const [multiSelectKind, setMultiSelectKind] = useState(null); // 'fijo' | 'ingreso_fijo' | null
+  const [selectedFijos, setSelectedFijos] = useState([]);
+  const [multiForm, setMultiForm] = useState({ amounts: {}, date: todayStr(), note: '' });
+  const [multiError, setMultiError] = useState('');
+
+  const toggleMultiSelect = (kind) => {
+    if (multiSelectKind === kind) { setMultiSelectKind(null); setSelectedFijos([]); }
+    else { setMultiSelectKind(kind); setSelectedFijos([]); }
+  };
+  const toggleSelectFijo = (id) => {
+    setSelectedFijos((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+  const openMultiAbonar = () => {
+    const items = compromisosView.filter((c) => selectedFijos.includes(c.id));
+    if (items.length < 2) return;
+    const amounts = {};
+    items.forEach((c) => { amounts[c.id] = String(c.amount); });
+    setMultiForm({ amounts, date: todayStr(), note: '' });
+    setMultiError('');
+    setSheet({ type: 'multi-abonar' });
+  };
+  const submitMultiAbono = () => {
+    const items = compromisosView.filter((c) => selectedFijos.includes(c.id));
+    const entries = items.map((c) => ({ c, amt: toNumber(multiForm.amounts[c.id]) }));
+    if (entries.some((e) => !e.amt || e.amt <= 0)) return setMultiError('Revisa que todos los montos sean válidos.');
+    const total = entries.reduce((s, e) => s + e.amt, 0);
+    const date = multiForm.date;
+    const period = periodKey(date);
+    const paymentIds = {};
+    const nextCompromisos = compromisos.map((x) => {
+      const entry = entries.find((e) => e.c.id === x.id);
+      if (!entry) return x;
+      const paymentId = uid();
+      paymentIds[x.id] = paymentId;
+      const payment = { id: paymentId, amount: entry.amt, date, period, note: multiForm.note.trim(), autor: profile?.name || 'Familia' };
+      return { ...x, payments: [...x.payments, payment] };
+    });
+    const isIngreso = multiSelectKind === 'ingreso_fijo';
+    const names = entries.map((e) => e.c.name).join(' + ');
+    const nextTx = [...transactions, {
+      id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: entries[0].c.category, amount: total,
+      note: `${isIngreso ? 'Ingreso' : 'Pago'} junto · ${names}${multiForm.note ? ' — ' + multiForm.note.trim() : ''}`,
+      date, shared: null, compromisoIds: entries.map((e) => e.c.id), paymentIds, autor: profile?.name || 'Familia',
+    }];
+    persist({ compromisos: nextCompromisos, transactions: nextTx });
+    setMultiSelectKind(null); setSelectedFijos([]); setSheet(null);
+  };
   const [abonoError, setAbonoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '' });
@@ -702,6 +749,13 @@ function LibroDiario() {
           return { ...x, payments: nextPayments };
         });
       }
+    } else if (orig?.compromisoIds?.length) {
+      // Movimiento "pago junto": revierte el abono correspondiente en cada gasto/ingreso fijo vinculado.
+      nextCompromisos = compromisos.map((x) => {
+        const paymentId = orig.paymentIds && orig.paymentIds[x.id];
+        if (!paymentId) return x;
+        return { ...x, payments: x.payments.filter((p) => p.id !== paymentId) };
+      });
     }
     persist({ transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos });
     setSheet(null);
@@ -1068,6 +1122,14 @@ function LibroDiario() {
         .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 14px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--line); }
+        .compromiso-card.selectable { cursor: pointer; }
+        .compromiso-card.selected { border-color: var(--green); background: #F0F4EF; }
+        .multiselect-toggle { background: none; border: none; color: var(--green); font-weight: 700; font-size: 11.5px; cursor: pointer; text-decoration: underline; padding: 0; }
+        .check-circle { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .check-circle.on { background: var(--green); border-color: var(--green); }
+        .multiselect-bar { display: flex; align-items: center; justify-content: space-between; background: var(--paper-dim); border-radius: 12px; padding: 10px 12px; margin: -2px 0 14px; position: sticky; bottom: 0; }
+        .multiselect-count { font-size: 11px; color: var(--ink-soft); font-weight: 600; }
+        .multiselect-total { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--ink); }
         .compromiso-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .compromiso-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0; }
         .compromiso-name { font-weight: 700; font-size: 14px; }
@@ -1367,50 +1429,107 @@ function LibroDiario() {
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Aún no tienes gastos ni ingresos fijos. Márcalos como "fijo" al registrar un movimiento.</div>
               ) : (
                 <>
-                  {fijos.map((c) => (
-                    <div className="compromiso-card" key={c.id}>
-                      <div className="compromiso-top">
-                        <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
-                        <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span></>}</div></div>
-                        <button className="compromiso-del" onClick={() => deleteCompromiso(c.id)}><Icon name="Trash2" size={14} /></button>
+                  {fijos.length > 0 && (
+                    <>
+                      <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Gastos fijos</span>
+                        <button className="multiselect-toggle" onClick={() => toggleMultiSelect('fijo')}>
+                          {multiSelectKind === 'fijo' ? 'Cancelar' : 'Combinar pagos'}
+                        </button>
                       </div>
-                      <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
-                      <div className="compromiso-nums">
-                        <span>Mensual: {fmt(c.amount)}</span>
-                        <span>Pagado: {fmt(c.pagado)}</span>
-                        <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
-                      </div>
-                      {c.notifyDay && (
-                        <div className="compromiso-notify">
-                          <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                          Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                      {multiSelectKind === 'fijo' && (
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-2px 0 10px' }}>
+                          Elige 2 o más (ej. Netflix + Spotify) para registrar un solo pago que los cubra a todos.
                         </div>
                       )}
-                      <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
-                    </div>
-                  ))}
-                  {ingresosFijos.map((c) => (
-                    <div className="compromiso-card" key={c.id}>
-                      <div className="compromiso-top">
-                        <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
-                        <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo</span> · {catById(c.category).label}</div></div>
-                        <button className="compromiso-del" onClick={() => deleteCompromiso(c.id)}><Icon name="Trash2" size={14} /></button>
-                      </div>
-                      <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
-                      <div className="compromiso-nums">
-                        <span>Esperado: {fmt(c.amount)}</span>
-                        <span>Recibido: {fmt(c.pagado)}</span>
-                        <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
-                      </div>
-                      {c.notifyDay && (
-                        <div className="compromiso-notify">
-                          <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                          Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                      {fijos.map((c) => (
+                        <div
+                          className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
+                          key={c.id}
+                          onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : undefined}
+                        >
+                          <div className="compromiso-top">
+                            {multiSelectKind === 'fijo' && (
+                              <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
+                            )}
+                            <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
+                            <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span></>}</div></div>
+                            {multiSelectKind !== 'fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                          </div>
+                          <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
+                          <div className="compromiso-nums">
+                            <span>Mensual: {fmt(c.amount)}</span>
+                            <span>Pagado: {fmt(c.pagado)}</span>
+                            <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
+                          </div>
+                          {c.notifyDay && (
+                            <div className="compromiso-notify">
+                              <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
+                              Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                            </div>
+                          )}
+                          {multiSelectKind !== 'fijo' && <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>}
+                        </div>
+                      ))}
+                      {multiSelectKind === 'fijo' && selectedFijos.length > 0 && (
+                        <div className="multiselect-bar">
+                          <div>
+                            <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
+                            <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
+                          </div>
+                          <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
                         </div>
                       )}
-                      <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>
-                    </div>
-                  ))}
+                    </>
+                  )}
+                  {ingresosFijos.length > 0 && (
+                    <>
+                      <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Ingresos fijos</span>
+                        <button className="multiselect-toggle" onClick={() => toggleMultiSelect('ingreso_fijo')}>
+                          {multiSelectKind === 'ingreso_fijo' ? 'Cancelar' : 'Combinar pagos'}
+                        </button>
+                      </div>
+                      {ingresosFijos.map((c) => (
+                        <div
+                          className={`compromiso-card ${multiSelectKind === 'ingreso_fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
+                          key={c.id}
+                          onClick={multiSelectKind === 'ingreso_fijo' ? () => toggleSelectFijo(c.id) : undefined}
+                        >
+                          <div className="compromiso-top">
+                            {multiSelectKind === 'ingreso_fijo' && (
+                              <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
+                            )}
+                            <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
+                            <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo</span> · {catById(c.category).label}</div></div>
+                            {multiSelectKind !== 'ingreso_fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                          </div>
+                          <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
+                          <div className="compromiso-nums">
+                            <span>Esperado: {fmt(c.amount)}</span>
+                            <span>Recibido: {fmt(c.pagado)}</span>
+                            <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
+                          </div>
+                          {c.notifyDay && (
+                            <div className="compromiso-notify">
+                              <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
+                              Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                            </div>
+                          )}
+                          {multiSelectKind !== 'ingreso_fijo' && <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>}
+                        </div>
+                      ))}
+                      {multiSelectKind === 'ingreso_fijo' && selectedFijos.length > 0 && (
+                        <div className="multiselect-bar">
+                          <div>
+                            <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
+                            <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
+                          </div>
+                          <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -1704,6 +1823,43 @@ function LibroDiario() {
             <input className="text-input" placeholder={sheet.compromiso.kind === 'ingreso_fijo' ? 'Ej. Nómina de julio' : 'Ej. Pago parcial de mayo'} value={abonoForm.note} onChange={(e) => setAbonoForm((f) => ({ ...f, note: e.target.value }))} />
             {abonoError && <div className="form-error">{abonoError}</div>}
             <button className="save-btn" onClick={submitAbono}><Icon name="Check" size={16} /> {sheet.compromiso.kind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar abono'}</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'multi-abonar' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">{multiSelectKind === 'ingreso_fijo' ? 'Registrar ingreso junto' : 'Registrar pago junto'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>
+              Ajusta el monto de cada uno si no coincide exactamente con lo esperado — juntos se registran como un solo movimiento.
+            </div>
+            {compromisosView.filter((c) => selectedFijos.includes(c.id)).map((c) => (
+              <div key={c.id} style={{ marginBottom: 12 }}>
+                <div className="field-label">{c.name}</div>
+                <div className="amount-input-wrap">
+                  <span className="amount-currency">$</span>
+                  <input
+                    className="amount-input"
+                    type="text" inputMode="decimal"
+                    value={multiForm.amounts[c.id] ?? ''}
+                    onChange={(e) => setMultiForm((f) => ({ ...f, amounts: { ...f.amounts, [c.id]: formatAmountTyping(e.target.value) } }))}
+                  />
+                </div>
+              </div>
+            ))}
+            <div className="cxp-total-row" style={{ padding: '6px 0 14px', borderTop: '1px dashed var(--line)', borderBottom: '1px dashed var(--line)', marginBottom: 14 }}>
+              <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600 }}>Total junto</span>
+              <span className="cxp-total-amount" style={{ fontSize: 19 }}>
+                {fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + toNumber(multiForm.amounts[c.id]), 0))}
+              </span>
+            </div>
+            <div className="field-label">Fecha</div>
+            <input className="text-input" type="date" value={multiForm.date} onChange={(e) => setMultiForm((f) => ({ ...f, date: e.target.value }))} />
+            <div className="field-label">Nota (opcional)</div>
+            <input className="text-input" placeholder="Ej. Me lo mandó Ana junto" value={multiForm.note} onChange={(e) => setMultiForm((f) => ({ ...f, note: e.target.value }))} />
+            {multiError && <div className="form-error">{multiError}</div>}
+            <button className="save-btn" onClick={submitMultiAbono}><Icon name="Check" size={16} /> {multiSelectKind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar pago'}</button>
           </div>
         </div>
       )}
