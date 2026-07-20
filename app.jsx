@@ -30,9 +30,19 @@ const GASTO_CATS = [
   { id: 'transporte', label: 'Transporte', icon: 'Motorbike', color: '#8C6239' },
   { id: 'comida', label: 'Comida', icon: 'Utensils', color: '#D17A4A' },
   { id: 'despensa', label: 'Despensa', icon: 'ShoppingBag', color: '#5F8A4C' },
-  { id: 'deudas', label: 'Deudas', icon: 'Landmark', color: '#7A4E3A' },
+  { id: 'banco', label: 'Banco', icon: 'Landmark', color: '#3E6EA5' },
+  { id: 'deudas', label: 'Préstamos', icon: 'CreditCard', color: '#7A4E3A' },
   { id: 'otros_gas', label: 'Otros', icon: 'MoreHorizontal', color: '#9C8672' },
 ];
+
+// Categorías exclusivas para las cuentas de CxP (gastos fijos, ingresos fijos
+// y préstamos): a partir de esta actualización, dar de alta una cuenta en CxP
+// solo permite clasificarla en una de estas 3 (el resto de categorías de
+// Gastos/Ingresos normales no aplican aquí).
+const CXP_CATS = GASTO_CATS.filter((c) => ['banco', 'deudas', 'otros_gas'].includes(c.id));
+// Solo estas categorías de CxP permiten editar el monto/saldo a mano
+// (ej. actualizar lo que dice el estado de cuenta del banco).
+const CXP_EDITABLE_CATS = ['banco', 'deudas'];
 
 // Ya no usamos una lista fija de subcategorías de "Servicios": ahora las
 // subcategorías de cualquier categoría de gasto se arman solas a partir de
@@ -206,6 +216,10 @@ function LibroDiario() {
   const [transactions, setTransactions] = useState([]);
   const [compromisos, setCompromisos] = useState([]);
   const [savings, setSavings] = useState([]);
+  // "¿Dónde está el dinero?": saldos de efectivo/tarjeta por persona, visibles
+  // en Resumen. Se capturan a mano y se suman solos cuando registras un
+  // ingreso y eliges a cuál de estas ubicaciones cayó.
+  const [moneyLocations, setMoneyLocations] = useState([]);
   const [familia, setFamilia] = useState([]);
   const [familyName, setFamilyName] = useState('');
   const [familyNameInput, setFamilyNameInput] = useState('');
@@ -226,10 +240,10 @@ function LibroDiario() {
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '' });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '' });
   const [txError, setTxError] = useState('');
 
-  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr() });
+  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
   const [editTxError, setEditTxError] = useState('');
 
   const [compForm, setCompForm] = useState({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [] });
@@ -302,12 +316,13 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
         window.storage.get('familia', true),
         window.storage.get('familyName', true),
+        window.storage.get('moneyLocations', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -325,6 +340,7 @@ function LibroDiario() {
       setTransactions(migratedTx);
       setCompromisos(migratedComp);
       setSavings(s.status === 'fulfilled' && s.value ? JSON.parse(s.value.value) : []);
+      setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
       setFamilyName(fn.status === 'fulfilled' && fn.value ? JSON.parse(fn.value.value) : '');
       setLastSync(Date.now());
@@ -392,6 +408,7 @@ function LibroDiario() {
     if (patch.transactions) setTransactions(patch.transactions);
     if (patch.compromisos) setCompromisos(patch.compromisos);
     if (patch.savings) setSavings(patch.savings);
+    if (patch.moneyLocations) setMoneyLocations(patch.moneyLocations);
     if (patch.familia) setFamilia(patch.familia);
     if (patch.familyName !== undefined) setFamilyName(patch.familyName);
     try {
@@ -399,6 +416,7 @@ function LibroDiario() {
       if (patch.transactions) jobs.push(window.storage.set('transactions', JSON.stringify(patch.transactions), true));
       if (patch.compromisos) jobs.push(window.storage.set('compromisos', JSON.stringify(patch.compromisos), true));
       if (patch.savings) jobs.push(window.storage.set('savings', JSON.stringify(patch.savings), true));
+      if (patch.moneyLocations) jobs.push(window.storage.set('moneyLocations', JSON.stringify(patch.moneyLocations), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
       if (patch.familyName !== undefined) jobs.push(window.storage.set('familyName', JSON.stringify(patch.familyName), true));
       await Promise.all(jobs);
@@ -546,8 +564,9 @@ function LibroDiario() {
       return { ...c, pagado, pendiente, pct, liquidada: pendiente <= 0.01, lastAdjustment };
     }
     const pagadoMes = c.payments.filter((p) => p.period === currentPeriodKey).reduce((s, p) => s + p.amount, 0);
-    const pendiente = Math.max(0, c.amount - pagadoMes);
-    return { ...c, pagado: pagadoMes, pendiente, pct: c.amount ? Math.min(100, (pagadoMes / c.amount) * 100) : 0, liquidada: false };
+    const baseAmount = c.balance != null ? c.balance : c.amount;
+    const pendiente = Math.max(0, baseAmount - pagadoMes);
+    return { ...c, pagado: pagadoMes, pendiente, pct: baseAmount ? Math.min(100, (pagadoMes / baseAmount) * 100) : 0, liquidada: false };
   }), [compromisos]);
 
   const deudas = compromisosView.filter((c) => c.kind === 'deuda');
@@ -574,15 +593,17 @@ function LibroDiario() {
     return fijos.filter((c) => c.category === category);
   };
 
-  const DEBT_COLORS = ['#1E3D32', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#7A4E3A', '#8C6239'];
-  const debtsChartData = useMemo(
-    () => compromisosView
-      .filter((c) => c.kind === 'deuda' && c.pendiente > 0.01)
-      .sort((a, b) => b.pendiente - a.pendiente)
-      .slice(0, 10)
-      .map((c, i) => ({ id: c.id, name: c.name, value: c.pendiente, color: DEBT_COLORS[i % DEBT_COLORS.length] })),
-    [compromisosView]
-  );
+  // Gráfica de pastel de CxP: agrupa TODO lo de la pestaña CxP (préstamos,
+  // gastos fijos e ingresos fijos) por su categoría (Banco / Préstamos / Otros).
+  const cxpPorCategoria = useMemo(() => {
+    const map = {};
+    compromisosView.forEach((c) => {
+      if (c.pendiente <= 0.01) return;
+      map[c.category] = (map[c.category] || 0) + c.pendiente;
+    });
+    return Object.entries(map).map(([id, value]) => ({ id, name: catById(id).label, value, color: catById(id).color }))
+      .sort((a, b) => b.value - a.value);
+  }, [compromisosView]);
 
   // ---------- derived: por cobrar (compartido) ----------
   const pendingByPerson = useMemo(() => {
@@ -604,7 +625,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '' });
+    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '' });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -665,18 +686,28 @@ function LibroDiario() {
       }];
     }
 
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: txForm.subcategory || null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, autor: profile?.name || 'Familia' }];
-    persist({ transactions: next, compromisos: nextCompromisos });
+    const locationId = txForm.type === 'ingreso' && txForm.locationId ? txForm.locationId : null;
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: txForm.subcategory || null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, locationId, autor: profile?.name || 'Familia' }];
+    const patch = { transactions: next, compromisos: nextCompromisos };
+    if (locationId) {
+      patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + amt } : l);
+    }
+    persist(patch);
     setSheet(null);
   };
 
   const deleteTx = (id) => {
     if (!window.confirm('¿Eliminar este movimiento? No se puede deshacer.')) return;
-    persist({ transactions: transactions.filter((t) => t.id !== id) });
+    const orig = transactions.find((t) => t.id === id);
+    const patch = { transactions: transactions.filter((t) => t.id !== id) };
+    if (orig?.locationId) {
+      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
+    }
+    persist(patch);
   };
 
   const openEditTx = (t) => {
-    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date });
+    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '' });
     setEditTxError('');
     setSheet({ type: 'edit-tx' });
   };
@@ -718,6 +749,7 @@ function LibroDiario() {
         });
       }
     }
+    const nextLocationId = editTxForm.type === 'ingreso' && editTxForm.locationId ? editTxForm.locationId : null;
     const next = transactions.map((t) => t.id === editTxForm.id ? {
       ...t,
       amount: amt,
@@ -726,8 +758,17 @@ function LibroDiario() {
       note: editTxForm.note.trim(),
       date: editTxForm.date,
       paymentId: syncedPaymentId,
+      locationId: nextLocationId,
     } : t);
-    persist({ transactions: next, compromisos: nextCompromisos });
+    const patch = { transactions: next, compromisos: nextCompromisos };
+    // Revierte la ubicación anterior (si tenía) y aplica la nueva (si eligió una), por si cambió el monto o la ubicación.
+    if (orig?.locationId || nextLocationId) {
+      let nextLocations = moneyLocations;
+      if (orig?.locationId) nextLocations = nextLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
+      if (nextLocationId) nextLocations = nextLocations.map((l) => l.id === nextLocationId ? { ...l, monto: (l.monto || 0) + amt } : l);
+      patch.moneyLocations = nextLocations;
+    }
+    persist(patch);
     setSheet(null);
   };
 
@@ -757,7 +798,11 @@ function LibroDiario() {
         return { ...x, payments: x.payments.filter((p) => p.id !== paymentId) };
       });
     }
-    persist({ transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos });
+    const patch = { transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos };
+    if (orig?.locationId) {
+      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
+    }
+    persist(patch);
     setSheet(null);
   };
 
@@ -796,7 +841,7 @@ function LibroDiario() {
 
   const deleteCompromiso = (id) => {
     const c = compromisos.find((x) => x.id === id);
-    const label = c?.kind === 'deuda' ? 'esta deuda' : c?.kind === 'ingreso_fijo' ? 'este ingreso fijo' : 'este gasto fijo';
+    const label = c?.kind === 'deuda' ? 'este préstamo' : c?.kind === 'ingreso_fijo' ? 'este ingreso fijo' : 'este gasto fijo';
     if (!window.confirm(`¿Eliminar ${label}${c ? ` "${c.name}"` : ''}? Se perderá su historial de pagos.`)) return;
     persist({ compromisos: compromisos.filter((c) => c.id !== id) });
   };
@@ -889,6 +934,59 @@ function LibroDiario() {
     setSheet(null);
   };
 
+  const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '' });
+  const [locError, setLocError] = useState('');
+  const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '' });
+  const [editLocError, setEditLocError] = useState('');
+
+  const openNewLocation = (personaDefault) => {
+    setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '' });
+    setLocError('');
+    setSheet({ type: 'new-location' });
+  };
+
+  const submitLocation = () => {
+    if (!locForm.persona.trim()) return setLocError('Elige o escribe a quién pertenece.');
+    if (locForm.tipo === 'tarjeta' && !locForm.nombre.trim()) return setLocError('Ponle un nombre a la tarjeta o cuenta (ej. Nu, BBVA...).');
+    const monto = toNumber(locForm.monto);
+    const next = [...moneyLocations, {
+      id: uid(), persona: locForm.persona.trim(), tipo: locForm.tipo,
+      nombre: locForm.tipo === 'tarjeta' ? locForm.nombre.trim() : (locForm.nombre.trim() || null),
+      monto,
+    }];
+    persist({ moneyLocations: next });
+    setSheet(null);
+  };
+
+  const openEditLocation = (loc) => {
+    setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '' });
+    setEditLocError('');
+    setSheet({ type: 'edit-location', location: loc });
+  };
+
+  const submitEditLocation = () => {
+    const loc = sheet.location;
+    const monto = toNumber(editLocForm.monto);
+    if (isNaN(monto)) return setEditLocError('Ingresa un monto válido.');
+    const next = moneyLocations.map((l) => l.id === loc.id ? { ...l, monto, nombre: editLocForm.nombre.trim() || l.nombre } : l);
+    persist({ moneyLocations: next });
+    setSheet(null);
+  };
+
+  const deleteLocation = (id) => {
+    const loc = moneyLocations.find((l) => l.id === id);
+    if (!window.confirm(`¿Eliminar esta ubicación${loc ? ` (${loc.persona} · ${loc.tipo === 'tarjeta' ? loc.nombre : 'Efectivo'})` : ''}?`)) return;
+    persist({ moneyLocations: moneyLocations.filter((l) => l.id !== id) });
+  };
+
+  const moneyLocationsByPerson = useMemo(() => {
+    const map = {};
+    moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
+    return Object.entries(map);
+  }, [moneyLocations]);
+
+  const moneyLocationsTotal = moneyLocations.reduce((s, l) => s + (l.monto || 0), 0);
+
   const markPersonPaid = (name) => {
     let collected = 0;
     const nextTx = transactions.map((t) => {
@@ -906,7 +1004,7 @@ function LibroDiario() {
     persist({ transactions: withIncome });
   };
 
-  const clearAll = async () => { await persist({ transactions: [], compromisos: [], savings: [] }); setSettingsOpen(false); };
+  const clearAll = async () => { await persist({ transactions: [], compromisos: [], savings: [], moneyLocations: [] }); setSettingsOpen(false); };
 
   const requestNotifPermission = async () => {
     if (!('Notification' in window)) return;
@@ -1215,13 +1313,49 @@ function LibroDiario() {
           <div className="empty-state"><span className="eyebrow">Abriendo el libro…</span></div>
         ) : tab === 'resumen' ? (
           <>
+            <div className="card">
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>¿Dónde está el dinero?</span>
+                <button className="mini-abonar" onClick={() => openNewLocation()}><Icon name="Plus" size={12} /> Agregar</button>
+              </div>
+              {moneyLocations.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien.</div>
+              ) : (
+                <>
+                  {moneyLocationsByPerson.map(([persona, locs]) => (
+                    <div key={persona} style={{ marginBottom: 6 }}>
+                      <div className="totals-subhead">{persona}</div>
+                      {locs.map((l) => (
+                        <div className="mini-row" key={l.id}>
+                          <div className="savings-icon" style={{ width: 28, height: 28, background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C', color: '#fff' }}>
+                            <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={14} />
+                          </div>
+                          <div className="mini-row-mid">
+                            <div className="mini-row-name">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</div>
+                          </div>
+                          <div className="mini-row-amount" style={{ color: 'var(--ink)' }}>{fmt(l.monto)}</div>
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: 8 }} onClick={() => openEditLocation(l)}><Icon name="Pencil" size={12} /></button>
+                          <button className="compromiso-del" onClick={() => deleteLocation(l.id)}><Icon name="Trash2" size={13} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  <div className="cxp-total-row" style={{ paddingTop: 10, borderTop: '1px dashed var(--line)', marginTop: 4 }}>
+                    <div>
+                      <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
+                      <div className="cxp-total-label">Total entre efectivo y tarjetas</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             {deudas.some((c) => c.pendiente > 0.01) && (
               <div className="card">
                 <div className="card-title">Cuentas por pagar (CxP)</div>
                 <div className="cxp-total-row">
                   <div>
                     <div className="cxp-total-amount">{fmt(deudas.reduce((s, c) => s + (c.pendiente > 0.01 ? c.pendiente : 0), 0))}</div>
-                    <div className="cxp-total-label">{deudas.filter((c) => c.pendiente > 0.01).length} deuda{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''} pendiente{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''}</div>
+                    <div className="cxp-total-label">{deudas.filter((c) => c.pendiente > 0.01).length} préstamo{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''} pendiente{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''}</div>
                   </div>
                   <button className="mini-abonar" onClick={() => setTab('compromisos')}>Ver detalle</button>
                 </div>
@@ -1329,38 +1463,182 @@ function LibroDiario() {
         ) : tab === 'compromisos' ? (
           <>
             <div className="card-title" style={{ padding: '0 2px' }}>Cuentas por pagar (CxP)</div>
-            {deudas.length === 0 ? <div className="empty-state" style={{ padding: '20px 10px' }}>Sin deudas registradas.</div> :
-              deudas.map((c) => (
-                <div className="compromiso-card" key={c.id}>
-                  <div className="compromiso-top">
-                    <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Landmark" size={16} /></div>
-                    <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge deuda">Deuda</span> · {catById(c.category).label}</div></div>
-                    <button className="compromiso-del" onClick={() => deleteCompromiso(c.id)}><Icon name="Trash2" size={14} /></button>
-                  </div>
-                  <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.liquidada ? 'var(--income)' : 'var(--gold)' }} /></div>
-                  <div className="compromiso-nums">
-                    <span>Original: {fmt(c.amount)}</span>
-                    <span>Abonado: {fmt(c.pagado)}</span>
-                    <span className={`pend ${c.liquidada ? 'done' : ''}`}>{c.liquidada ? 'Liquidada' : `Faltan ${fmt(c.pendiente)}`}</span>
-                  </div>
-                  {c.lastAdjustment && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -4, marginBottom: 10 }}>
-                      Último ajuste: {new Date(c.lastAdjustment.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} · {fmt(c.lastAdjustment.to)}{c.lastAdjustment.note ? ` — ${c.lastAdjustment.note}` : ''}
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', padding: '0 2px', margin: '-6px 0 12px' }}>
+              Da de alta aquí tus préstamos, gastos fijos e ingresos fijos. Usa el botón + para agregar uno nuevo.
+            </div>
+            {deudas.length === 0 && fijos.length === 0 && ingresosFijos.length === 0 ? (
+              <div className="empty-state" style={{ padding: '20px 10px' }}>Sin cuentas registradas todavía.</div>
+            ) : (
+              <>
+                {deudas.length > 0 && (
+                  <>
+                    <div className="totals-subhead">Préstamos</div>
+                    {deudas.map((c) => (
+                      <div className="compromiso-card" key={c.id}>
+                        <div className="compromiso-top">
+                          <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Landmark" size={16} /></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge deuda">Préstamo · CxP</span> · {catById(c.category).label}</div></div>
+                          <button className="compromiso-del" onClick={() => deleteCompromiso(c.id)}><Icon name="Trash2" size={14} /></button>
+                        </div>
+                        <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.liquidada ? 'var(--income)' : 'var(--gold)' }} /></div>
+                        <div className="compromiso-nums">
+                          <span>Original: {fmt(c.amount)}</span>
+                          <span>Abonado: {fmt(c.pagado)}</span>
+                          <span className={`pend ${c.liquidada ? 'done' : ''}`}>{c.liquidada ? 'Liquidado' : `Faltan ${fmt(c.pendiente)}`}</span>
+                        </div>
+                        {c.lastAdjustment && (
+                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -4, marginBottom: 10 }}>
+                            Último ajuste: {new Date(c.lastAdjustment.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} · {fmt(c.lastAdjustment.to)}{c.lastAdjustment.note ? ` — ${c.lastAdjustment.note}` : ''}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="abonar-btn" disabled={c.liquidada} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.liquidada ? 'Liquidado ✓' : 'Abonar'}</button>
+                          {CXP_EDITABLE_CATS.includes(c.category) && (
+                            <button
+                              className="abonar-btn"
+                              style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                              onClick={() => openEditAmount(c)}
+                              title="Actualiza el saldo con el monto que te mande tu banco"
+                            >
+                              <Icon name="Pencil" size={12} /> Actualizar monto
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {fijos.length > 0 && (
+                  <>
+                    <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Gastos fijos</span>
+                      <button className="multiselect-toggle" onClick={() => toggleMultiSelect('fijo')}>
+                        {multiSelectKind === 'fijo' ? 'Cancelar' : 'Combinar pagos'}
+                      </button>
                     </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="abonar-btn" disabled={c.liquidada} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.liquidada ? 'Liquidada ✓' : 'Abonar'}</button>
-                    <button
-                      className="abonar-btn"
-                      style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
-                      onClick={() => openEditAmount(c)}
-                      title="Actualiza el saldo con el monto que te mande tu banco"
-                    >
-                      <Icon name="Pencil" size={12} /> Actualizar monto
-                    </button>
-                  </div>
-                </div>
-              ))}
+                    {multiSelectKind === 'fijo' && (
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-2px 0 10px' }}>
+                        Elige 2 o más (ej. Netflix + Spotify) para registrar un solo pago que los cubra a todos.
+                      </div>
+                    )}
+                    {fijos.map((c) => (
+                      <div
+                        className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
+                        key={c.id}
+                        onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : undefined}
+                      >
+                        <div className="compromiso-top">
+                          {multiSelectKind === 'fijo' && (
+                            <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
+                          )}
+                          <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo · CxP</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span></>}</div></div>
+                          {multiSelectKind !== 'fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                        </div>
+                        <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
+                        <div className="compromiso-nums">
+                          <span>Mensual: {fmt(c.amount)}</span>
+                          <span>Pagado: {fmt(c.pagado)}</span>
+                          <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
+                        </div>
+                        {c.notifyDay && (
+                          <div className="compromiso-notify">
+                            <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
+                            Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                          </div>
+                        )}
+                        {multiSelectKind !== 'fijo' && (
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
+                            {CXP_EDITABLE_CATS.includes(c.category) && (
+                              <button
+                                className="abonar-btn"
+                                style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                                onClick={() => openEditAmount(c)}
+                                title="Actualiza el monto mensual"
+                              >
+                                <Icon name="Pencil" size={12} /> Actualizar monto
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {multiSelectKind === 'fijo' && selectedFijos.length > 0 && (
+                      <div className="multiselect-bar">
+                        <div>
+                          <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
+                          <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
+                        </div>
+                        <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
+                      </div>
+                    )}
+                  </>
+                )}
+                {ingresosFijos.length > 0 && (
+                  <>
+                    <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Ingresos fijos</span>
+                      <button className="multiselect-toggle" onClick={() => toggleMultiSelect('ingreso_fijo')}>
+                        {multiSelectKind === 'ingreso_fijo' ? 'Cancelar' : 'Combinar pagos'}
+                      </button>
+                    </div>
+                    {ingresosFijos.map((c) => (
+                      <div
+                        className={`compromiso-card ${multiSelectKind === 'ingreso_fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
+                        key={c.id}
+                        onClick={multiSelectKind === 'ingreso_fijo' ? () => toggleSelectFijo(c.id) : undefined}
+                      >
+                        <div className="compromiso-top">
+                          {multiSelectKind === 'ingreso_fijo' && (
+                            <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
+                          )}
+                          <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo · CxP</span> · {catById(c.category).label}</div></div>
+                          {multiSelectKind !== 'ingreso_fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                        </div>
+                        <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
+                        <div className="compromiso-nums">
+                          <span>Esperado: {fmt(c.amount)}</span>
+                          <span>Recibido: {fmt(c.pagado)}</span>
+                          <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
+                        </div>
+                        {c.notifyDay && (
+                          <div className="compromiso-notify">
+                            <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
+                            Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                          </div>
+                        )}
+                        {multiSelectKind !== 'ingreso_fijo' && (
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>
+                            {CXP_EDITABLE_CATS.includes(c.category) && (
+                              <button
+                                className="abonar-btn"
+                                style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                                onClick={() => openEditAmount(c)}
+                                title="Actualiza el monto esperado"
+                              >
+                                <Icon name="Pencil" size={12} /> Actualizar monto
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {multiSelectKind === 'ingreso_fijo' && selectedFijos.length > 0 && (
+                      <div className="multiselect-bar">
+                        <div>
+                          <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
+                          <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
+                        </div>
+                        <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
           </>
         ) : tab === 'ahorro' ? (
           <>
@@ -1413,123 +1691,14 @@ function LibroDiario() {
               </div>
             </div>
             <div className="card">
-              <div className="card-title">Cuentas por pagar (CxP)</div>
-              {debtsChartData.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin deudas pendientes.</div> : (
+              <div className="card-title">Cuentas por pagar (CxP) · por categoría</div>
+              {cxpPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin cuentas de CxP pendientes. Dalas de alta desde la pestaña CxP.</div> : (
                 <>
                   <div className="chart-wrap">
-                    <CategoryDonut data={debtsChartData} title="CxP" />
+                    <CategoryDonut data={cxpPorCategoria} title="CxP" />
                   </div>
-                  <div className="legend-row">{debtsChartData.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
-                </>
-              )}
-            </div>
-            <div className="card">
-              <div className="card-title">Gastos e ingresos fijos</div>
-              {fijos.length === 0 && ingresosFijos.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Aún no tienes gastos ni ingresos fijos. Márcalos como "fijo" al registrar un movimiento.</div>
-              ) : (
-                <>
-                  {fijos.length > 0 && (
-                    <>
-                      <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>Gastos fijos</span>
-                        <button className="multiselect-toggle" onClick={() => toggleMultiSelect('fijo')}>
-                          {multiSelectKind === 'fijo' ? 'Cancelar' : 'Combinar pagos'}
-                        </button>
-                      </div>
-                      {multiSelectKind === 'fijo' && (
-                        <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-2px 0 10px' }}>
-                          Elige 2 o más (ej. Netflix + Spotify) para registrar un solo pago que los cubra a todos.
-                        </div>
-                      )}
-                      {fijos.map((c) => (
-                        <div
-                          className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
-                          key={c.id}
-                          onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : undefined}
-                        >
-                          <div className="compromiso-top">
-                            {multiSelectKind === 'fijo' && (
-                              <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
-                            )}
-                            <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
-                            <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span></>}</div></div>
-                            {multiSelectKind !== 'fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
-                          </div>
-                          <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
-                          <div className="compromiso-nums">
-                            <span>Mensual: {fmt(c.amount)}</span>
-                            <span>Pagado: {fmt(c.pagado)}</span>
-                            <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
-                          </div>
-                          {c.notifyDay && (
-                            <div className="compromiso-notify">
-                              <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                              Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
-                            </div>
-                          )}
-                          {multiSelectKind !== 'fijo' && <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>}
-                        </div>
-                      ))}
-                      {multiSelectKind === 'fijo' && selectedFijos.length > 0 && (
-                        <div className="multiselect-bar">
-                          <div>
-                            <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
-                            <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
-                          </div>
-                          <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {ingresosFijos.length > 0 && (
-                    <>
-                      <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>Ingresos fijos</span>
-                        <button className="multiselect-toggle" onClick={() => toggleMultiSelect('ingreso_fijo')}>
-                          {multiSelectKind === 'ingreso_fijo' ? 'Cancelar' : 'Combinar pagos'}
-                        </button>
-                      </div>
-                      {ingresosFijos.map((c) => (
-                        <div
-                          className={`compromiso-card ${multiSelectKind === 'ingreso_fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
-                          key={c.id}
-                          onClick={multiSelectKind === 'ingreso_fijo' ? () => toggleSelectFijo(c.id) : undefined}
-                        >
-                          <div className="compromiso-top">
-                            {multiSelectKind === 'ingreso_fijo' && (
-                              <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
-                            )}
-                            <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
-                            <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo</span> · {catById(c.category).label}</div></div>
-                            {multiSelectKind !== 'ingreso_fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
-                          </div>
-                          <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
-                          <div className="compromiso-nums">
-                            <span>Esperado: {fmt(c.amount)}</span>
-                            <span>Recibido: {fmt(c.pagado)}</span>
-                            <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
-                          </div>
-                          {c.notifyDay && (
-                            <div className="compromiso-notify">
-                              <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                              Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
-                            </div>
-                          )}
-                          {multiSelectKind !== 'ingreso_fijo' && <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>}
-                        </div>
-                      ))}
-                      {multiSelectKind === 'ingreso_fijo' && selectedFijos.length > 0 && (
-                        <div className="multiselect-bar">
-                          <div>
-                            <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
-                            <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
-                          </div>
-                          <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
-                        </div>
-                      )}
-                    </>
-                  )}
+                  <div className="legend-row">{cxpPorCategoria.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 8 }}>Incluye préstamos, gastos fijos e ingresos fijos pendientes, agrupados por Banco / Préstamos / Otros. Ve el detalle de cada cuenta en la pestaña CxP.</div>
                 </>
               )}
             </div>
@@ -1565,6 +1734,29 @@ function LibroDiario() {
                 </div>
               ); })}
             </div>
+            {txForm.type === 'ingreso' && (
+              <>
+                <div className="field-label">¿Dónde cae este dinero? (opcional)</div>
+                {moneyLocations.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+                    Aún no tienes ubicaciones de dinero. Créalas desde la pestaña Resumen (efectivo, tarjeta...).
+                  </div>
+                ) : (
+                  <div className="cat-grid">
+                    {moneyLocations.map((l) => (
+                      <div
+                        key={l.id}
+                        className={`cat-choice ${txForm.locationId === l.id ? 'selected' : ''}`}
+                        onClick={() => setTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
+                      >
+                        <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                        <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
             {txForm.type === 'gasto' && txForm.category && (() => {
               const subAccounts = getSubAccountsForCategory(txForm.category);
               if (!subAccounts.length) return null;
@@ -1575,14 +1767,14 @@ function LibroDiario() {
               if (selected && enteredAmt > 0) {
                 const restante = selected.pendiente - enteredAmt;
                 if (restante <= 0.005) {
-                  feedback = { ok: true, text: isDeudaCat ? 'Con este abono, la deuda queda liquidada.' : 'Con este pago, esta cuenta queda al día este mes.' };
+                  feedback = { ok: true, text: isDeudaCat ? 'Con este abono, el préstamo queda liquidado.' : 'Con este pago, esta cuenta queda al día este mes.' };
                 } else {
                   feedback = { ok: false, text: isDeudaCat ? `Después de este abono, quedarán pendientes ${fmt(restante)}.` : `Aún faltan ${fmt(restante)} para completar el pago de este mes.` };
                 }
               }
               return (
                 <>
-                  <div className="field-label">{isDeudaCat ? '¿A cuál deuda corresponde? (opcional)' : '¿A cuál cuenta corresponde? (opcional)'}</div>
+                  <div className="field-label">{isDeudaCat ? '¿A cuál préstamo corresponde? (opcional)' : '¿A cuál cuenta corresponde? (opcional)'}</div>
                   <div className="subcat-row">
                     {subAccounts.map((c) => (
                       <button key={c.id} className={`subcat-chip ${txForm.subcategory === c.id ? 'selected' : ''}`} onClick={() => setTxForm((f) => ({ ...f, subcategory: f.subcategory === c.id ? '' : c.id }))}>{c.name}</button>
@@ -1700,6 +1892,23 @@ function LibroDiario() {
                 </div>
               ); })}
             </div>
+            {editTxForm.type === 'ingreso' && moneyLocations.length > 0 && (
+              <>
+                <div className="field-label">¿Dónde cae este dinero? (opcional)</div>
+                <div className="cat-grid">
+                  {moneyLocations.map((l) => (
+                    <div
+                      key={l.id}
+                      className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
+                      onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
+                    >
+                      <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                      <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             {(() => {
               const origTx = transactions.find((t) => t.id === editTxForm.id);
               if (origTx?.compromisoId) {
@@ -1713,7 +1922,7 @@ function LibroDiario() {
               if (!subAccounts.length) return null;
               return (
                 <>
-                  <div className="field-label">{editTxForm.category === 'deudas' ? '¿A cuál deuda corresponde? (opcional)' : '¿A cuál cuenta corresponde? (opcional)'}</div>
+                  <div className="field-label">{editTxForm.category === 'deudas' ? '¿A cuál préstamo corresponde? (opcional)' : '¿A cuál cuenta corresponde? (opcional)'}</div>
                   <div className="subcat-row">
                     {subAccounts.map((c) => (
                       <button key={c.id} className={`subcat-chip ${editTxForm.subcategory === c.id ? 'selected' : ''}`} onClick={() => setEditTxForm((f) => ({ ...f, subcategory: f.subcategory === c.id ? '' : c.id }))}>{c.name}</button>
@@ -1738,27 +1947,27 @@ function LibroDiario() {
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-header"><span className="sheet-title">{compForm.kind === 'deuda' ? 'Nueva cuenta por pagar (CxP)' : compForm.kind === 'ingreso_fijo' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="type-toggle">
-              <button className={compForm.kind === 'deuda' ? 'active deuda' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'deuda', category: 'deudas' }))}><Icon name="Landmark" size={14} /> Deuda</button>
+              <button className={compForm.kind === 'deuda' ? 'active deuda' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'deuda', category: 'deudas' }))}><Icon name="Landmark" size={14} /> Préstamo</button>
               <button className={compForm.kind === 'fijo' ? 'active fijo' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'fijo', category: '' }))}><Icon name="Repeat" size={14} /> Gasto fijo</button>
               <button className={compForm.kind === 'ingreso_fijo' ? 'active ingreso' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'ingreso_fijo', category: '' }))}><Icon name="ArrowUpRight" size={14} /> Ingreso fijo</button>
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               {compForm.kind === 'deuda'
-                ? 'Registra préstamos, tarjetas o cuentas por pagar. Podrás abonar después desde la pestaña Deudas.'
+                ? 'Registra préstamos, tarjetas o cuentas por pagar. Podrás abonar después desde la pestaña CxP.'
                 : 'Esto solo da de alta el compromiso; todavía no se crea ningún movimiento. Cuando hagas el pago (o lo recibas), regístralo desde el botón + o con "Abonar" aquí mismo.'}
             </div>
             <div className="field-label">Nombre</div>
             <input className="text-input" placeholder={compForm.kind === 'deuda' ? 'Ej. Préstamo bancario' : compForm.kind === 'ingreso_fijo' ? 'Ej. Nómina, comisiones...' : 'Ej. Renta, Internet...'} value={compForm.name} onChange={(e) => setCompForm((f) => ({ ...f, name: e.target.value }))} />
-            <div className="field-label">{compForm.kind === 'deuda' ? 'Monto total de la deuda' : 'Monto mensual'}</div>
+            <div className="field-label">{compForm.kind === 'deuda' ? 'Monto total del préstamo' : 'Monto mensual'}</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={compForm.amount} onChange={(e) => setCompForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} /></div>
             {compForm.kind === 'deuda' && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
-                Si es de un banco (Nu, Bodega Aurrera, etc.) que sube el saldo por intereses, no te preocupes por eso ahora: cada mes podrás actualizar el monto pendiente directo desde la tarjeta de la deuda con el estado de cuenta que te manden.
+                Si es de un banco (Nu, Bodega Aurrera, etc.) que sube el saldo por intereses, no te preocupes por eso ahora: cada mes podrás actualizar el monto pendiente directo desde la tarjeta del préstamo con el estado de cuenta que te manden.
               </div>
             )}
             <div className="field-label">Categoría</div>
             <div className="cat-grid">
-              {(compForm.kind === 'ingreso_fijo' ? INGRESO_CATS : GASTO_CATS).map((c) => { return (
+              {CXP_CATS.map((c) => { return (
                 <div key={c.id} className={`cat-choice ${compForm.category === c.id ? 'selected' : ''}`} onClick={() => setCompForm((f) => ({ ...f, category: c.id }))}>
                   <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
                 </div>
@@ -1806,7 +2015,7 @@ function LibroDiario() {
               </>
             )}
             {compError && <div className="form-error">{compError}</div>}
-            <button className="save-btn" onClick={submitCompromiso}><Icon name="Check" size={16} /> {compForm.kind === 'deuda' ? 'Crear deuda' : compForm.kind === 'ingreso_fijo' ? 'Crear ingreso fijo' : 'Crear gasto fijo'}</button>
+            <button className="save-btn" onClick={submitCompromiso}><Icon name="Check" size={16} /> {compForm.kind === 'deuda' ? 'Crear préstamo' : compForm.kind === 'ingreso_fijo' ? 'Crear ingreso fijo' : 'Crear gasto fijo'}</button>
           </div>
         </div>
       )}
@@ -1891,6 +2100,64 @@ function LibroDiario() {
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={savForm.target} onChange={(e) => setSavForm((f) => ({ ...f, target: formatAmountTyping(e.target.value) }))} /></div>
             {savError && <div className="form-error">{savError}</div>}
             <button className="save-btn" onClick={submitSavings}><Icon name="Check" size={16} /> Crear cuenta</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'new-location' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">Nueva ubicación de dinero</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+              Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Cuando registres un ingreso, podrás elegir a cuál de estas se suma solo.
+            </div>
+            <div className="field-label">¿De quién es?</div>
+            {familia.length > 0 ? (
+              <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                {familia.map((m) => (
+                  <div key={m} className={`cat-choice ${locForm.persona === m ? 'selected' : ''}`} onClick={() => setLocForm((f) => ({ ...f, persona: m }))}>
+                    <div className="mini-avatar" style={{ background: colorForName(m) }}>{m.charAt(0).toUpperCase()}</div>
+                    <span className="cat-choice-label">{m}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <input className="text-input" placeholder="Ej. Mamá, Papá..." value={locForm.persona} onChange={(e) => setLocForm((f) => ({ ...f, persona: e.target.value }))} />
+            )}
+            <div className="field-label" style={{ marginTop: 12 }}>Tipo</div>
+            <div className="type-toggle">
+              <button className={locForm.tipo === 'efectivo' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, tipo: 'efectivo', nombre: '' }))}><Icon name="Wallet" size={14} /> Efectivo</button>
+              <button className={locForm.tipo === 'tarjeta' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, tipo: 'tarjeta' }))}><Icon name="CreditCard" size={14} /> Tarjeta</button>
+            </div>
+            {locForm.tipo === 'tarjeta' && (
+              <>
+                <div className="field-label">Nombre de la tarjeta o cuenta</div>
+                <input className="text-input" placeholder="Ej. Nu, BBVA, ahorros..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
+              </>
+            )}
+            <div className="field-label">Monto actual</div>
+            <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
+            {locError && <div className="form-error">{locError}</div>}
+            <button className="save-btn" onClick={submitLocation}><Icon name="Check" size={16} /> Guardar ubicación</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'edit-location' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">Actualizar {sheet.location.tipo === 'tarjeta' ? 'tarjeta' : 'efectivo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>{sheet.location.persona} · {sheet.location.tipo === 'tarjeta' ? (sheet.location.nombre || 'Tarjeta') : 'Efectivo'}</div>
+            {sheet.location.tipo === 'tarjeta' && (
+              <>
+                <div className="field-label">Nombre de la tarjeta o cuenta</div>
+                <input className="text-input" value={editLocForm.nombre} onChange={(e) => setEditLocForm((f) => ({ ...f, nombre: e.target.value }))} />
+              </>
+            )}
+            <div className="field-label">Monto actual</div>
+            <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.monto} onChange={(e) => setEditLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} autoFocus /></div>
+            {editLocError && <div className="form-error">{editLocError}</div>}
+            <button className="save-btn" onClick={submitEditLocation}><Icon name="Check" size={16} /> Actualizar monto</button>
           </div>
         </div>
       )}
