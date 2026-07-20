@@ -7,7 +7,7 @@
 //    completa sin conexión (los datos compartidos los maneja Firestore
 //    aparte, con su propia caché sin conexión).
 
-const CACHE_NAME = 'libro-diario-v11';
+const CACHE_NAME = 'libro-diario-v12';
 
 const APP_SHELL = [
   './',
