@@ -237,6 +237,15 @@ function LibroDiario() {
       return params.get('codigo') || '';
     } catch (e) { return ''; }
   });
+  // Pantalla de bienvenida en 3 pasos: 'choose' (¿tienes código o generas uno?),
+  // 'enter' (escribirlo), 'created' (mostrar el que se acaba de generar).
+  // Si llegó por un enlace de invitación con ?codigo=, se salta directo a 'enter'.
+  const [codeStep, setCodeStep] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('codigo') ? 'enter' : 'choose';
+    } catch (e) { return 'choose'; }
+  });
   const [codeError, setCodeError] = useState('');
   const [onboarding, setOnboarding] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
@@ -1273,6 +1282,15 @@ function LibroDiario() {
         .save-btn { width: 100%; background: var(--green); color: var(--paper); border: none; border-radius: 12px; padding: 14px; font-weight: 700; font-size: 14px; margin-top: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: 0.3px; }
         .save-btn:disabled { background: var(--line); color: var(--ink-soft); cursor: not-allowed; }
         .save-btn:active { background: var(--green-soft); }
+        .onboard-option { width: 100%; display: flex; align-items: center; gap: 14px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer; text-align: left; }
+        .onboard-option:active { background: var(--paper-dim); }
+        .onboard-option-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .onboard-option-text { flex: 1; }
+        .onboard-option-title { font-weight: 700; font-size: 14.5px; color: var(--ink); }
+        .onboard-option-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.4; }
+        .onboard-back { background: none; border: none; color: var(--ink-soft); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 4px; }
+        .code-display { text-align: center; background: var(--paper-dim); border: 1.5px dashed var(--line); border-radius: 14px; padding: 22px 12px; margin-bottom: 6px; }
+        .code-display-value { font-family: var(--mono); font-size: 24px; font-weight: 700; letter-spacing: 3px; color: var(--ink); word-break: break-all; }
         .danger-btn { width: 100%; background: none; border: 1.5px solid var(--expense); color: var(--expense); border-radius: 10px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .danger-btn.neutral { border-color: var(--line); color: var(--green); }
         .bell-toggle-btn { width: 100%; background: var(--paper-dim); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
@@ -2489,23 +2507,75 @@ function LibroDiario() {
       {onboarding && !familyCode && (
         <div className="sheet-backdrop">
           <div className="sheet">
-            <div className="sheet-header"><span className="sheet-title">Código de familia</span></div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 14 }}>
-              Este código conecta tu libro con el de tu pareja: ambos deben usar exactamente el mismo. La primera persona lo crea, la segunda lo escribe igual.
-            </div>
-            <div className="field-label">Escribe el código (si ya existe uno)</div>
-            <div className="participant-row">
-              <input className="text-input" placeholder="Ej. a3f9k2m8x1" value={codeInput} onChange={(e) => setCodeInput(e.target.value)} autoCapitalize="none" autoCorrect="off" />
-              <button className="add-participant-btn" style={{ width: 'auto', marginTop: 0 }} onClick={() => activateFamilyCode(codeInput)}><Icon name="Check" size={14} /></button>
-            </div>
-            {codeError && <div className="form-error">{codeError}</div>}
-            <div style={{ textAlign: 'center', margin: '14px 0', fontSize: 11, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 1 }}>o</div>
-            <button className="save-btn" onClick={() => { const c = generateCode(); setCodeInput(c); activateFamilyCode(c); }}>
-              <Icon name="RefreshCw" size={16} /> Generar código nuevo
-            </button>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 10 }}>
-              Al generar uno nuevo, podrás compartirlo por WhatsApp con el resto de la familia desde el botón de compartir en Ajustes.
-            </div>
+            {codeStep === 'choose' && (
+              <>
+                <div className="sheet-header"><span className="sheet-title">Bienvenido a Libro·Diario</span></div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 18, lineHeight: 1.5 }}>
+                  Este libro se comparte con tu familia usando un código: todos deben usar exactamente el mismo. ¿Cuál es tu caso?
+                </div>
+                <button className="onboard-option" onClick={() => { setCodeInput(''); setCodeError(''); setCodeStep('enter'); }}>
+                  <div className="onboard-option-icon" style={{ background: '#3E6EA5' }}><Icon name="CheckCircle2" size={20} color="#fff" /></div>
+                  <div className="onboard-option-text">
+                    <div className="onboard-option-title">Ya tengo un código</div>
+                    <div className="onboard-option-sub">Alguien de mi familia ya me lo compartió</div>
+                  </div>
+                </button>
+                <button className="onboard-option" onClick={() => { const c = generateCode(); setCodeInput(c); setCodeError(''); setCodeStep('created'); }}>
+                  <div className="onboard-option-icon" style={{ background: 'var(--green)' }}><Icon name="Plus" size={20} color="#fff" /></div>
+                  <div className="onboard-option-text">
+                    <div className="onboard-option-title">Soy el primero en entrar</div>
+                    <div className="onboard-option-sub">Genera un código nuevo para compartir con tu familia</div>
+                  </div>
+                </button>
+              </>
+            )}
+
+            {codeStep === 'enter' && (
+              <>
+                <div className="sheet-header">
+                  <span className="sheet-title">Escribe tu código</span>
+                  <button className="onboard-back" onClick={() => { setCodeStep('choose'); setCodeError(''); }}>‹ Atrás</button>
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 16, lineHeight: 1.5 }}>
+                  Pídeselo a quien te invitó y escríbelo tal cual — debe quedar exactamente igual, sin espacios.
+                </div>
+                <div className="field-label">Código de familia</div>
+                <input
+                  className="text-input"
+                  style={{ fontFamily: 'var(--mono)', fontSize: 17, textAlign: 'center', letterSpacing: 1 }}
+                  placeholder="a3f9k2m8x1"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  autoCapitalize="none" autoCorrect="off" autoFocus
+                />
+                {codeError && <div className="form-error">{codeError}</div>}
+                <button className="save-btn" disabled={!codeInput.trim()} onClick={() => activateFamilyCode(codeInput)}><Icon name="Check" size={16} /> Entrar con este código</button>
+              </>
+            )}
+
+            {codeStep === 'created' && (
+              <>
+                <div className="sheet-header">
+                  <span className="sheet-title">¡Tu código está listo!</span>
+                  <button className="onboard-back" onClick={() => { setCodeStep('choose'); setCodeError(''); }}>‹ Atrás</button>
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 16, lineHeight: 1.5 }}>
+                  Compártelo con tu familia — todos deben escribir exactamente este mismo código para ver la misma información.
+                </div>
+                <div className="code-display"><div className="code-display-value">{codeInput}</div></div>
+                <button
+                  className="save-btn"
+                  style={{ background: '#25D366' }}
+                  onClick={() => {
+                    const msg = `*LIBRO DIARIO*\nhttps://21kumul.github.io/libro-diario/?codigo=${codeInput}\n🏦 Únete a mi Libro·Diario.`;
+                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                  }}
+                ><Icon name="Share2" size={16} /> Compartir por WhatsApp</button>
+                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => activateFamilyCode(codeInput)}>
+                  <Icon name="Check" size={16} /> Continuar sin compartir todavía
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
