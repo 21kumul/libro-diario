@@ -246,7 +246,7 @@ function LibroDiario() {
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {} });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
 
   const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
@@ -607,7 +607,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {} });
+    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -616,21 +616,33 @@ function LibroDiario() {
   // RESTA (de ahí "salió" el dinero).
   const locationDelta = (type, amt) => (type === 'ingreso' ? amt : -amt);
 
-  // Selecciona/quita una cuenta de CxP (gasto fijo, ingreso fijo o préstamo) a
-  // la que corresponde este movimiento. Se puede elegir más de una para
-  // repartir un solo pago entre varias (ej. $130 → $80 Spotify + $50 Netflix).
-  const toggleTxLink = (c) => {
+  // Selecciona/quita una cuenta de CxP a la que corresponde este movimiento.
+  // - Cuenta NO compartida: selección única (un monto simple); elegir otra la reemplaza.
+  // - Cuenta COMPARTIDA: se pueden elegir varias a la vez, y cada una muestra a
+  //   sus participantes con el monto que le toca a cada quien (editable).
+  const toggleTxLink = (c, pool) => {
     setTxForm((f) => {
       if (f.links.includes(c.id)) {
         const links = f.links.filter((id) => id !== c.id);
         const linkAmounts = { ...f.linkAmounts };
         delete linkAmounts[c.id];
-        return { ...f, links, linkAmounts };
+        const linkParticipants = { ...f.linkParticipants };
+        delete linkParticipants[c.id];
+        return { ...f, links, linkAmounts, linkParticipants };
       }
-      const already = f.links.reduce((s, id) => s + (toNumber(f.linkAmounts[id]) || 0), 0);
-      const remaining = Math.max(0, toNumber(f.amount) - already);
-      const suggested = remaining > 0 ? Math.min(c.pendiente || c.amount, remaining) : (c.pendiente || c.amount);
-      return { ...f, links: [...f.links, c.id], linkAmounts: { ...f.linkAmounts, [c.id]: suggested ? String(suggested) : '' } };
+      if (c.shared) {
+        // Se combina solo con otras cuentas COMPARTIDAS ya elegidas; si había una cuenta individual, se reemplaza.
+        const keepIds = f.links.filter((id) => { const x = pool.find((p) => p.id === id); return x && x.shared; });
+        const linkAmounts = {};
+        const linkParticipants = {};
+        keepIds.forEach((id) => { linkParticipants[id] = f.linkParticipants[id]; });
+        const participants = {};
+        (c.shared.participants || []).forEach((p) => { participants[p.name] = p.amount ? String(p.amount) : ''; });
+        return { ...f, links: [...keepIds, c.id], linkAmounts, linkParticipants: { ...linkParticipants, [c.id]: participants } };
+      }
+      // Cuenta individual (no compartida): selección única, reemplaza cualquier otra.
+      const amt = c.pendiente || c.amount;
+      return { ...f, links: [c.id], linkAmounts: { [c.id]: amt ? String(amt) : '' }, linkParticipants: {} };
     });
   };
 
@@ -657,18 +669,31 @@ function LibroDiario() {
     let nextCompromisos = compromisos;
 
     // Cuentas de CxP elegidas para este movimiento (una o varias), con el
-    // monto que le corresponde a cada una.
+    // monto que le corresponde a cada una. Si la cuenta es compartida, se
+    // arma a partir de lo que se capturó por persona.
     const pool = txForm.type === 'ingreso' ? ingresosFijos : (txForm.category === 'deudas' ? deudas : fijos);
     const links = (txForm.links || [])
-      .map((id) => ({ c: pool.find((x) => x.id === id), amt: toNumber(txForm.linkAmounts[id]) }))
-      .filter((e) => e.c && e.amt > 0);
+      .map((id) => {
+        const c = pool.find((x) => x.id === id);
+        if (!c) return null;
+        if (c.shared) {
+          const participants = Object.entries(txForm.linkParticipants[id] || {})
+            .map(([name, v]) => ({ name, amount: toNumber(v) }))
+            .filter((p) => p.amount > 0);
+          const total = participants.reduce((s, p) => s + p.amount, 0);
+          return total > 0 ? { c, amt: total, participants } : null;
+        }
+        const linkAmt = toNumber(txForm.linkAmounts[id]);
+        return linkAmt > 0 ? { c, amt: linkAmt, participants: null } : null;
+      })
+      .filter(Boolean);
     const linkedTotal = links.reduce((s, e) => s + e.amt, 0);
     if (links.length && linkedTotal > amt + 0.01) return setTxError('La suma de los montos vinculados no puede ser mayor al total del movimiento.');
 
     if (links.length === 1) {
-      const { c, amt: linkAmt } = links[0];
+      const { c, amt: linkAmt, participants } = links[0];
       paymentId = uid();
-      const payment = { id: paymentId, amount: linkAmt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
+      const payment = { id: paymentId, amount: linkAmt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia', participants: participants || undefined };
       compromisoId = c.id;
       nextCompromisos = compromisos.map((x) => {
         if (x.id !== compromisoId) return x;
@@ -685,7 +710,7 @@ function LibroDiario() {
         if (!entry) return x;
         const pid = uid();
         paymentIds[x.id] = pid;
-        const payment = { id: pid, amount: entry.amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
+        const payment = { id: pid, amount: entry.amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia', participants: entry.participants || undefined };
         if (x.kind === 'deuda') {
           const currentBalance = x.balance != null ? x.balance : x.amount;
           return { ...x, payments: [...x.payments, payment], balance: Math.max(0, currentBalance - entry.amt) };
@@ -1811,14 +1836,19 @@ function LibroDiario() {
               if (!subAccounts.length) return null;
               const isDeudaCat = txForm.type === 'gasto' && txForm.category === 'deudas';
               const enteredAmt = toNumber(txForm.amount);
-              const linkedTotal = (txForm.links || []).reduce((s, id) => s + (toNumber(txForm.linkAmounts[id]) || 0), 0);
+              const linkedTotal = (txForm.links || []).reduce((s, id) => {
+                const c = subAccounts.find((x) => x.id === id);
+                if (c && c.shared) return s + Object.values(txForm.linkParticipants[id] || {}).reduce((ss, v) => ss + (toNumber(v) || 0), 0);
+                return s + (toNumber(txForm.linkAmounts[id]) || 0);
+              }, 0);
               const kindLabel = isDeudaCat ? 'préstamo' : txForm.type === 'ingreso' ? 'ingreso fijo' : 'cuenta';
+              const anyShared = txForm.links.some((id) => { const c = subAccounts.find((x) => x.id === id); return c && c.shared; });
               return (
                 <>
-                  <div className="field-label">¿A cuál {kindLabel} corresponde? (opcional, puedes elegir varias)</div>
+                  <div className="field-label">¿A cuál {kindLabel} corresponde? (opcional{anyShared ? ', puedes elegir varias compartidas' : ''})</div>
                   <div className="subcat-row">
                     {subAccounts.map((c) => (
-                      <button key={c.id} className={`subcat-chip ${txForm.links.includes(c.id) ? 'selected' : ''}`} onClick={() => toggleTxLink(c)}>{c.name}</button>
+                      <button key={c.id} className={`subcat-chip ${txForm.links.includes(c.id) ? 'selected' : ''}`} onClick={() => toggleTxLink(c, subAccounts)}>{c.name}{c.shared ? ' 👥' : ''}</button>
                     ))}
                   </div>
                   {txForm.links.length > 0 && (
@@ -1826,11 +1856,30 @@ function LibroDiario() {
                       {txForm.links.map((id) => {
                         const c = subAccounts.find((x) => x.id === id);
                         if (!c) return null;
+                        if (c.shared) {
+                          return (
+                            <div key={id} style={{ marginBottom: 10 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', margin: '6px 0 4px' }}>{c.name} <span className="shared-badge" style={{ marginLeft: 4 }}>COMPARTIDO</span></div>
+                              {(c.shared.participants || []).map((p) => (
+                                <div className="participant-row" key={p.id}>
+                                  <div className="mini-avatar" style={{ background: colorForName(p.name) }}>{p.name.charAt(0).toUpperCase()}</div>
+                                  <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                                  <input
+                                    className="text-input amount-mini"
+                                    type="text" inputMode="decimal" placeholder="$0"
+                                    value={(txForm.linkParticipants[id] || {})[p.name] || ''}
+                                    onChange={(e) => setTxForm((f) => ({ ...f, linkParticipants: { ...f.linkParticipants, [id]: { ...f.linkParticipants[id], [p.name]: formatAmountTyping(e.target.value) } } }))}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
                         return (
                           <div className="participant-row" key={id}>
                             <div style={{ flex: 1, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>{c.name}</div>
                             <input className="text-input amount-mini" type="text" inputMode="decimal" placeholder="$0" value={txForm.linkAmounts[id] || ''} onChange={(e) => setTxForm((f) => ({ ...f, linkAmounts: { ...f.linkAmounts, [id]: formatAmountTyping(e.target.value) } }))} />
-                            <button className="remove-participant" onClick={() => toggleTxLink(c)}><Icon name="X" size={15} /></button>
+                            <button className="remove-participant" onClick={() => toggleTxLink(c, subAccounts)}><Icon name="X" size={15} /></button>
                           </div>
                         );
                       })}
@@ -2160,12 +2209,23 @@ function LibroDiario() {
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Todavía no hay pagos registrados.</div>
               ) : (
                 paymentsSorted.map((p) => (
-                  <div className="mini-row" key={p.id}>
-                    <div className="mini-row-mid">
-                      <div className="mini-row-name">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                      {p.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{p.note}</div>}
+                  <div key={p.id} style={{ marginBottom: 8 }}>
+                    <div className="mini-row">
+                      <div className="mini-row-mid">
+                        <div className="mini-row-name">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                        {p.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{p.note}</div>}
+                      </div>
+                      <div className="mini-row-amount">{fmt(p.amount)}</div>
                     </div>
-                    <div className="mini-row-amount">{fmt(p.amount)}</div>
+                    {p.participants && p.participants.length > 0 && (
+                      <div style={{ margin: '0 0 0 12px', paddingLeft: 10, borderLeft: '2px solid var(--line)' }}>
+                        {p.participants.map((pp, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ink-soft)', padding: '2px 0' }}>
+                            <span>{pp.name}</span><span>{fmt(pp.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
