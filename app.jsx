@@ -231,7 +231,12 @@ function LibroDiario() {
   const [familyNameInput, setFamilyNameInput] = useState('');
   const [profile, setProfile] = useState(null);
   const [familyCode, setFamilyCode] = useState(null);
-  const [codeInput, setCodeInput] = useState('');
+  const [codeInput, setCodeInput] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('codigo') || '';
+    } catch (e) { return ''; }
+  });
   const [codeError, setCodeError] = useState('');
   const [onboarding, setOnboarding] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
@@ -636,13 +641,27 @@ function LibroDiario() {
         const linkAmounts = {};
         const linkParticipants = {};
         keepIds.forEach((id) => { linkParticipants[id] = f.linkParticipants[id]; });
-        const participants = {};
-        (c.shared.participants || []).forEach((p) => { participants[p.name] = p.amount ? String(p.amount) : ''; });
-        return { ...f, links: [...keepIds, c.id], linkAmounts, linkParticipants: { ...linkParticipants, [c.id]: participants } };
+        // Empieza sin nadie seleccionado: eliges a quién(es) corresponde este pago.
+        return { ...f, links: [...keepIds, c.id], linkAmounts, linkParticipants: { ...linkParticipants, [c.id]: {} } };
       }
       // Cuenta individual (no compartida): selección única, reemplaza cualquier otra.
       const amt = c.pendiente || c.amount;
       return { ...f, links: [c.id], linkAmounts: { [c.id]: amt ? String(amt) : '' }, linkParticipants: {} };
+    });
+  };
+
+  // Dentro de una cuenta compartida ya elegida, marca/desmarca a una persona
+  // como parte de este pago (permite que una o varias personas —o quien
+  // patrocina— queden incluidas en un mismo movimiento).
+  const toggleParticipantLink = (accountId, p) => {
+    setTxForm((f) => {
+      const current = { ...(f.linkParticipants[accountId] || {}) };
+      if (Object.prototype.hasOwnProperty.call(current, p.name)) {
+        delete current[p.name];
+      } else {
+        current[p.name] = p.amount ? String(p.amount) : '';
+      }
+      return { ...f, linkParticipants: { ...f.linkParticipants, [accountId]: current } };
     });
   };
 
@@ -1108,7 +1127,7 @@ function LibroDiario() {
 
   const shareInvite = () => {
     const nombre = familyName ? ` de ${familyName}` : '';
-    const msg = `Únete a mi Libro·Diario${nombre}. El código de familia es: ${familyCode}`;
+    const msg = `*LIBRO DIARIO*\nhttps://21kumul.github.io/libro-diario/?codigo=${familyCode}\n🏦 Únete a mi Libro·Diario${nombre}.`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -1132,6 +1151,17 @@ function LibroDiario() {
       window.history.replaceState({}, '', url.pathname + url.search);
     }
   }, [loading, onboarding]);
+
+  // Limpia el ?codigo= del enlace de invitación una vez que ya lo leímos
+  // (para no dejarlo pegado en la URL ni que se reenvíe sin querer).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('codigo')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('codigo');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+  }, []);
 
   const fabAction = () => {
     if (tab === 'compromisos') return openNewCompromiso();
@@ -1860,18 +1890,34 @@ function LibroDiario() {
                           return (
                             <div key={id} style={{ marginBottom: 10 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', margin: '6px 0 4px' }}>{c.name} <span className="shared-badge" style={{ marginLeft: 4 }}>COMPARTIDO</span></div>
-                              {(c.shared.participants || []).map((p) => (
-                                <div className="participant-row" key={p.id}>
-                                  <div className="mini-avatar" style={{ background: colorForName(p.name) }}>{p.name.charAt(0).toUpperCase()}</div>
-                                  <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                                  <input
-                                    className="text-input amount-mini"
-                                    type="text" inputMode="decimal" placeholder="$0"
-                                    value={(txForm.linkParticipants[id] || {})[p.name] || ''}
-                                    onChange={(e) => setTxForm((f) => ({ ...f, linkParticipants: { ...f.linkParticipants, [id]: { ...f.linkParticipants[id], [p.name]: formatAmountTyping(e.target.value) } } }))}
-                                  />
-                                </div>
-                              ))}
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Toca a quién(es) corresponde este pago. Puedes elegir a una o varias personas (por ejemplo, si alguien patrocina la parte de otro).</div>
+                              {(c.shared.participants || []).map((p) => {
+                                const sel = Object.prototype.hasOwnProperty.call(txForm.linkParticipants[id] || {}, p.name);
+                                return (
+                                  <div
+                                    className="participant-row"
+                                    key={p.id}
+                                    style={{ cursor: 'pointer', alignItems: 'center' }}
+                                    onClick={() => toggleParticipantLink(id, p)}
+                                  >
+                                    <div className={`check-circle ${sel ? 'on' : ''}`}>{sel && <Icon name="Check" size={11} color="#fff" />}</div>
+                                    <div className="mini-avatar" style={{ background: colorForName(p.name) }}>{p.name.charAt(0).toUpperCase()}</div>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Le toca: {fmt(p.amount)}</div>
+                                    </div>
+                                    {sel && (
+                                      <input
+                                        className="text-input amount-mini"
+                                        type="text" inputMode="decimal" placeholder="$0"
+                                        value={(txForm.linkParticipants[id] || {})[p.name] || ''}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => setTxForm((f) => ({ ...f, linkParticipants: { ...f.linkParticipants, [id]: { ...f.linkParticipants[id], [p.name]: formatAmountTyping(e.target.value) } } }))}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           );
                         }
