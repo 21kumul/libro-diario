@@ -220,6 +220,12 @@ function LibroDiario() {
   // en Resumen. Se capturan a mano y se suman solos cuando registras un
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
+  const moneyLocationsByPerson = useMemo(() => {
+    const map = {};
+    moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
+    return Object.entries(map);
+  }, [moneyLocations]);
+  const moneyLocationsTotal = moneyLocations.reduce((s, l) => s + (l.monto || 0), 0);
   const [familia, setFamilia] = useState([]);
   const [familyName, setFamilyName] = useState('');
   const [familyNameInput, setFamilyNameInput] = useState('');
@@ -593,17 +599,35 @@ function LibroDiario() {
     return fijos.filter((c) => c.category === category);
   };
 
-  // Gráfica de pastel de CxP: agrupa TODO lo de la pestaña CxP (préstamos,
-  // gastos fijos e ingresos fijos) por su categoría (Banco / Préstamos / Otros).
-  const cxpPorCategoria = useMemo(() => {
+  // Gráfica de CxP · Préstamos: agrupa los préstamos pendientes por su categoría (Banco / Préstamos / Otros).
+  const prestamosPorCategoria = useMemo(() => {
     const map = {};
-    compromisosView.forEach((c) => {
-      if (c.pendiente <= 0.01) return;
+    compromisosView.filter((c) => c.kind === 'deuda' && c.pendiente > 0.01).forEach((c) => {
       map[c.category] = (map[c.category] || 0) + c.pendiente;
     });
     return Object.entries(map).map(([id, value]) => ({ id, name: catById(id).label, value, color: catById(id).color }))
       .sort((a, b) => b.value - a.value);
   }, [compromisosView]);
+
+  // Gráfica de CxP · Gastos fijos: cada concepto capturado (Renta, Internet...) es su propia rebanada.
+  const ITEM_COLORS = ['#1E3D32', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#7A4E3A', '#8C6239'];
+  const gastosFijosPorConcepto = useMemo(
+    () => compromisosView
+      .filter((c) => c.kind === 'fijo' && c.pendiente > 0.01)
+      .sort((a, b) => b.pendiente - a.pendiente)
+      .slice(0, 10)
+      .map((c, i) => ({ id: c.id, name: c.name, value: c.pendiente, color: ITEM_COLORS[i % ITEM_COLORS.length] })),
+    [compromisosView]
+  );
+
+  // Gráfica de "¿Dónde está el dinero?": total por persona.
+  const moneyPorPersona = useMemo(
+    () => moneyLocationsByPerson
+      .map(([persona, locs]) => ({ id: persona, name: persona, value: locs.reduce((s, l) => s + (l.monto || 0), 0), color: colorForName(persona) }))
+      .filter((p) => p.value > 0.01)
+      .sort((a, b) => b.value - a.value),
+    [moneyLocationsByPerson]
+  );
 
   // ---------- derived: por cobrar (compartido) ----------
   const pendingByPerson = useMemo(() => {
@@ -638,6 +662,9 @@ function LibroDiario() {
     const amt = toNumber(txForm.amount);
     if (!amt || amt <= 0) return setTxError('Ingresa un monto válido.');
     if (!txForm.category) return setTxError('Elige una categoría.');
+    if (!txForm.locationId) return setTxError(txForm.type === 'ingreso' ? 'Elige a dónde entra este dinero.' : 'Elige de dónde sale este dinero.');
+    if (!txForm.note.trim()) return setTxError('Escribe una nota.');
+    if (!txForm.date) return setTxError('Elige una fecha.');
     let shared = null;
     if (txForm.shared && txForm.type === 'gasto') {
       const parts = txForm.participants.filter((p) => p.name.trim() && toNumber(p.amount) > 0)
@@ -733,6 +760,9 @@ function LibroDiario() {
     const amt = toNumber(editTxForm.amount);
     if (!amt || amt <= 0) return setEditTxError('Ingresa un monto válido.');
     if (!editTxForm.category) return setEditTxError('Elige una categoría.');
+    if (!editTxForm.locationId) return setEditTxError(editTxForm.type === 'ingreso' ? 'Elige a dónde entra este dinero.' : 'Elige de dónde sale este dinero.');
+    if (!editTxForm.note.trim()) return setEditTxError('Escribe una nota.');
+    if (!editTxForm.date) return setEditTxError('Elige una fecha.');
     const orig = transactions.find((t) => t.id === editTxForm.id);
     let nextCompromisos = compromisos;
     let syncedPaymentId = orig?.paymentId || null;
@@ -983,14 +1013,6 @@ function LibroDiario() {
     persist({ moneyLocations: moneyLocations.filter((l) => l.id !== id) });
   };
 
-  const moneyLocationsByPerson = useMemo(() => {
-    const map = {};
-    moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
-    return Object.entries(map);
-  }, [moneyLocations]);
-
-  const moneyLocationsTotal = moneyLocations.reduce((s, l) => s + (l.monto || 0), 0);
-
   const markPersonPaid = (name) => {
     let collected = 0;
     const nextTx = transactions.map((t) => {
@@ -1198,6 +1220,7 @@ function LibroDiario() {
         .text-input:focus { border-color: var(--green); }
         .form-error { color: var(--expense); font-size: 12px; margin-top: 10px; font-weight: 500; }
         .save-btn { width: 100%; background: var(--green); color: var(--paper); border: none; border-radius: 12px; padding: 14px; font-weight: 700; font-size: 14px; margin-top: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: 0.3px; }
+        .save-btn:disabled { background: var(--line); color: var(--ink-soft); cursor: not-allowed; }
         .save-btn:active { background: var(--green-soft); }
         .danger-btn { width: 100%; background: none; border: 1.5px solid var(--expense); color: var(--expense); border-radius: 10px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .danger-btn.neutral { border-color: var(--line); color: var(--green); }
@@ -1225,6 +1248,8 @@ function LibroDiario() {
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 14px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--line); }
         .compromiso-card.selectable { cursor: pointer; }
+        .compromiso-card.clickable { cursor: pointer; }
+        .compromiso-card.clickable:active { background: var(--paper-dim); }
         .compromiso-card.selected { border-color: var(--green); background: #F0F4EF; }
         .multiselect-toggle { background: none; border: none; color: var(--green); font-weight: 700; font-size: 11.5px; cursor: pointer; text-decoration: underline; padding: 0; }
         .check-circle { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -1320,15 +1345,18 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>¿Dónde está el dinero?</span>
-                <button className="mini-abonar" onClick={() => openNewLocation()}><Icon name="Plus" size={12} /> Agregar</button>
+                <button className="mini-abonar" onClick={() => setTab('compromisos')}>Editar en CxP</button>
               </div>
               {moneyLocations.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien.</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien desde la pestaña CxP.</div>
               ) : (
                 <>
                   {moneyLocationsByPerson.map(([persona, locs]) => (
                     <div key={persona} style={{ marginBottom: 6 }}>
-                      <div className="totals-subhead">{persona}</div>
+                      <div className="totals-subhead" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{persona}</span>
+                        <span>{fmt(locs.reduce((s, l) => s + (l.monto || 0), 0))}</span>
+                      </div>
                       {locs.map((l) => (
                         <div className="mini-row" key={l.id}>
                           <div className="savings-icon" style={{ width: 28, height: 28, background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C', color: '#fff' }}>
@@ -1338,8 +1366,6 @@ function LibroDiario() {
                             <div className="mini-row-name">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</div>
                           </div>
                           <div className="mini-row-amount" style={{ color: 'var(--ink)' }}>{fmt(l.monto)}</div>
-                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: 8 }} onClick={() => openEditLocation(l)}><Icon name="Pencil" size={12} /></button>
-                          <button className="compromiso-del" onClick={() => deleteLocation(l.id)}><Icon name="Trash2" size={13} /></button>
                         </div>
                       ))}
                     </div>
@@ -1527,16 +1553,16 @@ function LibroDiario() {
                     )}
                     {fijos.map((c) => (
                       <div
-                        className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
+                        className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''} ${!multiSelectKind && c.shared ? 'clickable' : ''}`}
                         key={c.id}
-                        onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : undefined}
+                        onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : (c.shared ? () => setSheet({ type: 'compromiso-shared-detail', compromiso: c }) : undefined)}
                       >
                         <div className="compromiso-top">
                           {multiSelectKind === 'fijo' && (
                             <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
                           )}
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
-                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo · CxP</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span></>}</div></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo · CxP</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span> <Icon name="MoreHorizontal" size={11} style={{ verticalAlign: 'middle' }} /></>}</div></div>
                           {multiSelectKind !== 'fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
                         </div>
                         <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
@@ -1552,7 +1578,7 @@ function LibroDiario() {
                           </div>
                         )}
                         {multiSelectKind !== 'fijo' && (
-                          <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
                             <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
                             {CXP_EDITABLE_CATS.includes(c.category) && (
                               <button
@@ -1643,6 +1669,40 @@ function LibroDiario() {
                 )}
               </>
             )}
+            <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
+              <span>¿Dónde está el dinero?</span>
+              <button className="multiselect-toggle" onClick={() => openNewLocation()}><Icon name="Plus" size={12} /> Agregar</button>
+            </div>
+            {moneyLocations.length === 0 ? (
+              <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien.</div>
+            ) : (
+              <>
+                {moneyLocationsByPerson.map(([persona, locs]) => (
+                  <div key={persona} style={{ marginBottom: 6 }}>
+                    <div className="totals-subhead" style={{ fontSize: 12 }}>{persona}</div>
+                    {locs.map((l) => (
+                      <div className="mini-row" key={l.id}>
+                        <div className="savings-icon" style={{ width: 28, height: 28, background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C', color: '#fff' }}>
+                          <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={14} />
+                        </div>
+                        <div className="mini-row-mid">
+                          <div className="mini-row-name">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</div>
+                        </div>
+                        <div className="mini-row-amount" style={{ color: 'var(--ink)' }}>{fmt(l.monto)}</div>
+                        <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: 8 }} onClick={() => openEditLocation(l)}><Icon name="Pencil" size={12} /></button>
+                        <button className="compromiso-del" onClick={() => deleteLocation(l.id)}><Icon name="Trash2" size={13} /></button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="cxp-total-row" style={{ paddingTop: 10, borderTop: '1px dashed var(--line)', marginTop: 4 }}>
+                  <div>
+                    <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
+                    <div className="cxp-total-label">Total entre efectivo y tarjetas</div>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         ) : tab === 'ahorro' ? (
           <>
@@ -1694,15 +1754,39 @@ function LibroDiario() {
                 <MonthlyBarChart data={monthly6} />
               </div>
             </div>
+            <div style={{ padding: '4px 2px 0' }}>
+              <div className="card-title" style={{ padding: 0 }}>Cuentas por pagar (CxP)</div>
+            </div>
             <div className="card">
-              <div className="card-title">Cuentas por pagar (CxP) · por categoría</div>
-              {cxpPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin cuentas de CxP pendientes. Dalas de alta desde la pestaña CxP.</div> : (
+              <div className="card-title">Préstamos · por categoría</div>
+              {prestamosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin préstamos pendientes. Dalos de alta desde la pestaña CxP.</div> : (
                 <>
                   <div className="chart-wrap">
-                    <CategoryDonut data={cxpPorCategoria} title="CxP" />
+                    <CategoryDonut data={prestamosPorCategoria} title="Préstamos" />
                   </div>
-                  <div className="legend-row">{cxpPorCategoria.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 8 }}>Incluye préstamos, gastos fijos e ingresos fijos pendientes, agrupados por Banco / Préstamos / Otros. Ve el detalle de cada cuenta en la pestaña CxP.</div>
+                  <div className="legend-row">{prestamosPorCategoria.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
+                </>
+              )}
+            </div>
+            <div className="card">
+              <div className="card-title">Gastos fijos · por concepto</div>
+              {gastosFijosPorConcepto.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos fijos pendientes. Dalos de alta desde la pestaña CxP.</div> : (
+                <>
+                  <div className="chart-wrap">
+                    <CategoryDonut data={gastosFijosPorConcepto} title="Fijos" />
+                  </div>
+                  <div className="legend-row">{gastosFijosPorConcepto.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
+                </>
+              )}
+            </div>
+            <div className="card">
+              <div className="card-title">¿Dónde está el dinero? · por persona</div>
+              {moneyPorPersona.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra saldos de efectivo/tarjeta desde la pestaña CxP.</div> : (
+                <>
+                  <div className="chart-wrap">
+                    <CategoryDonut data={moneyPorPersona} title="Dinero" />
+                  </div>
+                  <div className="legend-row">{moneyPorPersona.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
                 </>
               )}
             </div>
@@ -1728,9 +1812,9 @@ function LibroDiario() {
               <button className={txForm.type === 'ingreso' ? 'active ingreso' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'ingreso', category: '', shared: false }))}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
               <button className={txForm.type === 'gasto' ? 'active gasto' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'gasto', category: '' }))}><Icon name="ArrowDownRight" size={14} /> Gasto</button>
             </div>
-            <div className="field-label">Monto</div>
+            <div className="field-label">Monto *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={txForm.amount} onChange={(e) => setTxForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            <div className="field-label">Categoría</div>
+            <div className="field-label">Categoría *</div>
             <div className="cat-grid">
               {catOptions.map((c) => { return (
                 <div key={c.id} className={`cat-choice ${txForm.category === c.id ? 'selected' : ''}`} onClick={() => setTxForm((f) => ({ ...f, category: c.id, subcategory: '' }))}>
@@ -1740,10 +1824,10 @@ function LibroDiario() {
             </div>
             {(txForm.type === 'ingreso' || txForm.type === 'gasto') && (
               <>
-                <div className="field-label">{txForm.type === 'ingreso' ? '¿Dónde cae este dinero? (opcional)' : '¿De dónde sale este dinero? (opcional)'}</div>
+                <div className="field-label">{txForm.type === 'ingreso' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
                 {moneyLocations.length === 0 ? (
-                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-                    Aún no tienes ubicaciones de dinero. Créalas desde la pestaña Resumen (efectivo, tarjeta...).
+                  <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                    Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP (sección "¿Dónde está el dinero?") para poder guardar este movimiento.
                   </div>
                 ) : (
                   <div className="cat-grid">
@@ -1845,9 +1929,9 @@ function LibroDiario() {
                 })()}
               </>
             )}
-            <div className="field-label">Nota (opcional)</div>
+            <div className="field-label">Nota *</div>
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={txForm.note} onChange={(e) => setTxForm((f) => ({ ...f, note: e.target.value }))} />
-            <div className="field-label">Fecha</div>
+            <div className="field-label">Fecha *</div>
             <input className="text-input" type="date" value={txForm.date} onChange={(e) => setTxForm((f) => ({ ...f, date: e.target.value }))} />
 
             {txForm.type === 'gasto' && (
@@ -1873,7 +1957,11 @@ function LibroDiario() {
               </>
             )}
             {txError && <div className="form-error">{txError}</div>}
-            <button className="save-btn" onClick={submitTx}><Icon name="Check" size={16} /> Guardar movimiento</button>
+            <button
+              className="save-btn"
+              disabled={!(toNumber(txForm.amount) > 0 && txForm.category && txForm.locationId && txForm.note.trim() && txForm.date)}
+              onClick={submitTx}
+            ><Icon name="Check" size={16} /> Guardar movimiento</button>
           </div>
         </div>
       )}
@@ -1886,9 +1974,9 @@ function LibroDiario() {
               <button className={editTxForm.type === 'ingreso' ? 'active ingreso' : ''} disabled style={{ opacity: editTxForm.type === 'ingreso' ? 1 : 0.45, cursor: 'default' }}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
               <button className={editTxForm.type === 'gasto' ? 'active gasto' : ''} disabled style={{ opacity: editTxForm.type === 'gasto' ? 1 : 0.45, cursor: 'default' }}><Icon name="ArrowDownRight" size={14} /> Gasto</button>
             </div>
-            <div className="field-label">Monto</div>
+            <div className="field-label">Monto *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editTxForm.amount} onChange={(e) => setEditTxForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            <div className="field-label">Categoría</div>
+            <div className="field-label">Categoría *</div>
             <div className="cat-grid">
               {editCatOptions.map((c) => { return (
                 <div key={c.id} className={`cat-choice ${editTxForm.category === c.id ? 'selected' : ''}`} onClick={() => setEditTxForm((f) => ({ ...f, category: c.id, subcategory: '' }))}>
@@ -1896,22 +1984,24 @@ function LibroDiario() {
                 </div>
               ); })}
             </div>
-            {moneyLocations.length > 0 && (
-              <>
-                <div className="field-label">{editTxForm.type === 'ingreso' ? '¿Dónde cae este dinero? (opcional)' : '¿De dónde sale este dinero? (opcional)'}</div>
-                <div className="cat-grid">
-                  {moneyLocations.map((l) => (
-                    <div
-                      key={l.id}
-                      className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
-                      onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                    >
-                      <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                      <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
+            <div className="field-label">{editTxForm.type === 'ingreso' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
+            {moneyLocations.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP para poder guardar este movimiento.
+              </div>
+            ) : (
+              <div className="cat-grid">
+                {moneyLocations.map((l) => (
+                  <div
+                    key={l.id}
+                    className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
+                    onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
+                  >
+                    <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                    <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</span>
+                  </div>
+                ))}
+              </div>
             )}
             {(() => {
               const origTx = transactions.find((t) => t.id === editTxForm.id);
@@ -1935,12 +2025,16 @@ function LibroDiario() {
                 </>
               );
             })()}
-            <div className="field-label">Nota (opcional)</div>
+            <div className="field-label">Nota *</div>
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={editTxForm.note} onChange={(e) => setEditTxForm((f) => ({ ...f, note: e.target.value }))} />
-            <div className="field-label">Fecha</div>
+            <div className="field-label">Fecha *</div>
             <input className="text-input" type="date" value={editTxForm.date} onChange={(e) => setEditTxForm((f) => ({ ...f, date: e.target.value }))} />
             {editTxError && <div className="form-error">{editTxError}</div>}
-            <button className="save-btn" onClick={submitEditTx}><Icon name="Check" size={16} /> Actualizar movimiento</button>
+            <button
+              className="save-btn"
+              disabled={!(toNumber(editTxForm.amount) > 0 && editTxForm.category && editTxForm.locationId && editTxForm.note.trim() && editTxForm.date)}
+              onClick={submitEditTx}
+            ><Icon name="Check" size={16} /> Actualizar movimiento</button>
             <button className="danger-btn" onClick={deleteTxFromEdit}><Icon name="Trash2" size={14} /> Eliminar movimiento</button>
           </div>
         </div>
@@ -2093,6 +2187,54 @@ function LibroDiario() {
           </div>
         </div>
       )}
+
+      {sheet?.type === 'compromiso-shared-detail' && (() => {
+        const c = compromisosView.find((x) => x.id === sheet.compromiso.id) || sheet.compromiso;
+        const totalParts = (c.shared?.participants || []).reduce((s, p) => s + p.amount, 0);
+        const paymentsSorted = [...(c.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+        return (
+          <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="sheet-header"><span className="sheet-title">{c.name} <span className="shared-badge" style={{ marginLeft: 6 }}>COMPARTIDO</span></span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 14 }}>
+                {catById(c.category).label} · Mensual: {fmt(c.amount)} · Pagado este mes: {fmt(c.pagado)}
+              </div>
+              <div className="totals-subhead">División acordada</div>
+              {(c.shared?.participants || []).length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 10 }}>Sin participantes definidos.</div>
+              ) : (
+                <>
+                  {c.shared.participants.map((p) => (
+                    <div className="mini-row" key={p.id}>
+                      <div className="mini-avatar" style={{ background: colorForName(p.name) }}>{p.name.charAt(0).toUpperCase()}</div>
+                      <div className="mini-row-mid"><div className="mini-row-name">{p.name}</div></div>
+                      <div className="mini-row-amount">{fmt(p.amount)}</div>
+                    </div>
+                  ))}
+                  <div className="cxp-total-row" style={{ paddingTop: 8, borderTop: '1px dashed var(--line)', marginTop: 4, marginBottom: 14 }}>
+                    <div><div className="cxp-total-amount" style={{ fontSize: 15 }}>{fmt(totalParts)}</div><div className="cxp-total-label">Total repartido</div></div>
+                  </div>
+                </>
+              )}
+              <div className="totals-subhead">Historial de pagos</div>
+              {paymentsSorted.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Todavía no hay pagos registrados.</div>
+              ) : (
+                paymentsSorted.map((p) => (
+                  <div className="mini-row" key={p.id}>
+                    <div className="mini-row-mid">
+                      <div className="mini-row-name">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                      {p.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{p.note}</div>}
+                    </div>
+                    <div className="mini-row-amount">{fmt(p.amount)}</div>
+                  </div>
+                ))
+              )}
+              <button className="abonar-btn" style={{ marginTop: 16 }} disabled={c.pendiente <= 0.01} onClick={() => { setSheet(null); openAbonar(c); }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {sheet?.type === 'new-savings' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
