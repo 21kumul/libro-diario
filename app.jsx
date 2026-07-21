@@ -630,6 +630,10 @@ function LibroDiario() {
     setSheet({ type: 'add-tx' });
   };
 
+  // Un ingreso SUMA a la ubicación elegida (ahí "cayó" el dinero); un gasto
+  // RESTA (de ahí "salió" el dinero).
+  const locationDelta = (type, amt) => (type === 'ingreso' ? amt : -amt);
+
   const submitTx = () => {
     const amt = toNumber(txForm.amount);
     if (!amt || amt <= 0) return setTxError('Ingresa un monto válido.');
@@ -686,11 +690,11 @@ function LibroDiario() {
       }];
     }
 
-    const locationId = txForm.type === 'ingreso' && txForm.locationId ? txForm.locationId : null;
+    const locationId = txForm.locationId || null;
     const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: txForm.subcategory || null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     if (locationId) {
-      patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + amt } : l);
+      patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
     }
     persist(patch);
     setSheet(null);
@@ -701,7 +705,7 @@ function LibroDiario() {
     const orig = transactions.find((t) => t.id === id);
     const patch = { transactions: transactions.filter((t) => t.id !== id) };
     if (orig?.locationId) {
-      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
+      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
     }
     persist(patch);
   };
@@ -749,7 +753,7 @@ function LibroDiario() {
         });
       }
     }
-    const nextLocationId = editTxForm.type === 'ingreso' && editTxForm.locationId ? editTxForm.locationId : null;
+    const nextLocationId = editTxForm.locationId || null;
     const next = transactions.map((t) => t.id === editTxForm.id ? {
       ...t,
       amount: amt,
@@ -761,11 +765,11 @@ function LibroDiario() {
       locationId: nextLocationId,
     } : t);
     const patch = { transactions: next, compromisos: nextCompromisos };
-    // Revierte la ubicación anterior (si tenía) y aplica la nueva (si eligió una), por si cambió el monto o la ubicación.
+    // Revierte la ubicación anterior (si tenía) y aplica la nueva (si eligió una), por si cambió el monto, el tipo o la ubicación.
     if (orig?.locationId || nextLocationId) {
       let nextLocations = moneyLocations;
-      if (orig?.locationId) nextLocations = nextLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
-      if (nextLocationId) nextLocations = nextLocations.map((l) => l.id === nextLocationId ? { ...l, monto: (l.monto || 0) + amt } : l);
+      if (orig?.locationId) nextLocations = nextLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
+      if (nextLocationId) nextLocations = nextLocations.map((l) => l.id === nextLocationId ? { ...l, monto: (l.monto || 0) + locationDelta(editTxForm.type, amt) } : l);
       patch.moneyLocations = nextLocations;
     }
     persist(patch);
@@ -800,7 +804,7 @@ function LibroDiario() {
     }
     const patch = { transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos };
     if (orig?.locationId) {
-      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - orig.amount } : l);
+      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
     }
     persist(patch);
     setSheet(null);
@@ -1734,9 +1738,9 @@ function LibroDiario() {
                 </div>
               ); })}
             </div>
-            {txForm.type === 'ingreso' && (
+            {(txForm.type === 'ingreso' || txForm.type === 'gasto') && (
               <>
-                <div className="field-label">¿Dónde cae este dinero? (opcional)</div>
+                <div className="field-label">{txForm.type === 'ingreso' ? '¿Dónde cae este dinero? (opcional)' : '¿De dónde sale este dinero? (opcional)'}</div>
                 {moneyLocations.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
                     Aún no tienes ubicaciones de dinero. Créalas desde la pestaña Resumen (efectivo, tarjeta...).
@@ -1892,9 +1896,9 @@ function LibroDiario() {
                 </div>
               ); })}
             </div>
-            {editTxForm.type === 'ingreso' && moneyLocations.length > 0 && (
+            {moneyLocations.length > 0 && (
               <>
-                <div className="field-label">¿Dónde cae este dinero? (opcional)</div>
+                <div className="field-label">{editTxForm.type === 'ingreso' ? '¿Dónde cae este dinero? (opcional)' : '¿De dónde sale este dinero? (opcional)'}</div>
                 <div className="cat-grid">
                   {moneyLocations.map((l) => (
                     <div
