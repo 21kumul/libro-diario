@@ -246,7 +246,7 @@ function LibroDiario() {
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '' });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {} });
   const [txError, setTxError] = useState('');
 
   const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
@@ -261,54 +261,7 @@ function LibroDiario() {
   const [editAmountForm, setEditAmountForm] = useState({ amount: '', note: '' });
   const [editAmountError, setEditAmountError] = useState('');
 
-  const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '' });
-  const [multiSelectKind, setMultiSelectKind] = useState(null); // 'fijo' | 'ingreso_fijo' | null
-  const [selectedFijos, setSelectedFijos] = useState([]);
-  const [multiForm, setMultiForm] = useState({ amounts: {}, date: todayStr(), note: '' });
-  const [multiError, setMultiError] = useState('');
-
-  const toggleMultiSelect = (kind) => {
-    if (multiSelectKind === kind) { setMultiSelectKind(null); setSelectedFijos([]); }
-    else { setMultiSelectKind(kind); setSelectedFijos([]); }
-  };
-  const toggleSelectFijo = (id) => {
-    setSelectedFijos((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  };
-  const openMultiAbonar = () => {
-    const items = compromisosView.filter((c) => selectedFijos.includes(c.id));
-    if (items.length < 2) return;
-    const amounts = {};
-    items.forEach((c) => { amounts[c.id] = String(c.amount); });
-    setMultiForm({ amounts, date: todayStr(), note: '' });
-    setMultiError('');
-    setSheet({ type: 'multi-abonar' });
-  };
-  const submitMultiAbono = () => {
-    const items = compromisosView.filter((c) => selectedFijos.includes(c.id));
-    const entries = items.map((c) => ({ c, amt: toNumber(multiForm.amounts[c.id]) }));
-    if (entries.some((e) => !e.amt || e.amt <= 0)) return setMultiError('Revisa que todos los montos sean válidos.');
-    const total = entries.reduce((s, e) => s + e.amt, 0);
-    const date = multiForm.date;
-    const period = periodKey(date);
-    const paymentIds = {};
-    const nextCompromisos = compromisos.map((x) => {
-      const entry = entries.find((e) => e.c.id === x.id);
-      if (!entry) return x;
-      const paymentId = uid();
-      paymentIds[x.id] = paymentId;
-      const payment = { id: paymentId, amount: entry.amt, date, period, note: multiForm.note.trim(), autor: profile?.name || 'Familia' };
-      return { ...x, payments: [...x.payments, payment] };
-    });
-    const isIngreso = multiSelectKind === 'ingreso_fijo';
-    const names = entries.map((e) => e.c.name).join(' + ');
-    const nextTx = [...transactions, {
-      id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: entries[0].c.category, amount: total,
-      note: `${isIngreso ? 'Ingreso' : 'Pago'} junto · ${names}${multiForm.note ? ' — ' + multiForm.note.trim() : ''}`,
-      date, shared: null, compromisoIds: entries.map((e) => e.c.id), paymentIds, autor: profile?.name || 'Familia',
-    }];
-    persist({ compromisos: nextCompromisos, transactions: nextTx });
-    setMultiSelectKind(null); setSelectedFijos([]); setSheet(null);
-  };
+  const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '', locationId: '' });
   const [abonoError, setAbonoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '' });
@@ -593,8 +546,9 @@ function LibroDiario() {
   // Cuentas (gastos fijos ya capturados, o deudas si la categoría es "Deudas")
   // que se pueden elegir como subcategoría rápida para una categoría de gasto dada.
   // Si no hay ninguna cuenta capturada todavía en esa categoría, regresa una lista vacía.
-  const getSubAccountsForCategory = (category) => {
+  const getSubAccountsForCategory = (type, category) => {
     if (!category) return [];
+    if (type === 'ingreso') return ingresosFijos.filter((c) => c.category === category);
     if (category === 'deudas') return deudas.filter((c) => !c.liquidada && c.category === category);
     return fijos.filter((c) => c.category === category);
   };
@@ -610,15 +564,19 @@ function LibroDiario() {
   }, [compromisosView]);
 
   // Gráfica de CxP · Gastos fijos: cada concepto capturado (Renta, Internet...) es su propia rebanada.
+  // Se agrupa por nombre (por si hay dos cuentas con el mismo nombre) y NO se
+  // recorta la lista, para que el total de la gráfica siempre coincida con la
+  // suma real que se ve en la pestaña CxP.
   const ITEM_COLORS = ['#1E3D32', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#7A4E3A', '#8C6239'];
-  const gastosFijosPorConcepto = useMemo(
-    () => compromisosView
-      .filter((c) => c.kind === 'fijo' && c.pendiente > 0.01)
-      .sort((a, b) => b.pendiente - a.pendiente)
-      .slice(0, 10)
-      .map((c, i) => ({ id: c.id, name: c.name, value: c.pendiente, color: ITEM_COLORS[i % ITEM_COLORS.length] })),
-    [compromisosView]
-  );
+  const gastosFijosPorConcepto = useMemo(() => {
+    const map = {};
+    compromisosView.filter((c) => c.kind === 'fijo' && c.pendiente > 0.01).forEach((c) => {
+      map[c.name] = (map[c.name] || 0) + c.pendiente;
+    });
+    return Object.entries(map)
+      .map(([name, value], i) => ({ id: name, name, value, color: ITEM_COLORS[i % ITEM_COLORS.length] }))
+      .sort((a, b) => b.value - a.value);
+  }, [compromisosView]);
 
   // Gráfica de "¿Dónde está el dinero?": total por persona.
   const moneyPorPersona = useMemo(
@@ -649,7 +607,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '' });
+    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {} });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -657,6 +615,24 @@ function LibroDiario() {
   // Un ingreso SUMA a la ubicación elegida (ahí "cayó" el dinero); un gasto
   // RESTA (de ahí "salió" el dinero).
   const locationDelta = (type, amt) => (type === 'ingreso' ? amt : -amt);
+
+  // Selecciona/quita una cuenta de CxP (gasto fijo, ingreso fijo o préstamo) a
+  // la que corresponde este movimiento. Se puede elegir más de una para
+  // repartir un solo pago entre varias (ej. $130 → $80 Spotify + $50 Netflix).
+  const toggleTxLink = (c) => {
+    setTxForm((f) => {
+      if (f.links.includes(c.id)) {
+        const links = f.links.filter((id) => id !== c.id);
+        const linkAmounts = { ...f.linkAmounts };
+        delete linkAmounts[c.id];
+        return { ...f, links, linkAmounts };
+      }
+      const already = f.links.reduce((s, id) => s + (toNumber(f.linkAmounts[id]) || 0), 0);
+      const remaining = Math.max(0, toNumber(f.amount) - already);
+      const suggested = remaining > 0 ? Math.min(c.pendiente || c.amount, remaining) : (c.pendiente || c.amount);
+      return { ...f, links: [...f.links, c.id], linkAmounts: { ...f.linkAmounts, [c.id]: suggested ? String(suggested) : '' } };
+    });
+  };
 
   const submitTx = () => {
     const amt = toNumber(txForm.amount);
@@ -676,30 +652,47 @@ function LibroDiario() {
 
     let compromisoId = null;
     let paymentId = null;
+    let compromisoIds = null;
+    let paymentIds = null;
     let nextCompromisos = compromisos;
 
-    // Si eligió una "subcategoría" que en realidad es un gasto fijo o una deuda
-    // ya capturados en esa categoría, este movimiento se registra como un abono/pago
-    // directo a esa cuenta (sin necesidad de prender el switch de "fijo").
-    const linkedFijo = txForm.type === 'gasto' && txForm.category !== 'deudas' && txForm.subcategory
-      ? fijos.find((c) => c.id === txForm.subcategory) : null;
-    const linkedDeuda = txForm.type === 'gasto' && txForm.category === 'deudas' && txForm.subcategory
-      ? deudas.find((c) => c.id === txForm.subcategory) : null;
+    // Cuentas de CxP elegidas para este movimiento (una o varias), con el
+    // monto que le corresponde a cada una.
+    const pool = txForm.type === 'ingreso' ? ingresosFijos : (txForm.category === 'deudas' ? deudas : fijos);
+    const links = (txForm.links || [])
+      .map((id) => ({ c: pool.find((x) => x.id === id), amt: toNumber(txForm.linkAmounts[id]) }))
+      .filter((e) => e.c && e.amt > 0);
+    const linkedTotal = links.reduce((s, e) => s + e.amt, 0);
+    if (links.length && linkedTotal > amt + 0.01) return setTxError('La suma de los montos vinculados no puede ser mayor al total del movimiento.');
 
-    if (linkedFijo) {
+    if (links.length === 1) {
+      const { c, amt: linkAmt } = links[0];
       paymentId = uid();
-      const payment = { id: paymentId, amount: amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
-      compromisoId = linkedFijo.id;
-      nextCompromisos = compromisos.map((c) => c.id === compromisoId ? { ...c, payments: [...c.payments, payment] } : c);
-    } else if (linkedDeuda) {
-      paymentId = uid();
-      const payment = { id: paymentId, amount: amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
-      compromisoId = linkedDeuda.id;
-      nextCompromisos = compromisos.map((c) => {
-        if (c.id !== compromisoId) return c;
-        const currentBalance = c.balance != null ? c.balance : c.amount;
-        return { ...c, payments: [...c.payments, payment], balance: Math.max(0, currentBalance - amt) };
+      const payment = { id: paymentId, amount: linkAmt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
+      compromisoId = c.id;
+      nextCompromisos = compromisos.map((x) => {
+        if (x.id !== compromisoId) return x;
+        if (x.kind === 'deuda') {
+          const currentBalance = x.balance != null ? x.balance : x.amount;
+          return { ...x, payments: [...x.payments, payment], balance: Math.max(0, currentBalance - linkAmt) };
+        }
+        return { ...x, payments: [...x.payments, payment] };
       });
+    } else if (links.length > 1) {
+      paymentIds = {};
+      nextCompromisos = compromisos.map((x) => {
+        const entry = links.find((e) => e.c.id === x.id);
+        if (!entry) return x;
+        const pid = uid();
+        paymentIds[x.id] = pid;
+        const payment = { id: pid, amount: entry.amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia' };
+        if (x.kind === 'deuda') {
+          const currentBalance = x.balance != null ? x.balance : x.amount;
+          return { ...x, payments: [...x.payments, payment], balance: Math.max(0, currentBalance - entry.amt) };
+        }
+        return { ...x, payments: [...x.payments, payment] };
+      });
+      compromisoIds = links.map((e) => e.c.id);
     } else if (txForm.fijo) {
       const kind = txForm.type === 'gasto' ? 'fijo' : 'ingreso_fijo';
       const notifyDay = txForm.fijoNotifyDay ? Math.min(31, Math.max(1, parseInt(txForm.fijoNotifyDay, 10))) : null;
@@ -718,7 +711,7 @@ function LibroDiario() {
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: txForm.subcategory || null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, locationId, autor: profile?.name || 'Familia' }];
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
@@ -897,7 +890,7 @@ function LibroDiario() {
   };
 
   const openAbonar = (compromiso) => {
-    setAbonoForm({ amount: compromiso.pendiente > 0 ? String(compromiso.pendiente) : '', date: todayStr(), note: '' });
+    setAbonoForm({ amount: compromiso.pendiente > 0 ? String(compromiso.pendiente) : '', date: todayStr(), note: '', locationId: '' });
     setAbonoError('');
     setSheet({ type: 'abonar', compromiso });
   };
@@ -905,7 +898,9 @@ function LibroDiario() {
   const submitAbono = () => {
     const c = sheet.compromiso;
     const amt = toNumber(abonoForm.amount);
+    const isIngreso = c.kind === 'ingreso_fijo';
     if (!amt || amt <= 0) return setAbonoError('Ingresa un monto válido.');
+    if (!abonoForm.locationId) return setAbonoError(isIngreso ? 'Elige a dónde entra este dinero.' : 'Elige de dónde sale este dinero.');
     const paymentId = uid();
     const payment = { id: paymentId, amount: amt, date: abonoForm.date, period: periodKey(abonoForm.date), note: abonoForm.note.trim(), autor: profile?.name || 'Familia' };
     const nextCompromisos = compromisos.map((x) => {
@@ -917,7 +912,6 @@ function LibroDiario() {
       }
       return { ...x, payments: nextPayments };
     });
-    const isIngreso = c.kind === 'ingreso_fijo';
     let shared = null;
     if (!isIngreso && c.shared && c.amount) {
       const ratio = amt / c.amount;
@@ -925,8 +919,10 @@ function LibroDiario() {
       if (parts.length) shared = { participants: parts };
     }
     const notePrefix = isIngreso ? 'Ingreso' : 'Abono';
-    const nextTx = [...transactions, { id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: c.category, amount: amt, note: `${notePrefix} · ${c.name}${abonoForm.note ? ' — ' + abonoForm.note.trim() : ''}`, date: abonoForm.date, shared, compromisoId: c.id, paymentId, autor: profile?.name || 'Familia' }];
-    persist({ compromisos: nextCompromisos, transactions: nextTx });
+    const nextTx = [...transactions, { id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: c.category, amount: amt, note: `${notePrefix} · ${c.name}${abonoForm.note ? ' — ' + abonoForm.note.trim() : ''}`, date: abonoForm.date, shared, compromisoId: c.id, paymentId, locationId: abonoForm.locationId, autor: profile?.name || 'Familia' }];
+    const patch = { compromisos: nextCompromisos, transactions: nextTx };
+    patch.moneyLocations = moneyLocations.map((l) => l.id === abonoForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta(isIngreso ? 'ingreso' : 'gasto', amt) } : l);
+    persist(patch);
     setSheet(null);
   };
 
@@ -1345,7 +1341,7 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>¿Dónde está el dinero?</span>
-                <button className="mini-abonar" onClick={() => setTab('compromisos')}>Editar en CxP</button>
+                <button className="mini-abonar" onClick={() => setTab('compromisos')}>Ver en CxP</button>
               </div>
               {moneyLocations.length === 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien desde la pestaña CxP.</div>
@@ -1353,10 +1349,7 @@ function LibroDiario() {
                 <>
                   {moneyLocationsByPerson.map(([persona, locs]) => (
                     <div key={persona} style={{ marginBottom: 6 }}>
-                      <div className="totals-subhead" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{persona}</span>
-                        <span>{fmt(locs.reduce((s, l) => s + (l.monto || 0), 0))}</span>
-                      </div>
+                      <div className="totals-subhead">{persona}</div>
                       {locs.map((l) => (
                         <div className="mini-row" key={l.id}>
                           <div className="savings-icon" style={{ width: 28, height: 28, background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C', color: '#fff' }}>
@@ -1393,13 +1386,15 @@ function LibroDiario() {
             )}
             {pendingByPerson.length > 0 && (
               <div className="card">
-                <div className="card-title">Por cobrar (gastos compartidos)</div>
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Por cobrar (gastos compartidos)</span>
+                  <button className="mini-abonar" onClick={() => setTab('movimientos')}>Ver en Movimientos</button>
+                </div>
                 {pendingByPerson.map((p) => (
                   <div className="person-row" key={p.name}>
                     <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
                     <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''}</div></div>
                     <div className="person-amount">{fmt(p.total)}</div>
-                    <button className="mark-paid-btn" onClick={() => markPersonPaid(p.name)}><Icon name="CheckCircle2" size={12} /> Pagó</button>
                   </div>
                 ))}
               </div>
@@ -1456,6 +1451,19 @@ function LibroDiario() {
           </>
         ) : tab === 'movimientos' ? (
           <>
+            {pendingByPerson.length > 0 && (
+              <div className="card">
+                <div className="card-title">Por cobrar (gastos compartidos)</div>
+                {pendingByPerson.map((p) => (
+                  <div className="person-row" key={p.name}>
+                    <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
+                    <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''}</div></div>
+                    <div className="person-amount">{fmt(p.total)}</div>
+                    <button className="mark-paid-btn" onClick={() => markPersonPaid(p.name)}><Icon name="CheckCircle2" size={12} /> Pagó</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="filter-row">
               <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
               {ALL_CATS.map((c) => <button key={c.id} className={`filter-chip ${filterCat === c.id ? 'active' : ''}`} onClick={() => setFilterCat(c.id)}>{c.label}</button>)}
@@ -1540,30 +1548,17 @@ function LibroDiario() {
                 )}
                 {fijos.length > 0 && (
                   <>
-                    <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span>Gastos fijos</span>
-                      <button className="multiselect-toggle" onClick={() => toggleMultiSelect('fijo')}>
-                        {multiSelectKind === 'fijo' ? 'Cancelar' : 'Combinar pagos'}
-                      </button>
-                    </div>
-                    {multiSelectKind === 'fijo' && (
-                      <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-2px 0 10px' }}>
-                        Elige 2 o más (ej. Netflix + Spotify) para registrar un solo pago que los cubra a todos.
-                      </div>
-                    )}
+                    <div className="totals-subhead">Gastos fijos</div>
                     {fijos.map((c) => (
                       <div
-                        className={`compromiso-card ${multiSelectKind === 'fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''} ${!multiSelectKind && c.shared ? 'clickable' : ''}`}
+                        className={`compromiso-card ${c.shared ? 'clickable' : ''}`}
                         key={c.id}
-                        onClick={multiSelectKind === 'fijo' ? () => toggleSelectFijo(c.id) : (c.shared ? () => setSheet({ type: 'compromiso-shared-detail', compromiso: c }) : undefined)}
+                        onClick={c.shared ? () => setSheet({ type: 'compromiso-shared-detail', compromiso: c }) : undefined}
                       >
                         <div className="compromiso-top">
-                          {multiSelectKind === 'fijo' && (
-                            <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
-                          )}
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
                           <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo · CxP</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span> <Icon name="MoreHorizontal" size={11} style={{ verticalAlign: 'middle' }} /></>}</div></div>
-                          {multiSelectKind !== 'fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                          <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>
                         </div>
                         <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
                         <div className="compromiso-nums">
@@ -1577,55 +1572,32 @@ function LibroDiario() {
                             Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
                           </div>
                         )}
-                        {multiSelectKind !== 'fijo' && (
-                          <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                            <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
-                            {CXP_EDITABLE_CATS.includes(c.category) && (
-                              <button
-                                className="abonar-btn"
-                                style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
-                                onClick={() => openEditAmount(c)}
-                                title="Actualiza el monto mensual"
-                              >
-                                <Icon name="Pencil" size={12} /> Actualizar monto
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                          <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
+                          {CXP_EDITABLE_CATS.includes(c.category) && (
+                            <button
+                              className="abonar-btn"
+                              style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                              onClick={() => openEditAmount(c)}
+                              title="Actualiza el monto mensual"
+                            >
+                              <Icon name="Pencil" size={12} /> Actualizar monto
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
-                    {multiSelectKind === 'fijo' && selectedFijos.length > 0 && (
-                      <div className="multiselect-bar">
-                        <div>
-                          <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
-                          <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
-                        </div>
-                        <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
-                      </div>
-                    )}
                   </>
                 )}
                 {ingresosFijos.length > 0 && (
                   <>
-                    <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span>Ingresos fijos</span>
-                      <button className="multiselect-toggle" onClick={() => toggleMultiSelect('ingreso_fijo')}>
-                        {multiSelectKind === 'ingreso_fijo' ? 'Cancelar' : 'Combinar pagos'}
-                      </button>
-                    </div>
+                    <div className="totals-subhead">Ingresos fijos</div>
                     {ingresosFijos.map((c) => (
-                      <div
-                        className={`compromiso-card ${multiSelectKind === 'ingreso_fijo' ? 'selectable' : ''} ${selectedFijos.includes(c.id) ? 'selected' : ''}`}
-                        key={c.id}
-                        onClick={multiSelectKind === 'ingreso_fijo' ? () => toggleSelectFijo(c.id) : undefined}
-                      >
+                      <div className="compromiso-card" key={c.id}>
                         <div className="compromiso-top">
-                          {multiSelectKind === 'ingreso_fijo' && (
-                            <div className={`check-circle ${selectedFijos.includes(c.id) ? 'on' : ''}`}>{selectedFijos.includes(c.id) && <Icon name="Check" size={12} color="#fff" />}</div>
-                          )}
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
                           <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo · CxP</span> · {catById(c.category).label}</div></div>
-                          {multiSelectKind !== 'ingreso_fijo' && <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>}
+                          <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>
                         </div>
                         <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
                         <div className="compromiso-nums">
@@ -1639,32 +1611,21 @@ function LibroDiario() {
                             Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
                           </div>
                         )}
-                        {multiSelectKind !== 'ingreso_fijo' && (
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>
-                            {CXP_EDITABLE_CATS.includes(c.category) && (
-                              <button
-                                className="abonar-btn"
-                                style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
-                                onClick={() => openEditAmount(c)}
-                                title="Actualiza el monto esperado"
-                              >
-                                <Icon name="Pencil" size={12} /> Actualizar monto
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="abonar-btn" disabled={c.pendiente <= 0.01} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.pendiente <= 0.01 ? 'Recibido este mes' : 'Marcar recibido'}</button>
+                          {CXP_EDITABLE_CATS.includes(c.category) && (
+                            <button
+                              className="abonar-btn"
+                              style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                              onClick={() => openEditAmount(c)}
+                              title="Actualiza el monto esperado"
+                            >
+                              <Icon name="Pencil" size={12} /> Actualizar monto
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
-                    {multiSelectKind === 'ingreso_fijo' && selectedFijos.length > 0 && (
-                      <div className="multiselect-bar">
-                        <div>
-                          <div className="multiselect-count">{selectedFijos.length} seleccionado{selectedFijos.length !== 1 ? 's' : ''}</div>
-                          <div className="multiselect-total">{fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + c.amount, 0))}</div>
-                        </div>
-                        <button className="abonar-btn" style={{ width: 'auto', padding: '10px 16px' }} disabled={selectedFijos.length < 2} onClick={openMultiAbonar}>Registrar pago junto</button>
-                      </div>
-                    )}
                   </>
                 )}
               </>
@@ -1845,53 +1806,49 @@ function LibroDiario() {
                 )}
               </>
             )}
-            {txForm.type === 'gasto' && txForm.category && (() => {
-              const subAccounts = getSubAccountsForCategory(txForm.category);
+            {(txForm.type === 'gasto' || txForm.type === 'ingreso') && txForm.category && (() => {
+              const subAccounts = getSubAccountsForCategory(txForm.type, txForm.category);
               if (!subAccounts.length) return null;
-              const isDeudaCat = txForm.category === 'deudas';
-              const selected = subAccounts.find((c) => c.id === txForm.subcategory) || null;
+              const isDeudaCat = txForm.type === 'gasto' && txForm.category === 'deudas';
               const enteredAmt = toNumber(txForm.amount);
-              let feedback = null;
-              if (selected && enteredAmt > 0) {
-                const restante = selected.pendiente - enteredAmt;
-                if (restante <= 0.005) {
-                  feedback = { ok: true, text: isDeudaCat ? 'Con este abono, el préstamo queda liquidado.' : 'Con este pago, esta cuenta queda al día este mes.' };
-                } else {
-                  feedback = { ok: false, text: isDeudaCat ? `Después de este abono, quedarán pendientes ${fmt(restante)}.` : `Aún faltan ${fmt(restante)} para completar el pago de este mes.` };
-                }
-              }
+              const linkedTotal = (txForm.links || []).reduce((s, id) => s + (toNumber(txForm.linkAmounts[id]) || 0), 0);
+              const kindLabel = isDeudaCat ? 'préstamo' : txForm.type === 'ingreso' ? 'ingreso fijo' : 'cuenta';
               return (
                 <>
-                  <div className="field-label">{isDeudaCat ? '¿A cuál préstamo corresponde? (opcional)' : '¿A cuál cuenta corresponde? (opcional)'}</div>
+                  <div className="field-label">¿A cuál {kindLabel} corresponde? (opcional, puedes elegir varias)</div>
                   <div className="subcat-row">
                     {subAccounts.map((c) => (
-                      <button key={c.id} className={`subcat-chip ${txForm.subcategory === c.id ? 'selected' : ''}`} onClick={() => setTxForm((f) => ({ ...f, subcategory: f.subcategory === c.id ? '' : c.id }))}>{c.name}</button>
+                      <button key={c.id} className={`subcat-chip ${txForm.links.includes(c.id) ? 'selected' : ''}`} onClick={() => toggleTxLink(c)}>{c.name}</button>
                     ))}
                   </div>
-                  {selected && (
-                    <div className="account-info-box">
-                      <div className="name">{selected.name}</div>
-                      <div className="meta">
-                        <span>{isDeudaCat ? `Saldo pendiente: ${fmt(selected.pendiente)}` : `Monto fijo: ${fmt(selected.amount)}`}</span>
-                        {!isDeudaCat && selected.notifyDay && <span>Día de pago: {selected.notifyDay}</span>}
+                  {txForm.links.length > 0 && (
+                    <div style={{ margin: '2px 0 4px' }}>
+                      {txForm.links.map((id) => {
+                        const c = subAccounts.find((x) => x.id === id);
+                        if (!c) return null;
+                        return (
+                          <div className="participant-row" key={id}>
+                            <div style={{ flex: 1, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>{c.name}</div>
+                            <input className="text-input amount-mini" type="text" inputMode="decimal" placeholder="$0" value={txForm.linkAmounts[id] || ''} onChange={(e) => setTxForm((f) => ({ ...f, linkAmounts: { ...f.linkAmounts, [id]: formatAmountTyping(e.target.value) } }))} />
+                            <button className="remove-participant" onClick={() => toggleTxLink(c)}><Icon name="X" size={15} /></button>
+                          </div>
+                        );
+                      })}
+                      <div style={{ fontSize: 11.5, color: linkedTotal > enteredAmt + 0.01 ? 'var(--expense)' : 'var(--ink-soft)', margin: '2px 2px 12px' }}>
+                        Vinculado: {fmt(linkedTotal)} de {fmt(enteredAmt)}{linkedTotal > enteredAmt + 0.01 ? ' — reduce algún monto' : ''}
                       </div>
-                    </div>
-                  )}
-                  {feedback && (
-                    <div className={`account-feedback ${feedback.ok ? 'ok' : 'pending'}`}>
-                      <Icon name={feedback.ok ? 'CheckCircle2' : 'Bell'} size={13} style={{ marginRight: 5, verticalAlign: 'middle' }} /> {feedback.text}
                     </div>
                   )}
                 </>
               );
             })()}
-            {!txForm.subcategory && (
+            {!txForm.links.length && (
               <div className="toggle-row">
                 <span className="toggle-row-label"><Icon name="Repeat" size={14} /> ¿Es un {txForm.type === 'gasto' ? 'gasto' : 'ingreso'} fijo nuevo (recurrente)?</span>
                 <button className={`switch ${txForm.fijo ? 'on' : ''}`} onClick={() => setTxForm((f) => ({ ...f, fijo: !f.fijo, fijoTarget: 'new' }))} />
               </div>
             )}
-            {txForm.fijo && !txForm.subcategory && (
+            {txForm.fijo && !txForm.links.length && (
               <>
                 <div className="field-label">Nombre del {txForm.type === 'gasto' ? 'gasto' : 'ingreso'} fijo</div>
                 <input className="text-input" placeholder={txForm.type === 'gasto' ? 'Ej. Renta, Internet...' : 'Ej. Nómina, comisiones...'} value={txForm.fijoName} onChange={(e) => setTxForm((f) => ({ ...f, fijoName: e.target.value }))} />
@@ -2012,7 +1969,7 @@ function LibroDiario() {
                   </div>
                 );
               }
-              const subAccounts = getSubAccountsForCategory(editTxForm.category);
+              const subAccounts = getSubAccountsForCategory(editTxForm.type, editTxForm.category);
               if (!subAccounts.length) return null;
               return (
                 <>
@@ -2122,51 +2079,33 @@ function LibroDiario() {
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-header"><span className="sheet-title">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Ingreso recibido' : 'Abonar'} · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Monto recibido' : 'Monto a abonar'}</div>
+            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Monto recibido' : 'Monto a abonar'} *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" value={abonoForm.amount} onChange={(e) => setAbonoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
+            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
+            {moneyLocations.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP para poder guardar este movimiento.
+              </div>
+            ) : (
+              <div className="cat-grid">
+                {moneyLocations.map((l) => (
+                  <div
+                    key={l.id}
+                    className={`cat-choice ${abonoForm.locationId === l.id ? 'selected' : ''}`}
+                    onClick={() => setAbonoForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
+                  >
+                    <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                    <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Efectivo'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="field-label">Fecha</div>
             <input className="text-input" type="date" value={abonoForm.date} onChange={(e) => setAbonoForm((f) => ({ ...f, date: e.target.value }))} />
             <div className="field-label">Nota (opcional)</div>
             <input className="text-input" placeholder={sheet.compromiso.kind === 'ingreso_fijo' ? 'Ej. Nómina de julio' : 'Ej. Pago parcial de mayo'} value={abonoForm.note} onChange={(e) => setAbonoForm((f) => ({ ...f, note: e.target.value }))} />
             {abonoError && <div className="form-error">{abonoError}</div>}
-            <button className="save-btn" onClick={submitAbono}><Icon name="Check" size={16} /> {sheet.compromiso.kind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar abono'}</button>
-          </div>
-        </div>
-      )}
-
-      {sheet?.type === 'multi-abonar' && (
-        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header"><span className="sheet-title">{multiSelectKind === 'ingreso_fijo' ? 'Registrar ingreso junto' : 'Registrar pago junto'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>
-              Ajusta el monto de cada uno si no coincide exactamente con lo esperado — juntos se registran como un solo movimiento.
-            </div>
-            {compromisosView.filter((c) => selectedFijos.includes(c.id)).map((c) => (
-              <div key={c.id} style={{ marginBottom: 12 }}>
-                <div className="field-label">{c.name}</div>
-                <div className="amount-input-wrap">
-                  <span className="amount-currency">$</span>
-                  <input
-                    className="amount-input"
-                    type="text" inputMode="decimal"
-                    value={multiForm.amounts[c.id] ?? ''}
-                    onChange={(e) => setMultiForm((f) => ({ ...f, amounts: { ...f.amounts, [c.id]: formatAmountTyping(e.target.value) } }))}
-                  />
-                </div>
-              </div>
-            ))}
-            <div className="cxp-total-row" style={{ padding: '6px 0 14px', borderTop: '1px dashed var(--line)', borderBottom: '1px dashed var(--line)', marginBottom: 14 }}>
-              <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600 }}>Total junto</span>
-              <span className="cxp-total-amount" style={{ fontSize: 19 }}>
-                {fmt(compromisosView.filter((c) => selectedFijos.includes(c.id)).reduce((s, c) => s + toNumber(multiForm.amounts[c.id]), 0))}
-              </span>
-            </div>
-            <div className="field-label">Fecha</div>
-            <input className="text-input" type="date" value={multiForm.date} onChange={(e) => setMultiForm((f) => ({ ...f, date: e.target.value }))} />
-            <div className="field-label">Nota (opcional)</div>
-            <input className="text-input" placeholder="Ej. Me lo mandó Ana junto" value={multiForm.note} onChange={(e) => setMultiForm((f) => ({ ...f, note: e.target.value }))} />
-            {multiError && <div className="form-error">{multiError}</div>}
-            <button className="save-btn" onClick={submitMultiAbono}><Icon name="Check" size={16} /> {multiSelectKind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar pago'}</button>
+            <button className="save-btn" disabled={!(toNumber(abonoForm.amount) > 0 && abonoForm.locationId)} onClick={submitAbono}><Icon name="Check" size={16} /> {sheet.compromiso.kind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar abono'}</button>
           </div>
         </div>
       )}
