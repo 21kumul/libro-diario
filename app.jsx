@@ -61,6 +61,34 @@ const LEGACY_SERVICIO_SUBCATS = [
 const ALL_CATS = [...INGRESO_CATS, ...GASTO_CATS];
 const catById = (id) => ALL_CATS.find((c) => c.id === id) || ALL_CATS[ALL_CATS.length - 1];
 
+// ---------- Catálogo de cuentas contables ----------
+// Cada concepto (categoría) que ya se usa para capturar movimientos se liga
+// aquí a una cuenta contable, agrupada como se acomodaría en un Estado de
+// Resultado clásico: 4xxx Ingresos, 5xxx Costos y gastos de operación,
+// 6xxx Gastos financieros. Esto no cambia cómo se capturan los movimientos
+// (siguen usando su categoría de siempre); solo agrega la etiqueta contable
+// para poder agrupar y reportar por cuenta.
+const CUENTA_CONTABLE = {
+  // Ingresos
+  servicio: { codigo: '4100', nombre: 'Ventas / servicios', grupo: 'ingresos' },
+  nomina: { codigo: '4200', nombre: 'Sueldos y salarios percibidos', grupo: 'ingresos' },
+  cobranza: { codigo: '4300', nombre: 'Cobranza de cuentas por cobrar', grupo: 'ingresos' },
+  comision: { codigo: '4400', nombre: 'Comisiones ganadas', grupo: 'ingresos' },
+  otros_ing: { codigo: '4900', nombre: 'Otros ingresos', grupo: 'ingresos' },
+  // Gastos de operación
+  renta: { codigo: '5100', nombre: 'Renta / arrendamiento', grupo: 'gastos' },
+  servicios: { codigo: '5200', nombre: 'Servicios (luz, agua, internet, etc.)', grupo: 'gastos' },
+  transporte: { codigo: '5300', nombre: 'Transporte', grupo: 'gastos' },
+  comida: { codigo: '5400', nombre: 'Alimentos y comida fuera de casa', grupo: 'gastos' },
+  despensa: { codigo: '5500', nombre: 'Despensa / consumibles del hogar', grupo: 'gastos' },
+  otros_gas: { codigo: '5900', nombre: 'Otros gastos de operación', grupo: 'gastos' },
+  // Gastos financieros
+  banco: { codigo: '6100', nombre: 'Comisiones y gastos bancarios', grupo: 'gastos' },
+  deudas: { codigo: '6200', nombre: 'Intereses y pago de préstamos', grupo: 'gastos' },
+};
+const cuentaOf = (catId) => CUENTA_CONTABLE[catId] || { codigo: '4900', nombre: catById(catId).label, grupo: INGRESO_CATS.some((c) => c.id === catId) ? 'ingresos' : 'gastos' };
+const GRUPO_LABEL = { ingresos: 'Ingresos', gastos: 'Costos y gastos' };
+
 // Las categorías cambiaron de nombre/lista en una actualización; esto traduce
 // datos guardados con las categorías viejas a las nuevas la primera vez que
 // se cargan, para que no se queden huérfanas.
@@ -507,6 +535,26 @@ function LibroDiario() {
     filtered.filter((t) => t.type === 'ingreso').forEach((t) => { map[t.category] = (map[t.category] || 0) + t.amount; });
     return Object.entries(map).map(([id, value]) => ({ id, name: catById(id).label, value, color: catById(id).color }))
       .sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  // Estado de Resultado: los mismos movimientos del periodo, pero agrupados
+  // por cuenta contable (vía CUENTA_CONTABLE) en vez de por categoría suelta,
+  // como se vería en un estado de resultados real.
+  const estadoResultado = useMemo(() => {
+    const map = {}; // codigo -> { codigo, nombre, grupo, value }
+    filtered.forEach((t) => {
+      const cuenta = cuentaOf(t.category);
+      const signed = t.type === 'ingreso' ? t.amount : t.amount; // se separan por grupo, no se resta aquí
+      const key = cuenta.codigo;
+      if (!map[key]) map[key] = { codigo: cuenta.codigo, nombre: cuenta.nombre, grupo: cuenta.grupo, value: 0 };
+      map[key].value += signed;
+    });
+    const rows = Object.values(map).sort((a, b) => a.codigo.localeCompare(b.codigo));
+    const ingresos = rows.filter((r) => r.grupo === 'ingresos');
+    const gastos = rows.filter((r) => r.grupo === 'gastos');
+    const totalIngresos = ingresos.reduce((s, r) => s + r.value, 0);
+    const totalGastos = gastos.reduce((s, r) => s + r.value, 0);
+    return { ingresos, gastos, totalIngresos, totalGastos, utilidad: totalIngresos - totalGastos };
   }, [filtered]);
 
   const monthly6 = useMemo(() => {
@@ -1360,6 +1408,13 @@ function LibroDiario() {
         .person-amount { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--expense); }
         .mark-paid-btn { background: var(--paper-dim); border: 1px solid var(--line); color: var(--green); border-radius: 8px; padding: 6px 8px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 8px; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
         .mini-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+        .er-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
+        .er-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; }
+        .er-cuenta { color: var(--ink); }
+        .er-codigo { font-family: var(--mono); color: var(--ink-soft); font-size: 11.5px; margin-right: 4px; }
+        .er-monto { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+        .er-empty { font-size: 12.5px; color: var(--ink-soft); padding: 2px 0 6px; }
+        .er-total-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 2px; font-size: 13.5px; font-family: var(--mono); }
         .cxp-total-row { display: flex; align-items: center; justify-content: space-between; padding-top: 4px; }
         .cxp-total-amount { font-family: var(--mono); font-size: 24px; font-weight: 700; color: var(--ink); }
         .cxp-total-label { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
@@ -1771,6 +1826,47 @@ function LibroDiario() {
           </>
         ) : (
           <>
+            <div className="card">
+              <div className="card-title">Estado de Resultado · {PERIOD_LABEL[period]}</div>
+              {estadoResultado.ingresos.length === 0 && estadoResultado.gastos.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este periodo.</div>
+              ) : (
+                <>
+                  <div className="er-group-title" style={{ color: 'var(--income)' }}>{GRUPO_LABEL.ingresos}</div>
+                  {estadoResultado.ingresos.length === 0 ? (
+                    <div className="er-empty">Sin ingresos en este periodo.</div>
+                  ) : estadoResultado.ingresos.map((r) => (
+                    <div className="er-row" key={r.codigo}>
+                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
+                      <span className="er-monto">{fmt(r.value)}</span>
+                    </div>
+                  ))}
+                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
+                    <span>Total ingresos</span>
+                    <span style={{ color: 'var(--income)' }}>{fmt(estadoResultado.totalIngresos)}</span>
+                  </div>
+
+                  <div className="er-group-title" style={{ color: 'var(--expense)', marginTop: 14 }}>{GRUPO_LABEL.gastos}</div>
+                  {estadoResultado.gastos.length === 0 ? (
+                    <div className="er-empty">Sin gastos en este periodo.</div>
+                  ) : estadoResultado.gastos.map((r) => (
+                    <div className="er-row" key={r.codigo}>
+                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
+                      <span className="er-monto">{fmt(r.value)}</span>
+                    </div>
+                  ))}
+                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
+                    <span>Total costos y gastos</span>
+                    <span style={{ color: 'var(--expense)' }}>{fmt(estadoResultado.totalGastos)}</span>
+                  </div>
+
+                  <div className="er-total-row" style={{ borderTop: '2px solid var(--ink)', marginTop: 10, paddingTop: 10 }}>
+                    <span style={{ fontWeight: 700 }}>Utilidad neta</span>
+                    <span style={{ fontWeight: 700, color: estadoResultado.utilidad >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(estadoResultado.utilidad)}</span>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="card">
               <div className="card-title">Gastos por categoría · {PERIOD_LABEL[period]}</div>
               {gastosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos en este periodo.</div> : (
