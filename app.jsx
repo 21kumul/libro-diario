@@ -42,7 +42,7 @@ const GASTO_CATS = [
 const CXP_CATS = GASTO_CATS.filter((c) => ['banco', 'deudas', 'otros_gas'].includes(c.id));
 // Solo estas categorías de CxP permiten editar el monto/saldo a mano
 // (ej. actualizar lo que dice el estado de cuenta del banco).
-const CXP_EDITABLE_CATS = ['banco', 'deudas'];
+const CXP_EDITABLE_CATS = ['banco', 'deudas', 'cobranza'];
 
 // Ya no usamos una lista fija de subcategorías de "Servicios": ahora las
 // subcategorías de cualquier categoría de gasto se arman solas a partir de
@@ -93,6 +93,33 @@ const GRUPO_LABEL = { ingresos: 'Ingresos', gastos: 'Costos y gastos' };
 // entra a las cuentas de arriba y no afecta la utilidad neta. Se registra
 // como cuenta de Activo, aparte, para poder mostrarla como referencia.
 const CUENTA_AHORRO = { codigo: '1200', nombre: 'Ahorros e inversiones', grupo: 'activo' };
+// 'deuda' (dinero que debo, Cuenta por Pagar) y 'cxc' (dinero que me deben,
+// Cuenta por Cobrar) se llevan igual: tienen un monto original y un saldo
+// pendiente que baja con cada pago/cobro. Solo cambia el sentido del dinero
+// (deuda -> pagar = gasto; cxc -> cobrar = ingreso).
+const isBalanceKind = (kind) => kind === 'deuda' || kind === 'cxc';
+
+// ---------- Catálogo completo (para la vista "Catálogo de cuentas") ----------
+// Las cuentas de Activo/Pasivo no vienen de CUENTA_CONTABLE (esas son solo
+// ingresos/gastos): se arman aquí a mano, alineadas a cómo ya se usan en la
+// app (ubicaciones de dinero, ahorro, CxP y CxC).
+const CATALOGO_ACTIVO_PASIVO = [
+  { codigo: '1101', nombre: 'Caja (efectivo)', grupo: '1000 Activo · 1100 Activo circulante', nota: 'Tus ubicaciones de tipo Efectivo, en "¿Dónde está el dinero?"' },
+  { codigo: '1102', nombre: 'Bancos', grupo: '1000 Activo · 1100 Activo circulante', nota: 'Tus ubicaciones de tipo Tarjeta/Banco, en "¿Dónde está el dinero?"' },
+  { codigo: '1103', nombre: 'Clientes / Cuentas por cobrar (CxC)', grupo: '1000 Activo · 1100 Activo circulante', nota: 'Dinero que te deben — pestaña Cuentas, sección "Me deben (CxC)"' },
+  { codigo: CUENTA_AHORRO.codigo, nombre: CUENTA_AHORRO.nombre, grupo: '1000 Activo · 1200 Activo fijo', nota: 'Tus metas y cuentas de ahorro, en la pestaña Ahorro' },
+  { codigo: '2101', nombre: 'Préstamos y cuentas por pagar (CxP)', grupo: '2000 Pasivo · 2100 Pasivo circulante', nota: 'Dinero que debes — pestaña Cuentas, sección "Préstamos"' },
+];
+// Ingresos/gastos: se toman directo de CUENTA_CONTABLE (sin repetir código),
+// para que el catálogo siempre esté sincronizado con lo que ya se usa.
+const CATALOGO_RESULTADO = Object.values(CUENTA_CONTABLE)
+  .filter((v, i, arr) => arr.findIndex((x) => x.codigo === v.codigo) === i)
+  .map((v) => ({
+    ...v,
+    grupo: v.codigo[0] === '4' ? '4000 Cuentas de ingreso' : v.codigo[0] === '6' ? '6300 Gastos financieros' : '5000/6000 Gastos de operación',
+  }))
+  .sort((a, b) => a.codigo.localeCompare(b.codigo));
+const CATALOGO_COMPLETO = [...CATALOGO_ACTIVO_PASIVO, ...CATALOGO_RESULTADO].sort((a, b) => a.codigo.localeCompare(b.codigo));
 
 // Las categorías cambiaron de nombre/lista en una actualización; esto traduce
 // datos guardados con las categorías viejas a las nuevas la primera vez que
@@ -128,7 +155,10 @@ const toNumber = (raw) => parseFloat(String(raw ?? '').replace(/,/g, '')) || 0;
 const fmt = (n) =>
   (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const periodKey = (dateStr) => dateStr.slice(0, 7);
 const currentPeriodKey = periodKey(todayStr());
 const uid = () => Date.now() + Math.random();
@@ -587,7 +617,7 @@ function LibroDiario() {
 
   // ---------- derived: compromisos ----------
   const compromisosView = useMemo(() => compromisos.map((c) => {
-    if (c.kind === 'deuda') {
+    if (isBalanceKind(c.kind)) {
       const pagado = c.payments.reduce((s, p) => s + p.amount, 0);
       const pendiente = Math.max(0, c.balance != null ? c.balance : c.amount - pagado);
       const pct = c.amount ? Math.max(0, Math.min(100, (1 - pendiente / c.amount) * 100)) : 0;
@@ -601,6 +631,7 @@ function LibroDiario() {
   }), [compromisos]);
 
   const deudas = compromisosView.filter((c) => c.kind === 'deuda');
+  const cxc = compromisosView.filter((c) => c.kind === 'cxc');
   const fijos = compromisosView.filter((c) => c.kind === 'fijo');
   const ingresosFijos = compromisosView.filter((c) => c.kind === 'ingreso_fijo');
 
@@ -620,7 +651,7 @@ function LibroDiario() {
   // Si no hay ninguna cuenta capturada todavía en esa categoría, regresa una lista vacía.
   const getSubAccountsForCategory = (type, category) => {
     if (!category) return [];
-    if (type === 'ingreso') return ingresosFijos.filter((c) => c.category === category);
+    if (type === 'ingreso') return [...ingresosFijos, ...cxc].filter((c) => c.category === category && !c.liquidada);
     if (category === 'deudas') return deudas.filter((c) => !c.liquidada && c.category === category);
     return fijos.filter((c) => c.category === category);
   };
@@ -638,7 +669,7 @@ function LibroDiario() {
   // Gráfica de CxP · Gastos fijos: cada concepto capturado (Renta, Internet...) es su propia rebanada.
   // Se agrupa por nombre (por si hay dos cuentas con el mismo nombre) y NO se
   // recorta la lista, para que el total de la gráfica siempre coincida con la
-  // suma real que se ve en la pestaña CxP.
+  // suma real que se ve en la pestaña Cuentas.
   const ITEM_COLORS = ['#1E3D32', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#7A4E3A', '#8C6239'];
   const gastosFijosPorConcepto = useMemo(() => {
     const map = {};
@@ -757,7 +788,7 @@ function LibroDiario() {
     // Cuentas de CxP elegidas para este movimiento (una o varias), con el
     // monto que le corresponde a cada una. Si la cuenta es compartida, se
     // arma a partir de lo que se capturó por persona.
-    const pool = txForm.type === 'ingreso' ? ingresosFijos : (txForm.category === 'deudas' ? deudas : fijos);
+    const pool = txForm.type === 'ingreso' ? [...ingresosFijos, ...cxc] : (txForm.category === 'deudas' ? deudas : fijos);
     const links = (txForm.links || [])
       .map((id) => {
         const c = pool.find((x) => x.id === id);
@@ -783,7 +814,7 @@ function LibroDiario() {
       compromisoId = c.id;
       nextCompromisos = compromisos.map((x) => {
         if (x.id !== compromisoId) return x;
-        if (x.kind === 'deuda') {
+        if (isBalanceKind(x.kind)) {
           const currentBalance = x.balance != null ? x.balance : x.amount;
           return { ...x, payments: [...x.payments, payment], balance: Math.max(0, currentBalance - linkAmt) };
         }
@@ -797,7 +828,7 @@ function LibroDiario() {
         const pid = uid();
         paymentIds[x.id] = pid;
         const payment = { id: pid, amount: entry.amt, date: txForm.date, period: periodKey(txForm.date), note: '', autor: profile?.name || 'Familia', participants: entry.participants || undefined };
-        if (x.kind === 'deuda') {
+        if (isBalanceKind(x.kind)) {
           const currentBalance = x.balance != null ? x.balance : x.amount;
           return { ...x, payments: [...x.payments, payment], balance: Math.max(0, currentBalance - entry.amt) };
         }
@@ -929,7 +960,7 @@ function LibroDiario() {
         nextCompromisos = compromisos.map((x) => {
           if (x.id !== c.id) return x;
           const nextPayments = x.payments.map((p) => p.id === linkedPayment.id ? { ...p, amount: amt, date: editTxForm.date, period: periodKey(editTxForm.date) } : p);
-          if (x.kind === 'deuda') {
+          if (isBalanceKind(x.kind)) {
             const currentBalance = x.balance != null ? x.balance : x.amount;
             return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance - delta) };
           }
@@ -971,7 +1002,7 @@ function LibroDiario() {
         nextCompromisos = compromisos.map((x) => {
           if (x.id !== c.id) return x;
           const nextPayments = x.payments.filter((p) => p.id !== linkedPayment.id);
-          if (x.kind === 'deuda') {
+          if (isBalanceKind(x.kind)) {
             const currentBalance = x.balance != null ? x.balance : x.amount;
             return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance + linkedPayment.amount) };
           }
@@ -1029,7 +1060,7 @@ function LibroDiario() {
 
   const deleteCompromiso = (id) => {
     const c = compromisos.find((x) => x.id === id);
-    const label = c?.kind === 'deuda' ? 'este préstamo' : c?.kind === 'ingreso_fijo' ? 'este ingreso fijo' : 'este gasto fijo';
+    const label = c?.kind === 'deuda' ? 'este préstamo' : c?.kind === 'cxc' ? 'esta cuenta por cobrar' : c?.kind === 'ingreso_fijo' ? 'este ingreso fijo' : 'este gasto fijo';
     if (!window.confirm(`¿Eliminar ${label}${c ? ` "${c.name}"` : ''}? Se perderá su historial de pagos.`)) return;
     persist({ compromisos: compromisos.filter((c) => c.id !== id) });
   };
@@ -1059,7 +1090,7 @@ function LibroDiario() {
   const submitAbono = () => {
     const c = sheet.compromiso;
     const amt = toNumber(abonoForm.amount);
-    const isIngreso = c.kind === 'ingreso_fijo';
+    const isIngreso = c.kind === 'ingreso_fijo' || c.kind === 'cxc';
     if (!amt || amt <= 0) return setAbonoError('Ingresa un monto válido.');
     if (!abonoForm.locationId) return setAbonoError(isIngreso ? 'Elige a dónde entra este dinero.' : 'Elige de dónde sale este dinero.');
     const paymentId = uid();
@@ -1067,7 +1098,7 @@ function LibroDiario() {
     const nextCompromisos = compromisos.map((x) => {
       if (x.id !== c.id) return x;
       const nextPayments = [...x.payments, payment];
-      if (x.kind === 'deuda') {
+      if (isBalanceKind(x.kind)) {
         const currentBalance = x.balance != null ? x.balance : x.amount;
         return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance - amt) };
       }
@@ -1079,7 +1110,7 @@ function LibroDiario() {
       const parts = c.shared.participants.filter((p) => p.amount > 0).map((p) => ({ id: uid(), name: p.name, amount: Math.round(p.amount * ratio * 100) / 100, paid: false }));
       if (parts.length) shared = { participants: parts };
     }
-    const notePrefix = isIngreso ? 'Ingreso' : 'Abono';
+    const notePrefix = c.kind === 'cxc' ? 'Cobro' : (isIngreso ? 'Ingreso' : 'Abono');
     const nextTx = [...transactions, { id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: c.category, amount: amt, note: `${notePrefix} · ${c.name}${abonoForm.note ? ' — ' + abonoForm.note.trim() : ''}`, date: abonoForm.date, shared, compromisoId: c.id, paymentId, locationId: abonoForm.locationId, autor: profile?.name || 'Familia' }];
     const patch = { compromisos: nextCompromisos, transactions: nextTx };
     patch.moneyLocations = moneyLocations.map((l) => l.id === abonoForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta(isIngreso ? 'ingreso' : 'gasto', amt) } : l);
@@ -1534,10 +1565,10 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>¿Dónde está el dinero?</span>
-                <button className="mini-abonar" onClick={() => setTab('compromisos')}>Ver en CxP</button>
+                <button className="mini-abonar" onClick={() => setTab('compromisos')}>Ver detalle</button>
               </div>
               {moneyLocations.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien desde la pestaña CxP.</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien desde la pestaña Cuentas.</div>
               ) : (
                 <>
                   {moneyLocationsByPerson.map(([persona, locs]) => (
@@ -1706,11 +1737,11 @@ function LibroDiario() {
           </>
         ) : tab === 'compromisos' ? (
           <>
-            <div className="card-title" style={{ padding: '0 2px' }}>Cuentas por pagar (CxP)</div>
+            <div className="card-title" style={{ padding: '0 2px' }}>Mis cuentas</div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', padding: '0 2px', margin: '-6px 0 12px' }}>
-              Da de alta aquí tus préstamos, gastos fijos e ingresos fijos. Usa el botón + para agregar uno nuevo.
+              Da de alta aquí tus préstamos (CxP), lo que te deben (CxC), gastos fijos e ingresos fijos. Usa el botón + para agregar uno nuevo.
             </div>
-            {deudas.length === 0 && fijos.length === 0 && ingresosFijos.length === 0 ? (
+            {deudas.length === 0 && cxc.length === 0 && fijos.length === 0 && ingresosFijos.length === 0 ? (
               <div className="empty-state" style={{ padding: '20px 10px' }}>Sin cuentas registradas todavía.</div>
             ) : (
               <>
@@ -1752,6 +1783,44 @@ function LibroDiario() {
                     ))}
                   </>
                 )}
+                {cxc.length > 0 && (
+                  <>
+                    <div className="totals-subhead">Me deben (CxC)</div>
+                    {cxc.map((c) => (
+                      <div className="compromiso-card" key={c.id}>
+                        <div className="compromiso-top">
+                          <div className="compromiso-icon" style={{ background: '#3E8E7E' }}><Icon name="ArrowDownRight" size={16} /></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Cuenta por cobrar · CxC</span> · Cobranza</div></div>
+                          <button className="compromiso-del" onClick={() => deleteCompromiso(c.id)}><Icon name="Trash2" size={14} /></button>
+                        </div>
+                        <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.liquidada ? 'var(--income)' : 'var(--gold)' }} /></div>
+                        <div className="compromiso-nums">
+                          <span>Prestado: {fmt(c.amount)}</span>
+                          <span>Cobrado: {fmt(c.pagado)}</span>
+                          <span className={`pend ${c.liquidada ? 'done' : ''}`}>{c.liquidada ? 'Cobrado ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
+                        </div>
+                        {c.lastAdjustment && (
+                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -4, marginBottom: 10 }}>
+                            Último ajuste: {new Date(c.lastAdjustment.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} · {fmt(c.lastAdjustment.to)}{c.lastAdjustment.note ? ` — ${c.lastAdjustment.note}` : ''}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="abonar-btn" disabled={c.liquidada} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.liquidada ? 'Cobrado ✓' : 'Registrar cobro'}</button>
+                          {CXP_EDITABLE_CATS.includes('cobranza') && (
+                            <button
+                              className="abonar-btn"
+                              style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                              onClick={() => openEditAmount(c)}
+                              title="Actualiza el saldo pendiente a mano"
+                            >
+                              <Icon name="Pencil" size={12} /> Actualizar monto
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
                 {fijos.length > 0 && (
                   <>
                     <div className="totals-subhead">Gastos fijos</div>
@@ -1763,7 +1832,7 @@ function LibroDiario() {
                       >
                         <div className="compromiso-top">
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name="Repeat" size={16} /></div>
-                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo · CxP</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span> <Icon name="MoreHorizontal" size={11} style={{ verticalAlign: 'middle' }} /></>}</div></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge fijo">Gasto fijo</span> · {catById(c.category).label}{c.shared && <> · <span className="shared-badge">COMPARTIDO</span> <Icon name="MoreHorizontal" size={11} style={{ verticalAlign: 'middle' }} /></>}</div></div>
                           <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>
                         </div>
                         <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: c.pendiente <= 0.01 ? 'var(--income)' : 'var(--gold)' }} /></div>
@@ -1802,7 +1871,7 @@ function LibroDiario() {
                       <div className="compromiso-card" key={c.id}>
                         <div className="compromiso-top">
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
-                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo · CxP</span> · {catById(c.category).label}</div></div>
+                          <div><div className="compromiso-name">{c.name}</div><div className="compromiso-sub"><span className="kind-badge ingreso">Ingreso fijo</span> · {catById(c.category).label}</div></div>
                           <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteCompromiso(c.id); }}><Icon name="Trash2" size={14} /></button>
                         </div>
                         <div className="progress-track"><div className="progress-fill" style={{ width: `${c.pct}%`, background: 'var(--income)' }} /></div>
@@ -1931,7 +2000,7 @@ function LibroDiario() {
             </div>
             <div className="card">
               <div className="card-title">Préstamos · por categoría</div>
-              {prestamosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin préstamos pendientes. Dalos de alta desde la pestaña CxP.</div> : (
+              {prestamosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin préstamos pendientes. Dalos de alta desde la pestaña Cuentas.</div> : (
                 <>
                   <div className="chart-wrap">
                     <CategoryDonut data={prestamosPorCategoria} title="Préstamos" />
@@ -1942,7 +2011,7 @@ function LibroDiario() {
             </div>
             <div className="card">
               <div className="card-title">Gastos fijos · por concepto</div>
-              {gastosFijosPorConcepto.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos fijos pendientes. Dalos de alta desde la pestaña CxP.</div> : (
+              {gastosFijosPorConcepto.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos fijos pendientes. Dalos de alta desde la pestaña Cuentas.</div> : (
                 <>
                   <div className="chart-wrap">
                     <CategoryDonut data={gastosFijosPorConcepto} title="Fijos" />
@@ -1953,7 +2022,7 @@ function LibroDiario() {
             </div>
             <div className="card">
               <div className="card-title">¿Dónde está el dinero? · por persona</div>
-              {moneyPorPersona.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra saldos de efectivo/tarjeta desde la pestaña CxP.</div> : (
+              {moneyPorPersona.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra saldos de efectivo/tarjeta desde la pestaña Cuentas.</div> : (
                 <>
                   <div className="chart-wrap">
                     <CategoryDonut data={moneyPorPersona} title="Dinero" />
@@ -2019,7 +2088,7 @@ function LibroDiario() {
       <div className="bottom-nav">
         <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => setTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
         <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => setTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
-        <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => setTab('compromisos')}><Icon name="CreditCard" size={17} />CxP</button>
+        <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => setTab('compromisos')}><Icon name="CreditCard" size={17} />Cuentas</button>
         <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => setTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
         <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => setTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
       </div>
@@ -2047,7 +2116,7 @@ function LibroDiario() {
                 <div className="field-label">{txForm.type === 'ingreso' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
                 {moneyLocations.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                    Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP (sección "¿Dónde está el dinero?") para poder guardar este movimiento.
+                    Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Cuentas (sección "¿Dónde está el dinero?") para poder guardar este movimiento.
                   </div>
                 ) : (
                   <div className="cat-grid">
@@ -2243,7 +2312,7 @@ function LibroDiario() {
             <div className="field-label">{editTxForm.type === 'ingreso' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
             {moneyLocations.length === 0 ? (
               <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP para poder guardar este movimiento.
+                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Cuentas para poder guardar este movimiento.
               </div>
             ) : (
               <div className="cat-grid">
@@ -2299,34 +2368,41 @@ function LibroDiario() {
       {sheet?.type === 'new-compromiso' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header"><span className="sheet-title">{compForm.kind === 'deuda' ? 'Nueva cuenta por pagar (CxP)' : compForm.kind === 'ingreso_fijo' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-            <div className="type-toggle">
+            <div className="sheet-header"><span className="sheet-title">{compForm.kind === 'deuda' ? 'Nueva cuenta por pagar (CxP)' : compForm.kind === 'cxc' ? 'Nueva cuenta por cobrar (CxC)' : compForm.kind === 'ingreso_fijo' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="type-toggle" style={{ flexWrap: 'wrap' }}>
               <button className={compForm.kind === 'deuda' ? 'active deuda' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'deuda', category: 'deudas' }))}><Icon name="Landmark" size={14} /> Préstamo</button>
+              <button className={compForm.kind === 'cxc' ? 'active deuda' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'cxc', category: 'cobranza' }))}><Icon name="ArrowDownRight" size={14} /> Me deben (CxC)</button>
               <button className={compForm.kind === 'fijo' ? 'active fijo' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'fijo', category: '' }))}><Icon name="Repeat" size={14} /> Gasto fijo</button>
               <button className={compForm.kind === 'ingreso_fijo' ? 'active ingreso' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'ingreso_fijo', category: '' }))}><Icon name="ArrowUpRight" size={14} /> Ingreso fijo</button>
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               {compForm.kind === 'deuda'
-                ? 'Registra préstamos, tarjetas o cuentas por pagar. Podrás abonar después desde la pestaña CxP.'
+                ? 'Registra préstamos, tarjetas o cuentas por pagar. Podrás abonar después desde la pestaña Cuentas.'
+                : compForm.kind === 'cxc'
+                ? 'Registra dinero que le prestaste a alguien. Cuando te vaya pagando, regístralo como cobro y se sumará a tus ingresos (cuenta 4300 · Cobranza).'
                 : 'Esto solo da de alta el compromiso; todavía no se crea ningún movimiento. Cuando hagas el pago (o lo recibas), regístralo desde el botón + o con "Abonar" aquí mismo.'}
             </div>
             <div className="field-label">Nombre</div>
-            <input className="text-input" placeholder={compForm.kind === 'deuda' ? 'Ej. Préstamo bancario' : compForm.kind === 'ingreso_fijo' ? 'Ej. Nómina, comisiones...' : 'Ej. Renta, Internet...'} value={compForm.name} onChange={(e) => setCompForm((f) => ({ ...f, name: e.target.value }))} />
-            <div className="field-label">{compForm.kind === 'deuda' ? 'Monto total del préstamo' : 'Monto mensual'}</div>
+            <input className="text-input" placeholder={compForm.kind === 'deuda' ? 'Ej. Préstamo bancario' : compForm.kind === 'cxc' ? 'Ej. Le presté a mi hermano' : compForm.kind === 'ingreso_fijo' ? 'Ej. Nómina, comisiones...' : 'Ej. Renta, Internet...'} value={compForm.name} onChange={(e) => setCompForm((f) => ({ ...f, name: e.target.value }))} />
+            <div className="field-label">{compForm.kind === 'deuda' ? 'Monto total del préstamo' : compForm.kind === 'cxc' ? 'Monto total prestado' : 'Monto mensual'}</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={compForm.amount} onChange={(e) => setCompForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} /></div>
             {compForm.kind === 'deuda' && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
                 Si es de un banco (Nu, Bodega Aurrera, etc.) que sube el saldo por intereses, no te preocupes por eso ahora: cada mes podrás actualizar el monto pendiente directo desde la tarjeta del préstamo con el estado de cuenta que te manden.
               </div>
             )}
-            <div className="field-label">Categoría</div>
-            <div className="cat-grid">
-              {CXP_CATS.map((c) => { return (
-                <div key={c.id} className={`cat-choice ${compForm.category === c.id ? 'selected' : ''}`} onClick={() => setCompForm((f) => ({ ...f, category: c.id }))}>
-                  <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
+            {compForm.kind !== 'cxc' && (
+              <>
+                <div className="field-label">Categoría</div>
+                <div className="cat-grid">
+                  {CXP_CATS.map((c) => { return (
+                    <div key={c.id} className={`cat-choice ${compForm.category === c.id ? 'selected' : ''}`} onClick={() => setCompForm((f) => ({ ...f, category: c.id }))}>
+                      <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
+                    </div>
+                  ); })}
                 </div>
-              ); })}
-            </div>
+              </>
+            )}
             {compForm.kind === 'fijo' && (
               <>
                 <div className="toggle-row">
@@ -2369,7 +2445,7 @@ function LibroDiario() {
               </>
             )}
             {compError && <div className="form-error">{compError}</div>}
-            <button className="save-btn" onClick={submitCompromiso}><Icon name="Check" size={16} /> {compForm.kind === 'deuda' ? 'Crear préstamo' : compForm.kind === 'ingreso_fijo' ? 'Crear ingreso fijo' : 'Crear gasto fijo'}</button>
+            <button className="save-btn" onClick={submitCompromiso}><Icon name="Check" size={16} /> {compForm.kind === 'deuda' ? 'Crear préstamo' : compForm.kind === 'cxc' ? 'Crear cuenta por cobrar' : compForm.kind === 'ingreso_fijo' ? 'Crear ingreso fijo' : 'Crear gasto fijo'}</button>
           </div>
         </div>
       )}
@@ -2377,13 +2453,13 @@ function LibroDiario() {
       {sheet?.type === 'abonar' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header"><span className="sheet-title">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Ingreso recibido' : 'Abonar'} · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Monto recibido' : 'Monto a abonar'} *</div>
+            <div className="sheet-header"><span className="sheet-title">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Ingreso recibido' : sheet.compromiso.kind === 'cxc' ? 'Cobro' : 'Abonar'} · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Monto recibido' : sheet.compromiso.kind === 'cxc' ? 'Monto cobrado' : 'Monto a abonar'} *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" value={abonoForm.amount} onChange={(e) => setAbonoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
+            <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' || sheet.compromiso.kind === 'cxc' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
             {moneyLocations.length === 0 ? (
               <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña CxP para poder guardar este movimiento.
+                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Cuentas para poder guardar este movimiento.
               </div>
             ) : (
               <div className="cat-grid">
@@ -2402,9 +2478,9 @@ function LibroDiario() {
             <div className="field-label">Fecha</div>
             <input className="text-input" type="date" value={abonoForm.date} onChange={(e) => setAbonoForm((f) => ({ ...f, date: e.target.value }))} />
             <div className="field-label">Nota (opcional)</div>
-            <input className="text-input" placeholder={sheet.compromiso.kind === 'ingreso_fijo' ? 'Ej. Nómina de julio' : 'Ej. Pago parcial de mayo'} value={abonoForm.note} onChange={(e) => setAbonoForm((f) => ({ ...f, note: e.target.value }))} />
+            <input className="text-input" placeholder={sheet.compromiso.kind === 'ingreso_fijo' ? 'Ej. Nómina de julio' : sheet.compromiso.kind === 'cxc' ? 'Ej. Abono de Juan' : 'Ej. Pago parcial de mayo'} value={abonoForm.note} onChange={(e) => setAbonoForm((f) => ({ ...f, note: e.target.value }))} />
             {abonoError && <div className="form-error">{abonoError}</div>}
-            <button className="save-btn" disabled={!(toNumber(abonoForm.amount) > 0 && abonoForm.locationId)} onClick={submitAbono}><Icon name="Check" size={16} /> {sheet.compromiso.kind === 'ingreso_fijo' ? 'Registrar ingreso' : 'Registrar abono'}</button>
+            <button className="save-btn" disabled={!(toNumber(abonoForm.amount) > 0 && abonoForm.locationId)} onClick={submitAbono}><Icon name="Check" size={16} /> {sheet.compromiso.kind === 'ingreso_fijo' ? 'Registrar ingreso' : sheet.compromiso.kind === 'cxc' ? 'Registrar cobro' : 'Registrar abono'}</button>
           </div>
         </div>
       )}
@@ -2699,6 +2775,9 @@ function LibroDiario() {
             <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setOnboarding(true); }}>
               <Icon name="LogOut" size={14} /> Cambiar de persona
             </button>
+            <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setSheet({ type: 'catalogo-cuentas' }); }}>
+              <Icon name="List" size={14} /> Catálogo de cuentas contables
+            </button>
 
             {notifPermission !== 'unsupported' && (
               <>
@@ -2732,6 +2811,31 @@ function LibroDiario() {
             <button className="danger-btn" onClick={() => { if (window.confirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)? Esta acción no se puede deshacer.')) clearAll(); }}>
               <Icon name="Trash2" size={14} /> Borrar todo el historial
             </button>
+          </div>
+        </div>
+      )}
+      {sheet?.type === 'catalogo-cuentas' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">Catálogo de cuentas contables</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
+              Todas las cuentas contables que Libro·Diario ya usa para clasificar tus movimientos, agrupadas como un catálogo contable normal.
+            </div>
+            {Object.entries(
+              CATALOGO_COMPLETO.reduce((acc, c) => { (acc[c.grupo] = acc[c.grupo] || []).push(c); return acc; }, {})
+            ).map(([grupo, cuentas]) => (
+              <div key={grupo} style={{ marginBottom: 16 }}>
+                <div className="er-group-title" style={{ color: 'var(--ink-soft)' }}>{grupo}</div>
+                {cuentas.map((c) => (
+                  <div className="er-row" key={c.codigo + c.nombre} style={{ alignItems: 'flex-start' }}>
+                    <span className="er-cuenta">
+                      <span className="er-codigo">{c.codigo}</span> {c.nombre}
+                      {c.nota && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{c.nota}</div>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
