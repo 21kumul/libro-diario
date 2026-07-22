@@ -88,6 +88,11 @@ const CUENTA_CONTABLE = {
 };
 const cuentaOf = (catId) => CUENTA_CONTABLE[catId] || { codigo: '4900', nombre: catById(catId).label, grupo: INGRESO_CATS.some((c) => c.id === catId) ? 'ingresos' : 'gastos' };
 const GRUPO_LABEL = { ingresos: 'Ingresos', gastos: 'Costos y gastos' };
+// El ahorro no es un ingreso ni un gasto: es dinero que se mueve de una cuenta
+// de activo (banco/efectivo) a otra cuenta de activo (ahorro), así que no
+// entra a las cuentas de arriba y no afecta la utilidad neta. Se registra
+// como cuenta de Activo, aparte, para poder mostrarla como referencia.
+const CUENTA_AHORRO = { codigo: '1200', nombre: 'Ahorros e inversiones', grupo: 'activo' };
 
 // Las categorías cambiaron de nombre/lista en una actualización; esto traduce
 // datos guardados con las categorías viejas a las nuevas la primera vez que
@@ -1827,47 +1832,6 @@ function LibroDiario() {
         ) : (
           <>
             <div className="card">
-              <div className="card-title">Estado de Resultado · {PERIOD_LABEL[period]}</div>
-              {estadoResultado.ingresos.length === 0 && estadoResultado.gastos.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este periodo.</div>
-              ) : (
-                <>
-                  <div className="er-group-title" style={{ color: 'var(--income)' }}>{GRUPO_LABEL.ingresos}</div>
-                  {estadoResultado.ingresos.length === 0 ? (
-                    <div className="er-empty">Sin ingresos en este periodo.</div>
-                  ) : estadoResultado.ingresos.map((r) => (
-                    <div className="er-row" key={r.codigo}>
-                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
-                      <span className="er-monto">{fmt(r.value)}</span>
-                    </div>
-                  ))}
-                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
-                    <span>Total ingresos</span>
-                    <span style={{ color: 'var(--income)' }}>{fmt(estadoResultado.totalIngresos)}</span>
-                  </div>
-
-                  <div className="er-group-title" style={{ color: 'var(--expense)', marginTop: 14 }}>{GRUPO_LABEL.gastos}</div>
-                  {estadoResultado.gastos.length === 0 ? (
-                    <div className="er-empty">Sin gastos en este periodo.</div>
-                  ) : estadoResultado.gastos.map((r) => (
-                    <div className="er-row" key={r.codigo}>
-                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
-                      <span className="er-monto">{fmt(r.value)}</span>
-                    </div>
-                  ))}
-                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
-                    <span>Total costos y gastos</span>
-                    <span style={{ color: 'var(--expense)' }}>{fmt(estadoResultado.totalGastos)}</span>
-                  </div>
-
-                  <div className="er-total-row" style={{ borderTop: '2px solid var(--ink)', marginTop: 10, paddingTop: 10 }}>
-                    <span style={{ fontWeight: 700 }}>Utilidad neta</span>
-                    <span style={{ fontWeight: 700, color: estadoResultado.utilidad >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(estadoResultado.utilidad)}</span>
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="card">
               <div className="card-title">Gastos por categoría · {PERIOD_LABEL[period]}</div>
               {gastosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos en este periodo.</div> : (
                 <>
@@ -1917,6 +1881,54 @@ function LibroDiario() {
                     <CategoryDonut data={moneyPorPersona} title="Dinero" />
                   </div>
                   <div className="legend-row">{moneyPorPersona.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
+                </>
+              )}
+            </div>
+            <div className="card">
+              <div className="card-title">Estado de Resultado · {PERIOD_LABEL[period]}</div>
+              {estadoResultado.ingresos.length === 0 && estadoResultado.gastos.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este periodo.</div>
+              ) : (
+                <>
+                  <div className="er-group-title" style={{ color: 'var(--income)' }}>{GRUPO_LABEL.ingresos}</div>
+                  {estadoResultado.ingresos.length === 0 ? (
+                    <div className="er-empty">Sin ingresos en este periodo.</div>
+                  ) : estadoResultado.ingresos.map((r) => (
+                    <div className="er-row" key={r.codigo}>
+                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
+                      <span className="er-monto">{fmt(r.value)}</span>
+                    </div>
+                  ))}
+                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
+                    <span>Total ingresos</span>
+                    <span style={{ color: 'var(--income)' }}>{fmt(estadoResultado.totalIngresos)}</span>
+                  </div>
+
+                  <div className="er-group-title" style={{ color: 'var(--expense)', marginTop: 14 }}>{GRUPO_LABEL.gastos}</div>
+                  {estadoResultado.gastos.length === 0 ? (
+                    <div className="er-empty">Sin gastos en este periodo.</div>
+                  ) : estadoResultado.gastos.map((r) => (
+                    <div className="er-row" key={r.codigo}>
+                      <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
+                      <span className="er-monto">{fmt(r.value)}</span>
+                    </div>
+                  ))}
+                  <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
+                    <span>Total costos y gastos</span>
+                    <span style={{ color: 'var(--expense)' }}>{fmt(estadoResultado.totalGastos)}</span>
+                  </div>
+
+                  <div className="er-total-row" style={{ borderTop: '2px solid var(--ink)', marginTop: 10, paddingTop: 10 }}>
+                    <span style={{ fontWeight: 700 }}>Utilidad neta</span>
+                    <span style={{ fontWeight: 700, color: estadoResultado.utilidad >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(estadoResultado.utilidad)}</span>
+                  </div>
+
+                  <div className="er-group-title" style={{ color: 'var(--gold)', marginTop: 14 }}>Balance (no afecta la utilidad)</div>
+                  <div className="er-row">
+                    <span className="er-cuenta"><span className="er-codigo">{CUENTA_AHORRO.codigo}</span> {CUENTA_AHORRO.nombre}</span>
+                    <span className="er-monto">{fmt(savingsMovesInPeriod)}</span>
+                  </div>
+                  <div className="er-empty">Traspaso de banco/efectivo a ahorro en el periodo · cuenta de Activo, no es gasto.</div>
                 </>
               )}
             </div>
