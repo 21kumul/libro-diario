@@ -152,8 +152,15 @@ const formatAmountTyping = (raw) => {
 // Convierte un monto (ya sea "3,000.50" o "3000.5") a número real para sumar/guardar.
 const toNumber = (raw) => parseFloat(String(raw ?? '').replace(/,/g, '')) || 0;
 
-const fmt = (n) =>
-  (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+// HIDE_AMOUNTS se actualiza de forma síncrona en cada render del componente
+// (ver "HIDE_AMOUNTS = hideAmounts;" más abajo). Es la forma más simple de
+// enmascarar los montos en TODA la app sin tener que pasar el estado a cada
+// lugar donde se usa fmt().
+let HIDE_AMOUNTS = false;
+const fmt = (n) => {
+  if (HIDE_AMOUNTS) return '••••';
+  return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+};
 
 const todayStr = () => {
   const d = new Date();
@@ -315,18 +322,24 @@ function LibroDiario() {
   const [newMemberRole, setNewMemberRole] = useState('');
   const [memberError, setMemberError] = useState('');
   const [filterAutor, setFilterAutor] = useState('todos');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Ocultar montos: preferencia personal (no se comparte con la familia), se
+  // guarda solo en este dispositivo.
+  const [hideAmounts, setHideAmounts] = useState(() => { try { return localStorage.getItem('ld_hideAmounts') === '1'; } catch { return false; } });
+  HIDE_AMOUNTS = hideAmounts;
+  useEffect(() => { try { localStorage.setItem('ld_hideAmounts', hideAmounts ? '1' : '0'); } catch {} }, [hideAmounts]);
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
 
-  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
+  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), locationId: '' });
   const [editTxError, setEditTxError] = useState('');
 
   const [compForm, setCompForm] = useState({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [] });
@@ -557,10 +570,18 @@ function LibroDiario() {
     const groups = {};
     let list = filterCat === 'todas' ? filtered : filtered.filter((t) => t.category === filterCat);
     if (filterAutor !== 'todos') list = list.filter((t) => (t.autor || 'Familia') === filterAutor);
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((t) => {
+        const cat = t.type === 'traspaso' ? 'traspaso' : catById(t.category).label.toLowerCase();
+        const haystack = [t.note, cat, t.tag, String(t.amount)].filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(q);
+      });
+    }
     list.slice().sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
       .forEach((t) => { (groups[t.date] = groups[t.date] || []).push(t); });
     return Object.entries(groups);
-  }, [filtered, filterCat, filterAutor]);
+  }, [filtered, filterCat, filterAutor, searchQuery]);
 
   const gastosPorCategoria = useMemo(() => {
     const map = {};
@@ -710,7 +731,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -853,7 +874,7 @@ function LibroDiario() {
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), tag: txForm.tag.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
@@ -923,7 +944,7 @@ function LibroDiario() {
   };
 
   const openEditTx = (t) => {
-    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '' });
+    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', tag: t.tag || '', date: t.date, locationId: t.locationId || '' });
     setEditTxError('');
     setSheet({ type: 'edit-tx' });
   };
@@ -975,6 +996,7 @@ function LibroDiario() {
       category: editTxForm.category,
       subcategory: editTxForm.subcategory || null,
       note: editTxForm.note.trim(),
+      tag: editTxForm.tag.trim(),
       date: editTxForm.date,
       paymentId: syncedPaymentId,
       locationId: nextLocationId,
@@ -1372,6 +1394,10 @@ function LibroDiario() {
         .cat-row-amount { font-family: var(--mono); font-size: 13px; font-weight: 600; width: 78px; text-align: right; flex-shrink: 0; }
         .empty-state { text-align: center; padding: 44px 20px; color: var(--ink-soft); }
         .empty-state .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+        .search-wrap { display: flex; align-items: center; gap: 8px; background: var(--paper-dim); border-radius: 14px; padding: 10px 14px; margin-bottom: 12px; color: var(--ink-soft); }
+        .search-input { flex: 1; border: none; background: transparent; outline: none; font-size: 15px; font-family: inherit; color: var(--ink); }
+        .search-input::placeholder { color: var(--ink-soft); }
+        .search-clear { background: var(--line); border: none; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; }
         .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
         .filter-chip { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
         .filter-chip.active { background: var(--green); border-color: var(--green); color: var(--paper); }
@@ -1388,6 +1414,7 @@ function LibroDiario() {
         .tx-amount.in { color: var(--income); } .tx-amount.out { color: var(--expense); }
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
+        .tag-badge { font-size: 9.5px; background: var(--paper-dim); color: var(--ink-soft); padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 5px; }
         .bottom-nav { position: sticky; bottom: 0; background: var(--paper); border-top: 1px solid var(--line); display: flex; padding: 7px 4px calc(7px + env(safe-area-inset-bottom, 0px)) 4px; justify-content: space-around; align-items: center; }
         .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--ink-soft); font-size: 9px; font-weight: 600; padding: 6px 10px; border-radius: 12px; cursor: pointer; letter-spacing: 0.3px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
         .nav-btn.active { font-weight: 700; }
@@ -1536,6 +1563,7 @@ function LibroDiario() {
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {profile && <div className="mini-avatar" style={{ background: colorForName(profile.name) }} title={profile.name}>{profile.name.charAt(0).toUpperCase()}</div>}
+            <button className="icon-btn" onClick={() => setHideAmounts((v) => !v)} title={hideAmounts ? 'Mostrar montos' : 'Ocultar montos'}><Icon name={hideAmounts ? 'EyeOff' : 'Eye'} size={16} /></button>
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => setSettingsOpen(true)}><Icon name="Settings" size={16} /></button>
           </div>
@@ -1690,6 +1718,19 @@ function LibroDiario() {
                 ))}
               </div>
             )}
+            <div className="search-wrap">
+              <Icon name="Search" size={15} />
+              <input
+                className="search-input"
+                type="text"
+                placeholder="Buscar concepto, monto, etiqueta..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button className="search-clear" onClick={() => setSearchQuery('')}><Icon name="X" size={13} /></button>
+              )}
+            </div>
             <div className="filter-row">
               <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
               {ALL_CATS.map((c) => <button key={c.id} className={`filter-chip ${filterCat === c.id ? 'active' : ''}`} onClick={() => setFilterCat(c.id)}>{c.label}</button>)}
@@ -1725,7 +1766,7 @@ function LibroDiario() {
                       <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
                         <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
                         <div className="tx-mid">
-                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{t.tag && <span className="tag-badge">{t.tag}</span>}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
                           <div className="tx-note">{t.note}{t.note && ' · '}<span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
                         </div>
                         <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
@@ -2258,6 +2299,8 @@ function LibroDiario() {
             )}
             <div className="field-label">Nota *</div>
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={txForm.note} onChange={(e) => setTxForm((f) => ({ ...f, note: e.target.value }))} />
+            <div className="field-label">Etiqueta (opcional)</div>
+            <input className="text-input" type="text" placeholder="Ej. Mamá, viaje, trabajo..." value={txForm.tag} onChange={(e) => setTxForm((f) => ({ ...f, tag: e.target.value }))} />
             <div className="field-label">Fecha *</div>
             <input className="text-input" type="date" value={txForm.date} onChange={(e) => setTxForm((f) => ({ ...f, date: e.target.value }))} />
 
@@ -2354,6 +2397,8 @@ function LibroDiario() {
             })()}
             <div className="field-label">Nota *</div>
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={editTxForm.note} onChange={(e) => setEditTxForm((f) => ({ ...f, note: e.target.value }))} />
+            <div className="field-label">Etiqueta (opcional)</div>
+            <input className="text-input" type="text" placeholder="Ej. Mamá, viaje, trabajo..." value={editTxForm.tag} onChange={(e) => setEditTxForm((f) => ({ ...f, tag: e.target.value }))} />
             <div className="field-label">Fecha *</div>
             <input className="text-input" type="date" value={editTxForm.date} onChange={(e) => setEditTxForm((f) => ({ ...f, date: e.target.value }))} />
             {editTxError && <div className="form-error">{editTxError}</div>}
