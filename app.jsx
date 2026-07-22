@@ -1327,10 +1327,12 @@ function LibroDiario() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
         .ledger-app {
-          --paper: #FAF9F5; --paper-dim: #F0EDE4; --ink: #1C1F1D; --ink-soft: #6B6A62;
+          --paper: #FAFAFA; --paper-dim: #EFEFF2; --ink: #1C1C1E; --ink-soft: #6E6E73;
           --green: #1E3D32; --green-soft: #2C5645; --gold: #C29B3E; --income: #2E7D5B;
-          --expense: #B0432E; --line: #DCD7C9; --mono: 'IBM Plex Mono', ui-monospace, monospace;
-          --sans: 'IBM Plex Sans', system-ui, sans-serif;
+          --expense: #B0432E; --line: #E3E3E7; --mono: ui-monospace, 'SF Mono', 'IBM Plex Mono', monospace;
+          --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'IBM Plex Sans', sans-serif;
+          --shadow-card: 0 1px 1px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.055);
+          --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.12);
           font-family: var(--sans); color: var(--ink); background: var(--paper-dim);
           max-width: 460px; margin: 0 auto; height: 100dvh; height: 100vh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
