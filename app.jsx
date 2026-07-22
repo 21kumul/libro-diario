@@ -509,7 +509,11 @@ function LibroDiario() {
 
   const totals = useMemo(() => {
     let ingresos = 0, gastos = 0;
-    filtered.forEach((t) => (t.type === 'ingreso' ? (ingresos += t.amount) : (gastos += t.amount)));
+    filtered.forEach((t) => {
+      if (t.type === 'ingreso') ingresos += t.amount;
+      else if (t.type === 'gasto') gastos += t.amount;
+      // 'traspaso' no es ingreso ni gasto: es dinero que se mueve entre tus propias cuentas.
+    });
     const disponible = ingresos - gastos - savingsMovesInPeriod;
     return { ingresos, gastos, disponible };
   }, [filtered, savingsMovesInPeriod]);
@@ -548,6 +552,7 @@ function LibroDiario() {
   const estadoResultado = useMemo(() => {
     const map = {}; // codigo -> { codigo, nombre, grupo, value }
     filtered.forEach((t) => {
+      if (t.type === 'traspaso') return; // mueve dinero entre cuentas propias, no es ingreso ni gasto
       const cuenta = cuentaOf(t.category);
       const signed = t.type === 'ingreso' ? t.amount : t.amount; // se separan por grupo, no se resta aquí
       const key = cuenta.codigo;
@@ -836,6 +841,56 @@ function LibroDiario() {
     persist(patch);
   };
 
+  // ---------- traspasos entre cuentas propias (ej. Banco -> Efectivo) ----------
+  const openTraspaso = () => {
+    setTraspasoForm({ fromId: '', toId: '', amount: '', note: '', date: todayStr() });
+    setTraspasoError('');
+    setSheet({ type: 'traspaso' });
+  };
+
+  const submitTraspaso = () => {
+    const amt = toNumber(traspasoForm.amount);
+    if (!amt || amt <= 0) return setTraspasoError('Ingresa un monto válido.');
+    if (!traspasoForm.fromId) return setTraspasoError('Elige de dónde sale el dinero.');
+    if (!traspasoForm.toId) return setTraspasoError('Elige a dónde entra el dinero.');
+    if (traspasoForm.fromId === traspasoForm.toId) return setTraspasoError('Elige dos ubicaciones distintas.');
+    if (!traspasoForm.date) return setTraspasoError('Elige una fecha.');
+    const from = moneyLocations.find((l) => l.id === traspasoForm.fromId);
+    const to = moneyLocations.find((l) => l.id === traspasoForm.toId);
+    if (!from || !to) return setTraspasoError('Esa ubicación ya no existe.');
+    const tx = {
+      id: uid(), type: 'traspaso', amount: amt,
+      fromLocationId: from.id, toLocationId: to.id,
+      note: traspasoForm.note.trim(), date: traspasoForm.date,
+      autor: profile?.name || 'Familia',
+    };
+    const nextLocations = moneyLocations.map((l) => {
+      if (l.id === from.id) return { ...l, monto: (l.monto || 0) - amt };
+      if (l.id === to.id) return { ...l, monto: (l.monto || 0) + amt };
+      return l;
+    });
+    persist({ transactions: [...transactions, tx], moneyLocations: nextLocations });
+    setSheet(null);
+  };
+
+  const deleteTraspaso = (id) => {
+    if (!window.confirm('¿Eliminar este traspaso? Se revertirá el monto en ambas cuentas. No se puede deshacer.')) return;
+    const orig = transactions.find((t) => t.id === id);
+    if (!orig) return;
+    const nextLocations = moneyLocations.map((l) => {
+      if (l.id === orig.fromLocationId) return { ...l, monto: (l.monto || 0) + orig.amount };
+      if (l.id === orig.toLocationId) return { ...l, monto: (l.monto || 0) - orig.amount };
+      return l;
+    });
+    persist({ transactions: transactions.filter((t) => t.id !== id), moneyLocations: nextLocations });
+  };
+  // Nombre corto de una ubicación para mostrar en el detalle del traspaso.
+  const locationLabel = (id) => {
+    const l = moneyLocations.find((x) => x.id === id);
+    if (!l) return 'Cuenta eliminada';
+    return `${l.persona} · ${l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Efectivo'}`;
+  };
+
   const openEditTx = (t) => {
     setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '' });
     setEditTxError('');
@@ -1072,6 +1127,11 @@ function LibroDiario() {
 
   const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '' });
   const [locError, setLocError] = useState('');
+
+  // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
+  // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
+  const [traspasoForm, setTraspasoForm] = useState({ fromId: '', toId: '', amount: '', note: '', date: todayStr() });
+  const [traspasoError, setTraspasoError] = useState('');
   const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '' });
   const [editLocError, setEditLocError] = useState('');
 
@@ -1614,6 +1674,19 @@ function LibroDiario() {
                 <div className="date-heading">{new Date(date + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}</div>
                 <div className="card" style={{ paddingTop: 4, paddingBottom: 4 }}>
                   {txs.map((t) => {
+                    if (t.type === 'traspaso') {
+                      return (
+                        <div className="tx-row" key={t.id} onClick={() => deleteTraspaso(t.id)}>
+                          <div className="tx-icon" style={{ background: 'var(--gold)' }}><Icon name="ArrowLeftRight" size={16} /></div>
+                          <div className="tx-mid">
+                            <div className="tx-cat">Traspaso{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                            <div className="tx-note">{locationLabel(t.fromLocationId)} → {locationLabel(t.toLocationId)}{t.note && ` · ${t.note}`} · <span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
+                          </div>
+                          <div className="tx-amount" style={{ color: 'var(--gold)' }}>{fmt(t.amount)}</div>
+                          <span className="tx-edit-hint"><Icon name="Trash2" size={13} /></span>
+                        </div>
+                      );
+                    }
                     const c = catById(t.category);
                     return (
                       <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
@@ -1765,7 +1838,12 @@ function LibroDiario() {
             )}
             <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
               <span>¿Dónde está el dinero?</span>
-              <button className="multiselect-toggle" onClick={() => openNewLocation()}><Icon name="Plus" size={12} /> Agregar</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {moneyLocations.length >= 2 && (
+                  <button className="multiselect-toggle" onClick={openTraspaso}><Icon name="ArrowLeftRight" size={12} /> Traspasar</button>
+                )}
+                <button className="multiselect-toggle" onClick={() => openNewLocation()}><Icon name="Plus" size={12} /> Agregar</button>
+              </div>
             </div>
             {moneyLocations.length === 0 ? (
               <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien.</div>
@@ -2475,6 +2553,51 @@ function LibroDiario() {
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.monto} onChange={(e) => setEditLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} autoFocus /></div>
             {editLocError && <div className="form-error">{editLocError}</div>}
             <button className="save-btn" onClick={submitEditLocation}><Icon name="Check" size={16} /> Actualizar monto</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'traspaso' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">Traspaso entre cuentas</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+              Mueve dinero entre tus propias ubicaciones (ej. te llega dinero a tu tarjeta/banco y retiras a efectivo). No suma ni resta a tus ingresos o gastos: una cuenta baja y la otra sube por el mismo monto.
+            </div>
+            <div className="field-label">Monto *</div>
+            <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={traspasoForm.amount} onChange={(e) => setTraspasoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
+            <div className="field-label">Sale de *</div>
+            <div className="cat-grid">
+              {moneyLocations.map((l) => (
+                <div
+                  key={l.id}
+                  className={`cat-choice ${traspasoForm.fromId === l.id ? 'selected' : ''}`}
+                  onClick={() => setTraspasoForm((f) => ({ ...f, fromId: f.fromId === l.id ? '' : l.id }))}
+                >
+                  <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                  <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Efectivo'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="field-label">Entra a *</div>
+            <div className="cat-grid">
+              {moneyLocations.filter((l) => l.id !== traspasoForm.fromId).map((l) => (
+                <div
+                  key={l.id}
+                  className={`cat-choice ${traspasoForm.toId === l.id ? 'selected' : ''}`}
+                  onClick={() => setTraspasoForm((f) => ({ ...f, toId: f.toId === l.id ? '' : l.id }))}
+                >
+                  <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                  <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Efectivo'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="field-label">Nota (opcional)</div>
+            <input className="text-input" type="text" placeholder="Ej. Retiro de cajero, depósito..." value={traspasoForm.note} onChange={(e) => setTraspasoForm((f) => ({ ...f, note: e.target.value }))} />
+            <div className="field-label">Fecha *</div>
+            <input className="text-input" type="date" value={traspasoForm.date} onChange={(e) => setTraspasoForm((f) => ({ ...f, date: e.target.value }))} />
+            {traspasoError && <div className="form-error">{traspasoError}</div>}
+            <button className="save-btn" onClick={submitTraspaso}><Icon name="Check" size={16} /> Guardar traspaso</button>
           </div>
         </div>
       )}
