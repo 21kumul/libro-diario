@@ -174,7 +174,9 @@ const parseConciliaLine = (line) => {
   return { raw, date: dateMatch[0], amount, concepto: concepto || '(sin concepto)', invalid: isNaN(amount) };
 };
 
-const fmt = (n) => (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+const fmt = (n) => {
+  return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+};
 
 const todayStr = () => {
   const d = new Date();
@@ -202,66 +204,62 @@ const CARD_GRADIENTS = [
   'linear-gradient(135deg, #2f6b5e, #3f9484)',
   'linear-gradient(135deg, #5a3d8a, #7c5cb8)',
 ];
-// Genera un número de tarjeta "de mentiras" pero consistente (siempre el
-// mismo para la misma ubicación), solo para que se vea como una tarjeta real.
-// No se captura ni se guarda ningún número real.
-const fakeCardDigits = (id) => {
-  const h = Math.abs(hashStr(String(id)) * 9301 + 49297) % 233280;
-  return String(1000 + (h % 9000));
-};
-
-// ---------- Identificación de banco (para colorear/marcar la tarjeta) ----------
-// Esto es un identificador visual aproximado (no un logo oficial con licencia):
-// primero intenta por el nombre que ya capturaste en la tarjeta (ej. "Nu",
-// "BBVA"), y si diste de alta la CLABE, también intenta por sus primeros 3
-// dígitos (el código de banco estándar de Banxico). No es infalible —bancos
-// nuevos, fintechs o errores de captura pueden no reconocerse— así que si no
-// hay coincidencia, la tarjeta usa el degradado genérico de siempre.
-const BANKS_MX = [
-  { id: 'nu', match: /\bnu\b|nubank/i, name: 'Nu', gradient: 'linear-gradient(135deg, #820AD1, #A855F7)' },
-  { id: 'bbva', match: /bbva|bancomer/i, name: 'BBVA', gradient: 'linear-gradient(135deg, #072146, #004481)' },
-  { id: 'banamex', match: /banamex|citibanamex/i, name: 'Banamex', gradient: 'linear-gradient(135deg, #00274E, #0039A6)' },
-  { id: 'santander', match: /santander/i, name: 'Santander', gradient: 'linear-gradient(135deg, #A50000, #EC0000)' },
-  { id: 'hsbc', match: /hsbc/i, name: 'HSBC', gradient: 'linear-gradient(135deg, #1A1A1A, #DB0011)' },
-  { id: 'banorte', match: /banorte/i, name: 'Banorte', gradient: 'linear-gradient(135deg, #7A0C15, #EE1C25)' },
-  { id: 'scotiabank', match: /scotia/i, name: 'Scotiabank', gradient: 'linear-gradient(135deg, #78130E, #EC111A)' },
-  { id: 'inbursa', match: /inbursa/i, name: 'Inbursa', gradient: 'linear-gradient(135deg, #003057, #00539B)' },
-  { id: 'banregio', match: /banregio/i, name: 'Banregio', gradient: 'linear-gradient(135deg, #B85A00, #F58220)' },
-  { id: 'azteca', match: /azteca/i, name: 'Banco Azteca', gradient: 'linear-gradient(135deg, #00542B, #00A650)' },
-  { id: 'bancoppel', match: /bancoppel|coppel/i, name: 'BanCoppel', gradient: 'linear-gradient(135deg, #003D66, #0072BC)' },
-  { id: 'fondeadora', match: /fondeadora/i, name: 'Fondeadora', gradient: 'linear-gradient(135deg, #0A0A0A, #2A2A2A)' },
-  { id: 'klar', match: /klar/i, name: 'Klar', gradient: 'linear-gradient(135deg, #101820, #1F2937)' },
-  { id: 'mercadopago', match: /mercado ?pago/i, name: 'Mercado Pago', gradient: 'linear-gradient(135deg, #0C2E82, #2D9CDB)' },
-  { id: 'invex', match: /invex/i, name: 'Invex', gradient: 'linear-gradient(135deg, #4A0E1E, #7A1730)' },
+// Estilos inspirados en el diseño real de bancos/fintechs mexicanos más
+// comunes. Se detectan automáticamente por el nombre que el usuario le puso
+// a su tarjeta (ej. "Banamex", "BBVA", "Nu"), sin necesidad de conectarse a
+// ningún banco: es una captura manual de los datos de tu tarjeta.
+const BANK_STYLES = [
+  { match: /banamex|citibanamex/i, name: 'Banamex', gradient: 'linear-gradient(135deg, #7a0f1e, #b21e2f)', network: 'Mastercard' },
+  { match: /bbva|bancomer/i, name: 'BBVA', gradient: 'linear-gradient(135deg, #072146, #1464F4)', network: 'Visa' },
+  { match: /santander/i, name: 'Santander', gradient: 'linear-gradient(135deg, #8c0a0a, #ec0000)', network: 'Visa' },
+  { match: /banorte/i, name: 'Banorte', gradient: 'linear-gradient(135deg, #7a1f1f, #d61f26)', network: 'Mastercard' },
+  { match: /hsbc/i, name: 'HSBC', gradient: 'linear-gradient(135deg, #4d0000, #DB0011)', network: 'Visa' },
+  { match: /nubank|\bnu\b/i, name: 'Nu', gradient: 'linear-gradient(135deg, #6b2f9c, #9c5cd6)', network: 'Mastercard' },
+  { match: /azteca/i, name: 'Banco Azteca', gradient: 'linear-gradient(135deg, #1f5c1f, #2e8b2e)', network: 'Mastercard' },
+  { match: /inbursa/i, name: 'Inbursa', gradient: 'linear-gradient(135deg, #7a5210, #c98a1f)', network: 'Visa' },
+  { match: /scotiabank|scotia/i, name: 'Scotiabank', gradient: 'linear-gradient(135deg, #7a0000, #d21f1f)', network: 'Visa' },
+  { match: /fondeadora/i, name: 'Fondeadora', gradient: 'linear-gradient(135deg, #0a0a0a, #2a2a2a)', network: 'Mastercard' },
+  { match: /didi/i, name: 'Didi', gradient: 'linear-gradient(135deg, #0a0a0a, #ff6d00)', network: 'Visa' },
+  { match: /mercado ?pago/i, name: 'Mercado Pago', gradient: 'linear-gradient(135deg, #0038ff, #00b1ea)', network: 'Mastercard' },
+  { match: /klar/i, name: 'Klar', gradient: 'linear-gradient(135deg, #101010, #3d2b8c)', network: 'Mastercard' },
+  { match: /spin/i, name: 'Spin by OXXO', gradient: 'linear-gradient(135deg, #d61f26, #ef4136)', network: 'Mastercard' },
 ];
-// Primeros 3 dígitos de la CLABE = código de banco (catálogo de Banxico, los bancos más comunes).
-const CLABE_BANK_CODES = { '002': 'banamex', '012': 'bbva', '014': 'santander', '021': 'hsbc', '036': 'inbursa', '044': 'scotiabank', '058': 'banregio', '072': 'banorte', '127': 'azteca', '137': 'bancoppel' };
-const detectBank = (nombre, clabe) => {
-  const cleanClabe = String(clabe || '').replace(/\D/g, '');
-  if (cleanClabe.length >= 3) {
-    const bankId = CLABE_BANK_CODES[cleanClabe.slice(0, 3)];
-    const byClabe = BANKS_MX.find((b) => b.id === bankId);
-    if (byClabe) return byClabe;
-  }
-  return BANKS_MX.find((b) => b.match.test(nombre || '')) || null;
+const getBankStyle = (nombre) => {
+  if (!nombre) return null;
+  return BANK_STYLES.find((b) => b.match.test(nombre)) || null;
 };
-// Logo del tipo de tarjeta (Visa/Mastercard), dibujado con CSS — no hay
-// forma de traer los logos oficiales sin depender de internet ni de un
-// paquete de íconos con licencia, así que se recrean de forma genérica.
-function NetworkMark({ network }) {
-  if (network === 'mastercard') {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#EB001B' }} />
-        <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#F79E1B', marginLeft: -10, mixBlendMode: 'multiply', opacity: 0.92 }} />
-      </div>
-    );
+// Detección de banco por Clave Interbancaria (CLABE): los primeros 3 dígitos
+// son el código de institución asignado por Banxico/ABM. Cubre los bancos y
+// fintechs más comunes en México; si no se reconoce el código, simplemente
+// no se autocompleta nada (no afecta el registro manual).
+const CLABE_BANKS = {
+  '002': 'Banamex', '012': 'BBVA', '014': 'Santander', '021': 'HSBC',
+  '030': 'BanBajío', '036': 'Inbursa', '042': 'Mifel', '044': 'Scotiabank',
+  '058': 'Banregio', '059': 'Invex', '060': 'Bansi', '062': 'Afirme',
+  '072': 'Banorte', '103': 'American Express', '127': 'Banco Azteca',
+  '130': 'Compartamos', '137': 'BanCoppel', '143': 'CIBanco', '166': 'Banco del Bienestar',
+  '646': 'Fintech (STP)', '699': 'Fondeadora',
+};
+const getBankFromClabe = (clabe) => {
+  const digits = (clabe || '').replace(/\D/g, '');
+  if (digits.length < 3) return null;
+  return CLABE_BANKS[digits.slice(0, 3)] || null;
+};
+// Identifica el banco de una ubicación: primero por CLABE (más confiable,
+// no depende de cómo el usuario haya escrito el nombre), y si no hay CLABE
+// o no se reconoce, cae al nombre que el usuario escribió a mano.
+const getBankInfo = (loc) => {
+  const byClabe = getBankFromClabe(loc?.clabe);
+  if (byClabe) {
+    const style = BANK_STYLES.find((b) => b.match.test(byClabe));
+    if (style) return style;
+    return { name: byClabe, gradient: null, network: null };
   }
-  if (network === 'visa') {
-    return <div style={{ fontStyle: 'italic', fontWeight: 800, fontSize: 17, color: '#fff', letterSpacing: 0.3 }}>VISA</div>;
-  }
-  return null;
-}
+  return getBankStyle(loc?.nombre);
+};
+// Color/degradado final de una tarjeta: usa el diseño real del banco si se
+// reconoce el nombre; si no, cae al degradado genérico asignado por id.
+const cardBg = (loc) => (loc.tipo === 'tarjeta' ? (getBankInfo(loc)?.gradient || CARD_GRADIENTS[hashStr(loc.id) % CARD_GRADIENTS.length]) : '#5F8A4C');
 const periodKey = (dateStr) => dateStr.slice(0, 7);
 const currentPeriodKey = periodKey(todayStr());
 const uid = () => Date.now() + Math.random();
@@ -450,7 +448,7 @@ function LibroDiario() {
   const [savForm, setSavForm] = useState({ name: '', target: '' });
   const [savError, setSavError] = useState('');
 
-  const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', locationId: '' });
+  const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', persona: '', locationId: '', origen: '' });
   const [moveError, setMoveError] = useState('');
 
   const [lastSync, setLastSync] = useState(null);
@@ -1009,6 +1007,7 @@ function LibroDiario() {
   };
 
   const openWalletDetail = (loc) => setSheet({ type: 'wallet-detail', location: loc });
+  const openWalletMenu = () => setSheet({ type: 'wallet-menu' });
 
   const submitTraspaso = () => {
     const amt = toNumber(traspasoForm.amount);
@@ -1056,7 +1055,7 @@ function LibroDiario() {
     }
     const l = moneyLocations.find((x) => x.id === id);
     if (!l) return 'Cuenta eliminada';
-    return `${l.persona} · ${l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Efectivo'}`;
+    return `${l.persona} · ${l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Monedero'}`;
   };
 
   const openEditTx = (t) => {
@@ -1308,7 +1307,7 @@ function LibroDiario() {
   };
 
   const openMove = (account, kind) => {
-    setMoveForm({ kind, amount: '', date: todayStr(), note: '', locationId: '' });
+    setMoveForm({ kind, amount: '', date: todayStr(), note: '', persona: profile?.name || '', locationId: '', origen: '' });
     setMoveError('');
     setSheet({ type: 'savings-move', account });
   };
@@ -1317,33 +1316,47 @@ function LibroDiario() {
     const acc = sheet.account;
     const amt = toNumber(moveForm.amount);
     if (!amt || amt <= 0) return setMoveError('Ingresa un monto válido.');
-    if (!moveForm.locationId) return setMoveError(moveForm.kind === 'deposito' ? 'Elige de qué cuenta (efectivo o tarjeta) sale este dinero, y quién lo tiene guardado.' : 'Elige a qué cuenta (efectivo o tarjeta) regresa este dinero.');
-    const loc = moneyLocations.find((l) => l.id === moveForm.locationId);
-    if (!loc) return setMoveError('Esa ubicación ya no existe.');
+    if (!moveForm.persona.trim()) return setMoveError('Elige quién tiene el dinero de este movimiento.');
+    if (!moveForm.locationId) return setMoveError('Elige en qué cuenta (efectivo o tarjeta) está ese dinero.');
+    if (moveForm.kind === 'deposito' && !moveForm.origen) return setMoveError('Elige de qué cuenta se tomó ese dinero.');
+    if (moveForm.kind === 'deposito' && moveForm.origen === moveForm.locationId) return setMoveError('La cuenta de origen y la cuenta donde queda el ahorro deben ser distintas.');
     const saved = acc.movements.reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0);
     if (moveForm.kind === 'retiro' && amt > saved + 0.01) return setMoveError('No puedes retirar más de lo ahorrado.');
-    const move = { id: uid(), kind: moveForm.kind, amount: amt, date: moveForm.date, note: moveForm.note.trim(), locationId: moveForm.locationId, autor: profile?.name || 'Familia' };
+    const move = {
+      id: uid(), kind: moveForm.kind, amount: amt, date: moveForm.date, note: moveForm.note.trim(),
+      persona: moveForm.persona.trim(), locationId: moveForm.locationId, origenLocationId: moveForm.kind === 'deposito' ? moveForm.origen : null,
+      autor: profile?.name || 'Familia',
+    };
     const next = savings.map((a) => a.id === acc.id ? { ...a, movements: [...a.movements, move] } : a);
-    // Un depósito a ahorro SALE de la cuenta elegida (efectivo/tarjeta); un
-    // retiro de ahorro REGRESA a esa cuenta. Así siempre queda claro quién
-    // tiene el dinero guardado y de dónde vino / a dónde volvió.
-    const nextLocations = moneyLocations.map((l) => l.id === loc.id ? { ...l, monto: (l.monto || 0) + (moveForm.kind === 'deposito' ? -amt : amt) } : l);
-    persist({ savings: next, moneyLocations: nextLocations });
+    const patch = { savings: next };
+    // Depósito: el dinero sale de la cuenta de origen y entra a la cuenta
+    // donde queda guardado el ahorro (dos cuentas reales, como un traspaso).
+    // Retiro: el dinero regresa de la "bolsa" de ahorro a la cuenta elegida.
+    patch.moneyLocations = moneyLocations.map((l) => {
+      if (moveForm.kind === 'deposito') {
+        if (l.id === moveForm.locationId) return { ...l, monto: (l.monto || 0) + amt };
+        if (l.id === moveForm.origen) return { ...l, monto: (l.monto || 0) - amt };
+      } else if (l.id === moveForm.locationId) {
+        return { ...l, monto: (l.monto || 0) + amt };
+      }
+      return l;
+    });
+    persist(patch);
     setSheet(null);
   };
 
-  const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', clabe: '', network: '', montoPagar: '', linkedDeudaId: '' });
+  const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [locError, setLocError] = useState('');
 
   // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
   // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
   const [traspasoForm, setTraspasoForm] = useState({ fromId: '', toId: '', amount: '', note: '', date: todayStr() });
   const [traspasoError, setTraspasoError] = useState('');
-  const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', clabe: '', network: '', montoPagar: '', linkedDeudaId: '' });
+  const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [editLocError, setEditLocError] = useState('');
 
   const openNewLocation = (personaDefault) => {
-    setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', clabe: '', network: '', montoPagar: '', linkedDeudaId: '' });
+    setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
     setLocError('');
     setSheet({ type: 'new-location' });
   };
@@ -1361,22 +1374,18 @@ function LibroDiario() {
       limite: esCredito ? toNumber(locForm.limite) || null : null,
       diaCorte: esCredito && locForm.diaCorte ? parseInt(locForm.diaCorte, 10) : null,
       diaPago: esCredito && locForm.diaPago ? parseInt(locForm.diaPago, 10) : null,
-      clabe: locForm.tipo === 'tarjeta' ? locForm.clabe.trim() || null : null,
-      network: locForm.tipo === 'tarjeta' ? locForm.network || null : null,
-      montoPagar: esCredito ? (locForm.montoPagar ? toNumber(locForm.montoPagar) : null) : null,
-      linkedDeudaId: esCredito ? (locForm.linkedDeudaId || null) : null,
+      ultimos4: locForm.tipo === 'tarjeta' ? locForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null : null,
+      red: locForm.tipo === 'tarjeta' ? (locForm.red || null) : null,
+      clabe: locForm.tipo === 'tarjeta' ? (locForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
+      montoAPagar: esCredito ? toNumber(locForm.montoAPagar) || null : null,
+      prestamoId: esCredito ? (locForm.prestamoId || null) : null,
     }];
     persist({ moneyLocations: next });
     setSheet(null);
   };
 
   const openEditLocation = (loc) => {
-    setEditLocForm({
-      monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito,
-      limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '',
-      clabe: loc.clabe || '', network: loc.network || '',
-      montoPagar: loc.montoPagar != null ? String(loc.montoPagar) : '', linkedDeudaId: loc.linkedDeudaId || '',
-    });
+    setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito, limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '', ultimos4: loc.ultimos4 || '', red: loc.red || '', clabe: loc.clabe || '', montoAPagar: loc.montoAPagar != null ? String(loc.montoAPagar) : '', prestamoId: loc.prestamoId || '' });
     setEditLocError('');
     setSheet({ type: 'edit-location', location: loc });
   };
@@ -1392,10 +1401,11 @@ function LibroDiario() {
       limite: esCredito ? toNumber(editLocForm.limite) || null : null,
       diaCorte: esCredito && editLocForm.diaCorte ? parseInt(editLocForm.diaCorte, 10) : null,
       diaPago: esCredito && editLocForm.diaPago ? parseInt(editLocForm.diaPago, 10) : null,
-      clabe: loc.tipo === 'tarjeta' ? (editLocForm.clabe.trim() || null) : null,
-      network: loc.tipo === 'tarjeta' ? (editLocForm.network || null) : null,
-      montoPagar: esCredito ? (editLocForm.montoPagar ? toNumber(editLocForm.montoPagar) : null) : null,
-      linkedDeudaId: esCredito ? (editLocForm.linkedDeudaId || null) : null,
+      ultimos4: loc.tipo === 'tarjeta' ? (editLocForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null) : null,
+      red: loc.tipo === 'tarjeta' ? (editLocForm.red || null) : null,
+      clabe: loc.tipo === 'tarjeta' ? (editLocForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
+      montoAPagar: esCredito ? toNumber(editLocForm.montoAPagar) || null : null,
+      prestamoId: esCredito ? (editLocForm.prestamoId || null) : null,
     } : l);
     persist({ moneyLocations: next });
     setSheet(null);
@@ -1403,7 +1413,7 @@ function LibroDiario() {
 
   const deleteLocation = (id) => {
     const loc = moneyLocations.find((l) => l.id === id);
-    if (!window.confirm(`¿Eliminar esta ubicación${loc ? ` (${loc.persona} · ${loc.tipo === 'tarjeta' ? loc.nombre : 'Efectivo'})` : ''}?`)) return;
+    if (!window.confirm(`¿Eliminar esta ubicación${loc ? ` (${loc.persona} · ${loc.tipo === 'tarjeta' ? loc.nombre : 'Monedero'})` : ''}?`)) return;
     persist({ moneyLocations: moneyLocations.filter((l) => l.id !== id) });
   };
 
@@ -1519,8 +1529,8 @@ function LibroDiario() {
 
   const fabAction = () => {
     if (tab === 'compromisos') return openNewCompromiso();
-    if (tab === 'tarjetas') return openNewLocation();
     if (tab === 'ahorro') return openNewSavings();
+    if (tab === 'tarjetas') return openWalletMenu();
     return openAddTx('gasto');
   };
 
@@ -1536,7 +1546,7 @@ function LibroDiario() {
           --shadow-card: 0 1px 1px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.055);
           --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.12);
           font-family: var(--sans); color: var(--ink); background: var(--paper-dim);
-          max-width: 460px; margin: 0 auto; height: 100dvh; height: 100vh; display: flex; flex-direction: column;
+          max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
         }
         .masthead { background: var(--green); color: var(--paper); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
@@ -1598,8 +1608,8 @@ function LibroDiario() {
         .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 6px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
         .nav-btn.active { font-weight: 700; }
         .fab { position: absolute; right: 18px; bottom: 78px; width: 56px; height: 56px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(194,155,62,0.45); cursor: pointer; z-index: 5; }
-        .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 28px); box-sizing: border-box; }
-        .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: 100%; overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
+        .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
+        .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
         .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
         .sheet-title { font-family: var(--mono); font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
@@ -1669,36 +1679,27 @@ function LibroDiario() {
         .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: none; box-shadow: var(--shadow-card); }
-        .wallet-card { margin-bottom: 14px; cursor: pointer; }
-        .wallet-card-visual { border-radius: 16px; aspect-ratio: 1.586; width: 100%; box-sizing: border-box; padding: 16px; color: #fff; position: relative; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.16); display: flex; flex-direction: column; justify-content: space-between; }
-        .wallet-overdrawn-badge { position: absolute; top: 14px; right: 14px; background: var(--expense); color: #fff; font-size: 9px; font-weight: 800; letter-spacing: 0.4px; padding: 3px 8px; border-radius: 6px; z-index: 2; }
-        .wallet-details-panel { background: var(--paper); border-radius: 0 0 14px 14px; margin-top: -8px; padding: 14px 14px 12px; box-shadow: var(--shadow-card); }
-        .wallet-details-row { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; padding: 5px 0; }
-        .wallet-details-row .label { color: var(--ink-soft); }
-        .wallet-details-row .value { font-family: var(--mono); font-weight: 700; color: var(--ink); }
-        .wallet-linked-loan { display: flex; align-items: center; justify-content: space-between; background: var(--paper-dim); border-radius: 10px; padding: 9px 11px; margin-top: 6px; }
-        .wallet-chip { width: 34px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.28)); position: relative; margin-bottom: 12px; }
-        .wallet-chip::before, .wallet-chip::after { content: ''; position: absolute; left: 0; right: 0; height: 1px; background: rgba(0,0,0,0.18); }
-        .wallet-chip::before { top: 33%; } .wallet-chip::after { top: 66%; }
-        .wallet-nfc { position: absolute; top: 18px; right: 18px; opacity: 0.85; }
-        .wallet-card-number { font-family: var(--mono); font-size: 14px; letter-spacing: 2px; opacity: 0.9; margin-bottom: 4px; }
-        .wallet-card-bottom { display: flex; align-items: flex-end; justify-content: space-between; }
+        .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); }
+        .wallet-card-cash {
+          background: linear-gradient(135deg, #2f6b45, #468a5c);
+          background-image: linear-gradient(135deg, #2f6b45, #468a5c), radial-gradient(circle, rgba(255,255,255,0.07) 1.5px, transparent 1.5px);
+          background-size: auto, 14px 14px;
+          position: relative; overflow: hidden;
+        }
+        .wallet-card-cash::after {
+          content: '$'; position: absolute; right: 8px; bottom: -18px; font-family: var(--mono); font-size: 96px; font-weight: 700; color: rgba(255,255,255,0.08); line-height: 1; pointer-events: none;
+        }
         .wallet-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
         .wallet-card-name { font-size: 16px; font-weight: 700; }
         .wallet-card-pill { display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; background: rgba(255,255,255,0.22); padding: 2px 8px; border-radius: 6px; margin-top: 5px; }
         .wallet-card-amount { font-family: var(--mono); font-size: 19px; font-weight: 700; }
         .wallet-card-caption { font-size: 10.5px; opacity: 0.85; margin-top: 2px; }
         .wallet-card-limitrow { display: flex; justify-content: space-between; font-size: 11.5px; opacity: 0.9; margin-bottom: 6px; }
+        .wallet-card-footrow { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-family: var(--mono); font-size: 13px; letter-spacing: 1px; opacity: 0.92; }
+        .wallet-card-network { font-family: var(--sans); font-style: italic; font-weight: 700; letter-spacing: 0; text-transform: uppercase; font-size: 12px; opacity: 0.85; }
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
         .wallet-pill-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 20px; }
-        .wallet-chip { width: 34px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.28)); position: relative; margin-bottom: 12px; }
-        .wallet-chip::before, .wallet-chip::after { content: ''; position: absolute; left: 0; right: 0; height: 1px; background: rgba(0,0,0,0.18); }
-        .wallet-chip::before { top: 33%; } .wallet-chip::after { top: 66%; }
-        .wallet-nfc { position: absolute; top: 18px; right: 18px; opacity: 0.85; }
-        .wallet-card-number { font-family: var(--mono); font-size: 14px; letter-spacing: 2px; opacity: 0.9; margin-bottom: 12px; }
-        .wallet-card-bottom { display: flex; align-items: flex-end; justify-content: space-between; }
-        .wallet-card-holder { font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.85; }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
         .compromiso-card.clickable:active { background: var(--paper-dim); }
@@ -2167,12 +2168,11 @@ function LibroDiario() {
           </>
         ) : tab === 'tarjetas' ? (
           <>
-            <div className="totals-subhead" style={{ marginTop: 0 }}>¿Dónde está el dinero?</div>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-2px 0 12px' }}>
-              Usa el botón + para agregar una tarjeta o tu Monedero. Toca cualquiera para ver el detalle, editarla o traspasar dinero.
+            <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 }}>
+              <span>¿Dónde está el dinero?</span>
             </div>
             {moneyLocations.length === 0 ? (
-              <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien con el botón +.</div>
+              <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Usa el botón + para agregar.</div>
             ) : (
               <>
                 {moneyLocations.some((l) => l.tipo === 'tarjeta') && (
@@ -2182,84 +2182,80 @@ function LibroDiario() {
                   const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
                   const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
                   const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
-                  const bank = detectBank(l.nombre, l.clabe);
-                  const bg = bank ? bank.gradient : CARD_GRADIENTS[hashStr(l.id) % CARD_GRADIENTS.length];
-                  const digits = fakeCardDigits(l.id);
-                  const sobregirada = l.esCredito && l.limite && l.monto > l.limite;
-                  const linkedLoan = l.linkedDeudaId ? deudas.find((d) => d.id === l.linkedDeudaId) : null;
+                  const bg = cardBg(l);
+                  const net = l.red || getBankInfo(l)?.network;
+                  const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
+                  const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
                   return (
-                    <div key={l.id} className="wallet-card" onClick={() => openWalletDetail(l)}>
-                      <div className="wallet-card-visual" style={{ background: bg }}>
-                        {sobregirada && <div className="wallet-overdrawn-badge">SOBREGIRADA</div>}
-                        <div className="wallet-card-top">
-                          <div>
-                            <div className="wallet-card-name">{bank ? bank.name : (l.nombre || 'Tarjeta')}</div>
-                            <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                          </div>
-                          {l.network ? <NetworkMark network={l.network} /> : <Icon name="Wifi" size={20} color="#fff" style={{ opacity: 0.85 }} />}
-                        </div>
+                    <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
+                      <div className="wallet-card-top">
                         <div>
-                          <div className="wallet-chip" />
-                          <div className="wallet-card-number">•••• •••• •••• {digits}</div>
-                          <div className="wallet-card-bottom">
-                            <span className="wallet-card-holder">{l.persona}</span>
-                            <div style={{ textAlign: 'right' }}>
-                              <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                              <div className="wallet-card-caption">{l.esCredito ? 'Gastado en el ciclo' : ''}</div>
-                            </div>
-                          </div>
+                          <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
+                          <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                          {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div className="wallet-card-amount">{fmt(l.monto)}</div>
+                          <div className="wallet-card-caption">{l.esCredito ? 'Gastos del mes (ciclo)' : l.persona}</div>
                         </div>
                       </div>
-                      <div className="wallet-details-panel">
-                        {l.esCredito ? (
-                          <>
-                            <div className="wallet-details-row"><span className="label">Uso del límite</span><span className="value">{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span></div>
-                            <div className="wallet-progress-track" style={{ background: 'var(--paper-dim)' }}><div className="wallet-progress-fill" style={{ width: `${pct || 0}%`, background: sobregirada ? 'var(--expense)' : 'var(--green)' }} /></div>
-                            <div className="wallet-details-row"><span className="label">Límite</span><span className="value">{l.limite ? fmt(l.limite) : '····'}</span></div>
-                            {l.montoPagar != null && <div className="wallet-details-row"><span className="label">Monto a pagar</span><span className="value" style={{ color: 'var(--expense)' }}>{fmt(l.montoPagar)}</span></div>}
-                            {(l.diaCorte || l.diaPago) && (
-                              <div style={{ display: 'flex', gap: 8, margin: '6px 0 2px', flexWrap: 'wrap' }}>
-                                {l.diaCorte && <span className="wallet-pill-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }}><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
-                                {l.diaPago && <span className="wallet-pill-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }}><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
-                              </div>
-                            )}
-                            {linkedLoan && (
-                              <div className="wallet-linked-loan">
-                                <div>
-                                  <div style={{ fontSize: 12, fontWeight: 700 }}><Icon name="Landmark" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} /> {linkedLoan.name}</div>
-                                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>Préstamo relacionado</div>
-                                </div>
-                                <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 13, color: 'var(--expense)' }}>{fmt(linkedLoan.pendiente)}</div>
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <div className="wallet-details-row"><span className="label">Titular</span><span className="value" style={{ fontFamily: 'var(--sans)', fontWeight: 600 }}>{l.persona}</span></div>
-                        )}
-                      </div>
+                      {l.esCredito && (
+                        <>
+                          <div className="wallet-card-limitrow">
+                            <span>Uso del límite</span>
+                            <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
+                          </div>
+                          <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                          <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
+                            <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
+                          </div>
+                          {l.montoAPagar > 0 && (
+                            <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                              <span>Monto a pagar</span>
+                              <span>{fmt(l.montoAPagar)}</span>
+                            </div>
+                          )}
+                          {prestamoLigado && (
+                            <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                              <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                              <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
+                            {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
+                          </div>
+                        </>
+                      )}
+                      {(l.ultimos4 || net) && (
+                        <div className="wallet-card-footrow">
+                          <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
+                          {net && <span className="wallet-card-network">{net}</span>}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
                 {moneyLocations.some((l) => l.tipo === 'efectivo') && (
                   <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, color: 'var(--ink-soft)', margin: '14px 2px 10px' }}>Monedero</div>
                 )}
-                {moneyLocations.filter((l) => l.tipo === 'efectivo').map((l) => (
-                  <div key={l.id} className="wallet-card" onClick={() => openWalletDetail(l)}>
-                    <div className="wallet-card-visual" style={{ background: 'linear-gradient(135deg, #4C7A48, #6FA05E)' }}>
-                      <div className="wallet-card-top">
-                        <div>
-                          <div className="wallet-card-name">Monedero</div>
-                          <span className="wallet-card-pill">EFECTIVO</span>
-                        </div>
-                        <Icon name="Wallet" size={20} color="#fff" style={{ opacity: 0.85 }} />
+                {moneyLocationsByPerson.map(([persona, locs]) => locs.filter((l) => l.tipo === 'efectivo').map((l) => (
+                  <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
+                    <div className="wallet-card-top">
+                      <div>
+                        <div className="wallet-card-name">Monedero</div>
+                        <span className="wallet-card-pill">EFECTIVO</span>
                       </div>
-                      <div className="wallet-card-bottom">
-                        <span className="wallet-card-holder">{l.persona}</span>
+                      <div style={{ textAlign: 'right' }}>
                         <div className="wallet-card-amount">{fmt(l.monto)}</div>
+                        <div className="wallet-card-caption">{persona}</div>
                       </div>
                     </div>
+                    <div className="wallet-card-footrow">
+                      <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
+                    </div>
                   </div>
-                ))}
+                )))}
                 <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
                   <div>
                     <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
@@ -2291,16 +2287,6 @@ function LibroDiario() {
                       <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                       <div className="progress-pct">{pct.toFixed(0)}% de tu meta</div>
                     </>
-                  )}
-                  {acc.movements.length > 0 && (
-                    <div style={{ margin: '2px 0 4px' }}>
-                      {acc.movements.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 3).map((m) => (
-                        <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', padding: '2px 0' }}>
-                          <span>{m.kind === 'deposito' ? '↗' : '↙'} {locationLabel(m.locationId)}</span>
-                          <span>{fmt(m.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
                   )}
                   <div className="savings-actions">
                     <button className="btn-deposito" onClick={() => openMove(acc, 'deposito')}>Depositar</button>
@@ -3007,46 +2993,61 @@ function LibroDiario() {
         const pct = loc.esCredito && loc.limite ? Math.max(0, Math.min(100, (loc.monto / loc.limite) * 100)) : null;
         const diasCorte = loc.esCredito ? diasHasta(loc.diaCorte) : null;
         const diasPago = loc.esCredito ? diasHasta(loc.diaPago) : null;
-        const bg = loc.tipo === 'tarjeta' ? CARD_GRADIENTS[hashStr(loc.id) % CARD_GRADIENTS.length] : 'linear-gradient(135deg, #4C7A48, #6FA05E)';
-        const digits = loc.tipo === 'tarjeta' ? fakeCardDigits(loc.id) : null;
+        const bg = cardBg(loc);
+        const net = loc.red || getBankInfo(loc)?.network;
+        const sobregirada = loc.esCredito && loc.limite && loc.monto > loc.limite + 0.01;
+        const prestamoLigado = loc.esCredito && loc.prestamoId ? deudas.find((d) => d.id === loc.prestamoId) : null;
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-              <div className="wallet-card" style={{ background: bg, cursor: 'default', marginBottom: 16 }}>
-                {loc.tipo === 'tarjeta' && <div className="wallet-nfc"><Icon name="Wifi" size={20} color="#fff" /></div>}
-                {loc.tipo === 'tarjeta' && <div className="wallet-chip" />}
+              <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }}>
                 <div className="wallet-card-top">
                   <div>
                     <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
-                    <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'EFECTIVO'}</span>
+                    <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'MONEDERO'}</span>
+                    {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="wallet-card-amount">{fmt(loc.monto)}</div>
                     <div className="wallet-card-caption">{loc.esCredito ? 'Gastos del mes (ciclo)' : loc.persona}</div>
                   </div>
                 </div>
-                {digits && <div className="wallet-card-number">•••• •••• •••• {digits}</div>}
                 {loc.esCredito && (
                   <>
                     <div className="wallet-card-limitrow"><span>Uso del límite</span><span>{loc.limite ? `${pct.toFixed(1)}%` : '---%'}</span></div>
-                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${pct || 0}%` }} /></div>
-                    <div className="wallet-card-limitrow" style={{ marginBottom: 12 }}><span>Límite: {loc.limite ? fmt(loc.limite) : '····'}</span></div>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                    <div className="wallet-card-limitrow" style={{ marginBottom: loc.montoAPagar || prestamoLigado ? 6 : 12 }}><span>Límite: {loc.limite ? fmt(loc.limite) : '····'}</span></div>
+                    {loc.montoAPagar > 0 && (
+                      <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                        <span>Monto a pagar</span>
+                        <span>{fmt(loc.montoAPagar)}</span>
+                      </div>
+                    )}
+                    {prestamoLigado && (
+                      <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                        <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                        <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
                       {loc.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
                       {loc.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
                     </div>
                   </>
                 )}
-                <div className="wallet-card-bottom">
-                  <span className="wallet-card-holder">{loc.persona}</span>
-                </div>
+                {(loc.ultimos4 || net) && (
+                  <div className="wallet-card-footrow">
+                    <span>{loc.ultimos4 ? `•••• ${loc.ultimos4}` : ''}</span>
+                    {net && <span className="wallet-card-network">{net}</span>}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {moneyLocations.length >= 2 && (
                   <button className="save-btn" style={{ background: 'var(--gold)' }} onClick={() => openTraspaso({ fromId: loc.id })}><Icon name="ArrowLeftRight" size={16} /> Traspasar dinero</button>
                 )}
-                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => openEditLocation(loc)}><Icon name="Pencil" size={16} /> Editar {loc.tipo === 'tarjeta' ? 'tarjeta' : 'monedero'}</button>
+                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => openEditLocation(loc)}><Icon name="Pencil" size={16} /> Editar {loc.tipo === 'tarjeta' ? 'tarjeta' : 'efectivo'}</button>
                 <button className="danger-btn" onClick={() => { setSheet(null); deleteLocation(loc.id); }}><Icon name="Trash2" size={14} /> Eliminar</button>
               </div>
             </div>
@@ -3054,12 +3055,26 @@ function LibroDiario() {
         );
       })()}
 
+      {sheet?.type === 'wallet-menu' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">¿Qué quieres hacer?</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="save-btn" onClick={() => openNewLocation()}><Icon name="Plus" size={16} /> Agregar tarjeta o monedero</button>
+              {moneyLocations.length >= 2 && (
+                <button className="save-btn" style={{ background: 'var(--gold)' }} onClick={() => openTraspaso()}><Icon name="ArrowLeftRight" size={16} /> Traspasar dinero</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {sheet?.type === 'new-location' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header"><span className="sheet-title">Nueva tarjeta / Monedero</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="sheet-header"><span className="sheet-title">Nueva ubicación de dinero</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-              Registra cuánto efectivo (Monedero) o saldo en tarjeta tiene cada quien. Cuando registres un ingreso, podrás elegir a cuál de estas se suma solo.
+              Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Cuando registres un ingreso, podrás elegir a cuál de estas se suma solo.
             </div>
             <div className="field-label">¿De quién es?</div>
             {familia.length > 0 ? (
@@ -3081,26 +3096,38 @@ function LibroDiario() {
             </div>
             {locForm.tipo === 'tarjeta' && (
               <>
-                <div className="field-label">Nombre de la tarjeta o cuenta</div>
-                <input className="text-input" placeholder="Ej. Nu, BBVA, ahorros..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
+                <div className="field-label">Nombre del banco o cuenta</div>
+                <input className="text-input" placeholder="Ej. Banamex, BBVA, Nu..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
                 <div className="field-label">CLABE interbancaria (opcional)</div>
-                <input className="text-input" type="text" inputMode="numeric" maxLength={18} placeholder="18 dígitos — ayuda a identificar el banco" value={locForm.clabe} onChange={(e) => setLocForm((f) => ({ ...f, clabe: e.target.value.replace(/\D/g, '').slice(0, 18) }))} />
-                {(() => {
-                  const bank = detectBank(locForm.nombre, locForm.clabe);
-                  return bank ? (
-                    <div style={{ fontSize: 11, color: 'var(--income)', margin: '-6px 0 12px', fontWeight: 600 }}>
-                      <Icon name="CheckCircle2" size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Banco identificado: {bank.name}
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                      No identifiqué el banco todavía — se usará un color genérico. Prueba escribiendo el nombre del banco o su CLABE.
-                    </div>
-                  );
-                })()}
-                <div className="field-label">Red de la tarjeta (opcional)</div>
-                <div className="type-toggle">
-                  <button className={locForm.network === 'visa' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, network: f.network === 'visa' ? '' : 'visa' }))}>Visa</button>
-                  <button className={locForm.network === 'mastercard' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, network: f.network === 'mastercard' ? '' : 'mastercard' }))}>Mastercard</button>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={18}
+                  placeholder="18 dígitos"
+                  value={locForm.clabe}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
+                    const detected = getBankFromClabe(digits);
+                    setLocForm((f) => ({ ...f, clabe: digits, nombre: detected && !f.nombre.trim() ? detected : f.nombre }));
+                  }}
+                />
+                <div style={{ fontSize: 11, color: getBankFromClabe(locForm.clabe) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                  {getBankInfo(locForm) ? `Banco identificado: ${getBankInfo(locForm).name}.` : 'Escribe el nombre de tu banco (ej. Banamex, BBVA, Santander, Nu) o captura tu CLABE para identificarlo automáticamente.'}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">Últimos 4 dígitos (opcional)</div>
+                    <input className="text-input" inputMode="numeric" maxLength={4} placeholder="Ej. 0102" value={locForm.ultimos4} onChange={(e) => setLocForm((f) => ({ ...f, ultimos4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">Red (opcional)</div>
+                    <select className="text-input" value={locForm.red} onChange={(e) => setLocForm((f) => ({ ...f, red: e.target.value }))}>
+                      <option value="">Auto</option>
+                      <option value="Visa">Visa</option>
+                      <option value="Mastercard">Mastercard</option>
+                      <option value="American Express">Amex</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
                   <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
@@ -3122,16 +3149,19 @@ function LibroDiario() {
                     <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={locForm.diaPago} onChange={(e) => setLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
                   </div>
                 </div>
-                <div className="field-label">Monto a pagar (estado de cuenta, opcional)</div>
-                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.montoPagar} onChange={(e) => setLocForm((f) => ({ ...f, montoPagar: formatAmountTyping(e.target.value) }))} /></div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Lo que te pide tu banco pagar este corte — puede ser distinto de lo gastado en el ciclo actual.</div>
+                <div className="field-label">Monto a pagar (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo (pago para no generar intereses, o el mínimo).</div>
+                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.montoAPagar} onChange={(e) => setLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
                 {deudas.length > 0 && (
                   <>
-                    <div className="field-label">¿Está relacionada a un préstamo? (opcional)</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 8px' }}>Ej. si esta tarjeta está sobregirada y ya la tienes registrada como préstamo en CxP.</div>
-                    <div className="subcat-row">
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 8px' }}>Por ejemplo, si el banco te dio un préstamo sobre esta tarjeta que llevas por separado en Cuentas.</div>
+                    <div className="cat-grid">
                       {deudas.map((d) => (
-                        <button key={d.id} className={`subcat-chip ${locForm.linkedDeudaId === d.id ? 'selected' : ''}`} onClick={() => setLocForm((f) => ({ ...f, linkedDeudaId: f.linkedDeudaId === d.id ? '' : d.id }))}>{d.name}</button>
+                        <div key={d.id} className={`cat-choice ${locForm.prestamoId === d.id ? 'selected' : ''}`} onClick={() => setLocForm((f) => ({ ...f, prestamoId: f.prestamoId === d.id ? '' : d.id }))}>
+                          <Icon name="Landmark" size={15} />
+                          <span className="cat-choice-label">{d.name}</span>
+                        </div>
                       ))}
                     </div>
                   </>
@@ -3140,13 +3170,8 @@ function LibroDiario() {
             )}
             <div className="field-label">{locForm.tipo === 'tarjeta' && locForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
-            {locForm.tipo === 'tarjeta' && locForm.esCredito && locForm.limite && toNumber(locForm.monto) > toNumber(locForm.limite) && (
-              <div className="account-feedback pending" style={{ marginTop: -6 }}>
-                <Icon name="Bell" size={13} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Esta tarjeta quedaría sobregirada (por encima de su límite).
-              </div>
-            )}
             {locError && <div className="form-error">{locError}</div>}
-            <button className="save-btn" onClick={submitLocation}><Icon name="Check" size={16} /> Guardar</button>
+            <button className="save-btn" onClick={submitLocation}><Icon name="Check" size={16} /> Guardar ubicación</button>
           </div>
         </div>
       )}
@@ -3158,26 +3183,34 @@ function LibroDiario() {
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>{sheet.location.persona} · {sheet.location.tipo === 'tarjeta' ? (sheet.location.nombre || 'Tarjeta') : 'Monedero'}</div>
             {sheet.location.tipo === 'tarjeta' && (
               <>
-                <div className="field-label">Nombre de la tarjeta o cuenta</div>
+                <div className="field-label">Nombre del banco o cuenta</div>
                 <input className="text-input" value={editLocForm.nombre} onChange={(e) => setEditLocForm((f) => ({ ...f, nombre: e.target.value }))} />
                 <div className="field-label">CLABE interbancaria (opcional)</div>
-                <input className="text-input" type="text" inputMode="numeric" maxLength={18} placeholder="18 dígitos — ayuda a identificar el banco" value={editLocForm.clabe} onChange={(e) => setEditLocForm((f) => ({ ...f, clabe: e.target.value.replace(/\D/g, '').slice(0, 18) }))} />
-                {(() => {
-                  const bank = detectBank(editLocForm.nombre, editLocForm.clabe);
-                  return bank ? (
-                    <div style={{ fontSize: 11, color: 'var(--income)', margin: '-6px 0 12px', fontWeight: 600 }}>
-                      <Icon name="CheckCircle2" size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Banco identificado: {bank.name}
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                      No identifiqué el banco todavía — se usará un color genérico.
-                    </div>
-                  );
-                })()}
-                <div className="field-label">Red de la tarjeta (opcional)</div>
-                <div className="type-toggle">
-                  <button className={editLocForm.network === 'visa' ? 'active deposito' : ''} onClick={() => setEditLocForm((f) => ({ ...f, network: f.network === 'visa' ? '' : 'visa' }))}>Visa</button>
-                  <button className={editLocForm.network === 'mastercard' ? 'active deposito' : ''} onClick={() => setEditLocForm((f) => ({ ...f, network: f.network === 'mastercard' ? '' : 'mastercard' }))}>Mastercard</button>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={18}
+                  placeholder="18 dígitos"
+                  value={editLocForm.clabe}
+                  onChange={(e) => setEditLocForm((f) => ({ ...f, clabe: e.target.value.replace(/\D/g, '').slice(0, 18) }))}
+                />
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                  {getBankInfo(editLocForm) ? `Banco identificado: ${getBankInfo(editLocForm).name}.` : 'Escribe el nombre de tu banco o captura tu CLABE para identificarlo automáticamente.'}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">Últimos 4 dígitos (opcional)</div>
+                    <input className="text-input" inputMode="numeric" maxLength={4} placeholder="Ej. 0102" value={editLocForm.ultimos4} onChange={(e) => setEditLocForm((f) => ({ ...f, ultimos4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">Red (opcional)</div>
+                    <select className="text-input" value={editLocForm.red} onChange={(e) => setEditLocForm((f) => ({ ...f, red: e.target.value }))}>
+                      <option value="">Auto</option>
+                      <option value="Visa">Visa</option>
+                      <option value="Mastercard">Mastercard</option>
+                      <option value="American Express">Amex</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
                   <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
@@ -3199,16 +3232,18 @@ function LibroDiario() {
                     <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={editLocForm.diaPago} onChange={(e) => setEditLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
                   </div>
                 </div>
-                <div className="field-label">Monto a pagar (estado de cuenta, opcional)</div>
-                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.montoPagar} onChange={(e) => setEditLocForm((f) => ({ ...f, montoPagar: formatAmountTyping(e.target.value) }))} /></div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Lo que te pide tu banco pagar este corte — puede ser distinto de lo gastado en el ciclo actual.</div>
+                <div className="field-label">Monto a pagar (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo.</div>
+                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.montoAPagar} onChange={(e) => setEditLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
                 {deudas.length > 0 && (
                   <>
-                    <div className="field-label">¿Está relacionada a un préstamo? (opcional)</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 8px' }}>Ej. si esta tarjeta está sobregirada y ya la tienes registrada como préstamo en CxP.</div>
-                    <div className="subcat-row">
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div className="cat-grid">
                       {deudas.map((d) => (
-                        <button key={d.id} className={`subcat-chip ${editLocForm.linkedDeudaId === d.id ? 'selected' : ''}`} onClick={() => setEditLocForm((f) => ({ ...f, linkedDeudaId: f.linkedDeudaId === d.id ? '' : d.id }))}>{d.name}</button>
+                        <div key={d.id} className={`cat-choice ${editLocForm.prestamoId === d.id ? 'selected' : ''}`} onClick={() => setEditLocForm((f) => ({ ...f, prestamoId: f.prestamoId === d.id ? '' : d.id }))}>
+                          <Icon name="Landmark" size={15} />
+                          <span className="cat-choice-label">{d.name}</span>
+                        </div>
                       ))}
                     </div>
                   </>
@@ -3217,13 +3252,8 @@ function LibroDiario() {
             )}
             <div className="field-label">{sheet.location.tipo === 'tarjeta' && editLocForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.monto} onChange={(e) => setEditLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            {sheet.location.tipo === 'tarjeta' && editLocForm.esCredito && editLocForm.limite && toNumber(editLocForm.monto) > toNumber(editLocForm.limite) && (
-              <div className="account-feedback pending" style={{ marginTop: -6 }}>
-                <Icon name="Bell" size={13} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Esta tarjeta está sobregirada (por encima de su límite).
-              </div>
-            )}
             {editLocError && <div className="form-error">{editLocError}</div>}
-            <button className="save-btn" onClick={submitEditLocation}><Icon name="Check" size={16} /> Actualizar</button>
+            <button className="save-btn" onClick={submitEditLocation}><Icon name="Check" size={16} /> Actualizar monto</button>
           </div>
         </div>
       )}
@@ -3281,7 +3311,7 @@ function LibroDiario() {
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-header"><span className="sheet-title">Traspaso entre cuentas</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-              Mueve dinero entre tus propias ubicaciones (ej. te llega dinero a tu tarjeta/banco y retiras a tu Monedero). No suma ni resta a tus ingresos o gastos: una cuenta baja y la otra sube por el mismo monto.
+              Mueve dinero entre tus propias ubicaciones (ej. te llega dinero a tu tarjeta/banco y retiras a efectivo). No suma ni resta a tus ingresos o gastos: una cuenta baja y la otra sube por el mismo monto.
             </div>
             <div className="field-label">Monto *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={traspasoForm.amount} onChange={(e) => setTraspasoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
@@ -3329,36 +3359,59 @@ function LibroDiario() {
               <button className={moveForm.kind === 'deposito' ? 'active deposito' : ''} onClick={() => setMoveForm((f) => ({ ...f, kind: 'deposito' }))}>Depositar</button>
               <button className={moveForm.kind === 'retiro' ? 'active retiro' : ''} onClick={() => setMoveForm((f) => ({ ...f, kind: 'retiro' }))}>Retirar</button>
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-              {moveForm.kind === 'deposito'
-                ? 'Este dinero sale de una de tus cuentas (efectivo o tarjeta) y se guarda como ahorro. Elige quién lo tiene guardado y de dónde vino.'
-                : 'Este dinero regresa del ahorro a una de tus cuentas (efectivo o tarjeta). Elige a cuál.'}
-            </div>
-            <div className="field-label">Monto *</div>
+            <div className="field-label">Monto</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" value={moveForm.amount} onChange={(e) => setMoveForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            <div className="field-label">{moveForm.kind === 'deposito' ? '¿Quién lo tiene guardado y de dónde sale? *' : '¿A qué cuenta regresa? *'}</div>
-            {moneyLocations.length === 0 ? (
-              <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                Todavía no tienes ubicaciones de dinero (efectivo/tarjeta). Créalas primero desde la pestaña Tarjetas.
+            <div className="field-label">¿Quién tiene este dinero? *</div>
+            {familia.length > 0 ? (
+              <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                {familia.map((m) => (
+                  <div key={m} className={`cat-choice ${moveForm.persona === m ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, persona: m, locationId: '' }))}>
+                    <div className="mini-avatar" style={{ background: colorForName(m) }}>{m.charAt(0).toUpperCase()}</div>
+                    <span className="cat-choice-label">{m}</span>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="cat-grid">
-                {moneyLocations.map((l) => (
-                  <div
-                    key={l.id}
-                    className={`cat-choice ${moveForm.locationId === l.id ? 'selected' : ''}`}
-                    onClick={() => setMoveForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                  >
-                    <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+              <input className="text-input" placeholder="Ej. Mamá, Papá..." value={moveForm.persona} onChange={(e) => setMoveForm((f) => ({ ...f, persona: e.target.value, locationId: '' }))} />
+            )}
+            <div className="field-label">{moveForm.kind === 'deposito' ? '¿De qué cuenta sale? *' : '¿A qué cuenta regresa? *'}</div>
+            {moneyLocations.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Primero registra una tarjeta o monedero en la pestaña Tarjetas.</div>
+            ) : (
+              <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                {moneyLocations.filter((l) => !moveForm.persona || l.persona === moveForm.persona).map((l) => (
+                  <div key={l.id} className={`cat-choice ${moveForm.locationId === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, locationId: l.id }))}>
+                    <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
                     <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
                   </div>
                 ))}
               </div>
             )}
+            {moveForm.kind === 'deposito' && (
+              <>
+                <div className="field-label">¿De qué cuenta se tomó ese dinero? *</div>
+                {moneyLocations.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Primero registra una tarjeta o monedero en la pestaña Tarjetas.</div>
+                ) : (
+                  <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                    {moneyLocations.filter((l) => l.id !== moveForm.locationId).map((l) => (
+                      <div key={l.id} className={`cat-choice ${moveForm.origen === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, origen: f.origen === l.id ? '' : l.id }))}>
+                        <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
+                        <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
             <div className="field-label">Fecha</div>
             <input className="text-input" type="date" value={moveForm.date} onChange={(e) => setMoveForm((f) => ({ ...f, date: e.target.value }))} />
             {moveError && <div className="form-error">{moveError}</div>}
-            <button className="save-btn" disabled={!(toNumber(moveForm.amount) > 0 && moveForm.locationId)} onClick={submitMove}><Icon name="Check" size={16} /> Confirmar</button>
+            <button
+              className="save-btn"
+              disabled={!(toNumber(moveForm.amount) > 0 && moveForm.persona.trim() && moveForm.locationId && (moveForm.kind === 'retiro' || moveForm.origen))}
+              onClick={submitMove}
+            ><Icon name="Check" size={16} /> Confirmar</button>
           </div>
         </div>
       )}
