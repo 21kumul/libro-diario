@@ -245,9 +245,21 @@ const getBankFromClabe = (clabe) => {
   if (digits.length < 3) return null;
   return CLABE_BANKS[digits.slice(0, 3)] || null;
 };
+// Identifica el banco de una ubicación: primero por CLABE (más confiable,
+// no depende de cómo el usuario haya escrito el nombre), y si no hay CLABE
+// o no se reconoce, cae al nombre que el usuario escribió a mano.
+const getBankInfo = (loc) => {
+  const byClabe = getBankFromClabe(loc?.clabe);
+  if (byClabe) {
+    const style = BANK_STYLES.find((b) => b.match.test(byClabe));
+    if (style) return style;
+    return { name: byClabe, gradient: null, network: null };
+  }
+  return getBankStyle(loc?.nombre);
+};
 // Color/degradado final de una tarjeta: usa el diseño real del banco si se
 // reconoce el nombre; si no, cae al degradado genérico asignado por id.
-const cardBg = (loc) => (loc.tipo === 'tarjeta' ? (getBankStyle(loc.nombre)?.gradient || CARD_GRADIENTS[hashStr(loc.id) % CARD_GRADIENTS.length]) : '#5F8A4C');
+const cardBg = (loc) => (loc.tipo === 'tarjeta' ? (getBankInfo(loc)?.gradient || CARD_GRADIENTS[hashStr(loc.id) % CARD_GRADIENTS.length]) : '#5F8A4C');
 const periodKey = (dateStr) => dateStr.slice(0, 7);
 const currentPeriodKey = periodKey(todayStr());
 const uid = () => Date.now() + Math.random();
@@ -411,15 +423,13 @@ function LibroDiario() {
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Ocultar montos: preferencia personal (no se comparte con la familia), se
-  // guarda solo en este dispositivo.
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
 
-  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), locationId: '' });
+  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
   const [editTxError, setEditTxError] = useState('');
 
   const [compForm, setCompForm] = useState({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [], locationId: '' });
@@ -675,7 +685,7 @@ function LibroDiario() {
 
   const openAddTxFromConcilia = (row) => {
     const type = row.amount < 0 ? 'gasto' : 'ingreso';
-    setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', note: row.concepto || '', tag: '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setSheet({ type: 'add-tx' });
   };
 
@@ -827,7 +837,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', tag: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -970,7 +980,7 @@ function LibroDiario() {
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), tag: txForm.tag.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
@@ -1049,7 +1059,7 @@ function LibroDiario() {
   };
 
   const openEditTx = (t) => {
-    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', tag: t.tag || '', date: t.date, locationId: t.locationId || '' });
+    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '' });
     setEditTxError('');
     setSheet({ type: 'edit-tx' });
   };
@@ -1101,7 +1111,6 @@ function LibroDiario() {
       category: editTxForm.category,
       subcategory: editTxForm.subcategory || null,
       note: editTxForm.note.trim(),
-      tag: editTxForm.tag.trim(),
       date: editTxForm.date,
       paymentId: syncedPaymentId,
       locationId: nextLocationId,
@@ -1309,37 +1318,45 @@ function LibroDiario() {
     if (!amt || amt <= 0) return setMoveError('Ingresa un monto válido.');
     if (!moveForm.persona.trim()) return setMoveError('Elige quién tiene el dinero de este movimiento.');
     if (!moveForm.locationId) return setMoveError('Elige en qué cuenta (efectivo o tarjeta) está ese dinero.');
-    if (moveForm.kind === 'deposito' && !moveForm.origen.trim()) return setMoveError('Cuéntanos de dónde vino ese dinero.');
+    if (moveForm.kind === 'deposito' && !moveForm.origen) return setMoveError('Elige de qué cuenta se tomó ese dinero.');
+    if (moveForm.kind === 'deposito' && moveForm.origen === moveForm.locationId) return setMoveError('La cuenta de origen y la cuenta donde queda el ahorro deben ser distintas.');
     const saved = acc.movements.reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0);
     if (moveForm.kind === 'retiro' && amt > saved + 0.01) return setMoveError('No puedes retirar más de lo ahorrado.');
     const move = {
       id: uid(), kind: moveForm.kind, amount: amt, date: moveForm.date, note: moveForm.note.trim(),
-      persona: moveForm.persona.trim(), locationId: moveForm.locationId, origen: moveForm.kind === 'deposito' ? moveForm.origen.trim() : null,
+      persona: moveForm.persona.trim(), locationId: moveForm.locationId, origenLocationId: moveForm.kind === 'deposito' ? moveForm.origen : null,
       autor: profile?.name || 'Familia',
     };
     const next = savings.map((a) => a.id === acc.id ? { ...a, movements: [...a.movements, move] } : a);
     const patch = { savings: next };
-    // El dinero sale de la cuenta/monedero elegido cuando depositas al ahorro,
-    // y regresa a esa cuenta cuando retiras del ahorro.
-    patch.moneyLocations = moneyLocations.map((l) => l.id === moveForm.locationId
-      ? { ...l, monto: (l.monto || 0) + (moveForm.kind === 'deposito' ? -amt : amt) }
-      : l);
+    // Depósito: el dinero sale de la cuenta de origen y entra a la cuenta
+    // donde queda guardado el ahorro (dos cuentas reales, como un traspaso).
+    // Retiro: el dinero regresa de la "bolsa" de ahorro a la cuenta elegida.
+    patch.moneyLocations = moneyLocations.map((l) => {
+      if (moveForm.kind === 'deposito') {
+        if (l.id === moveForm.locationId) return { ...l, monto: (l.monto || 0) + amt };
+        if (l.id === moveForm.origen) return { ...l, monto: (l.monto || 0) - amt };
+      } else if (l.id === moveForm.locationId) {
+        return { ...l, monto: (l.monto || 0) + amt };
+      }
+      return l;
+    });
     persist(patch);
     setSheet(null);
   };
 
-  const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '' });
+  const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [locError, setLocError] = useState('');
 
   // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
   // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
   const [traspasoForm, setTraspasoForm] = useState({ fromId: '', toId: '', amount: '', note: '', date: todayStr() });
   const [traspasoError, setTraspasoError] = useState('');
-  const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '', esCredito: false, limite: '', diaCorte: '', diaPago: '' });
+  const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [editLocError, setEditLocError] = useState('');
 
   const openNewLocation = (personaDefault) => {
-    setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '' });
+    setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
     setLocError('');
     setSheet({ type: 'new-location' });
   };
@@ -1359,13 +1376,16 @@ function LibroDiario() {
       diaPago: esCredito && locForm.diaPago ? parseInt(locForm.diaPago, 10) : null,
       ultimos4: locForm.tipo === 'tarjeta' ? locForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null : null,
       red: locForm.tipo === 'tarjeta' ? (locForm.red || null) : null,
+      clabe: locForm.tipo === 'tarjeta' ? (locForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
+      montoAPagar: esCredito ? toNumber(locForm.montoAPagar) || null : null,
+      prestamoId: esCredito ? (locForm.prestamoId || null) : null,
     }];
     persist({ moneyLocations: next });
     setSheet(null);
   };
 
   const openEditLocation = (loc) => {
-    setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito, limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '', ultimos4: loc.ultimos4 || '', red: loc.red || '' });
+    setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito, limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '', ultimos4: loc.ultimos4 || '', red: loc.red || '', clabe: loc.clabe || '', montoAPagar: loc.montoAPagar != null ? String(loc.montoAPagar) : '', prestamoId: loc.prestamoId || '' });
     setEditLocError('');
     setSheet({ type: 'edit-location', location: loc });
   };
@@ -1383,6 +1403,9 @@ function LibroDiario() {
       diaPago: esCredito && editLocForm.diaPago ? parseInt(editLocForm.diaPago, 10) : null,
       ultimos4: loc.tipo === 'tarjeta' ? (editLocForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null) : null,
       red: loc.tipo === 'tarjeta' ? (editLocForm.red || null) : null,
+      clabe: loc.tipo === 'tarjeta' ? (editLocForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
+      montoAPagar: esCredito ? toNumber(editLocForm.montoAPagar) || null : null,
+      prestamoId: esCredito ? (editLocForm.prestamoId || null) : null,
     } : l);
     persist({ moneyLocations: next });
     setSheet(null);
@@ -2160,13 +2183,16 @@ function LibroDiario() {
                   const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
                   const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
                   const bg = cardBg(l);
-                  const net = l.red || getBankStyle(l.nombre)?.network;
+                  const net = l.red || getBankInfo(l)?.network;
+                  const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
+                  const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
                   return (
-                    <div key={l.id} className="wallet-card" style={{ background: bg }} onClick={() => openWalletDetail(l)}>
+                    <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
                       <div className="wallet-card-top">
                         <div>
                           <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
                           <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                          {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div className="wallet-card-amount">{fmt(l.monto)}</div>
@@ -2179,10 +2205,22 @@ function LibroDiario() {
                             <span>Uso del límite</span>
                             <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
                           </div>
-                          <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${pct || 0}%` }} /></div>
-                          <div className="wallet-card-limitrow" style={{ marginBottom: 12 }}>
+                          <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                          <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
                             <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
                           </div>
+                          {l.montoAPagar > 0 && (
+                            <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                              <span>Monto a pagar</span>
+                              <span>{fmt(l.montoAPagar)}</span>
+                            </div>
+                          )}
+                          {prestamoLigado && (
+                            <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                              <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                              <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                            </div>
+                          )}
                           <div style={{ display: 'flex', gap: 8 }}>
                             {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
                             {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
@@ -2956,16 +2994,19 @@ function LibroDiario() {
         const diasCorte = loc.esCredito ? diasHasta(loc.diaCorte) : null;
         const diasPago = loc.esCredito ? diasHasta(loc.diaPago) : null;
         const bg = cardBg(loc);
-        const net = loc.red || getBankStyle(loc.nombre)?.network;
+        const net = loc.red || getBankInfo(loc)?.network;
+        const sobregirada = loc.esCredito && loc.limite && loc.monto > loc.limite + 0.01;
+        const prestamoLigado = loc.esCredito && loc.prestamoId ? deudas.find((d) => d.id === loc.prestamoId) : null;
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-              <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16 }}>
+              <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }}>
                 <div className="wallet-card-top">
                   <div>
                     <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
                     <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'MONEDERO'}</span>
+                    {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="wallet-card-amount">{fmt(loc.monto)}</div>
@@ -2975,8 +3016,20 @@ function LibroDiario() {
                 {loc.esCredito && (
                   <>
                     <div className="wallet-card-limitrow"><span>Uso del límite</span><span>{loc.limite ? `${pct.toFixed(1)}%` : '---%'}</span></div>
-                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${pct || 0}%` }} /></div>
-                    <div className="wallet-card-limitrow" style={{ marginBottom: 12 }}><span>Límite: {loc.limite ? fmt(loc.limite) : '····'}</span></div>
+                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                    <div className="wallet-card-limitrow" style={{ marginBottom: loc.montoAPagar || prestamoLigado ? 6 : 12 }}><span>Límite: {loc.limite ? fmt(loc.limite) : '····'}</span></div>
+                    {loc.montoAPagar > 0 && (
+                      <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                        <span>Monto a pagar</span>
+                        <span>{fmt(loc.montoAPagar)}</span>
+                      </div>
+                    )}
+                    {prestamoLigado && (
+                      <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                        <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                        <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 8 }}>
                       {loc.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
                       {loc.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
@@ -3045,8 +3098,21 @@ function LibroDiario() {
               <>
                 <div className="field-label">Nombre del banco o cuenta</div>
                 <input className="text-input" placeholder="Ej. Banamex, BBVA, Nu..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                  {getBankStyle(locForm.nombre) ? `Se usará el diseño de ${getBankStyle(locForm.nombre).name}.` : 'Escribe el nombre de tu banco (ej. Banamex, BBVA, Santander, Nu) para usar su color en tu tarjeta.'}
+                <div className="field-label">CLABE interbancaria (opcional)</div>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={18}
+                  placeholder="18 dígitos"
+                  value={locForm.clabe}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
+                    const detected = getBankFromClabe(digits);
+                    setLocForm((f) => ({ ...f, clabe: digits, nombre: detected && !f.nombre.trim() ? detected : f.nombre }));
+                  }}
+                />
+                <div style={{ fontSize: 11, color: getBankFromClabe(locForm.clabe) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                  {getBankInfo(locForm) ? `Banco identificado: ${getBankInfo(locForm).name}.` : 'Escribe el nombre de tu banco (ej. Banamex, BBVA, Santander, Nu) o captura tu CLABE para identificarlo automáticamente.'}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
@@ -3083,6 +3149,23 @@ function LibroDiario() {
                     <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={locForm.diaPago} onChange={(e) => setLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
                   </div>
                 </div>
+                <div className="field-label">Monto a pagar (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo (pago para no generar intereses, o el mínimo).</div>
+                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.montoAPagar} onChange={(e) => setLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
+                {deudas.length > 0 && (
+                  <>
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 8px' }}>Por ejemplo, si el banco te dio un préstamo sobre esta tarjeta que llevas por separado en Cuentas.</div>
+                    <div className="cat-grid">
+                      {deudas.map((d) => (
+                        <div key={d.id} className={`cat-choice ${locForm.prestamoId === d.id ? 'selected' : ''}`} onClick={() => setLocForm((f) => ({ ...f, prestamoId: f.prestamoId === d.id ? '' : d.id }))}>
+                          <Icon name="Landmark" size={15} />
+                          <span className="cat-choice-label">{d.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
             <div className="field-label">{locForm.tipo === 'tarjeta' && locForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
@@ -3096,14 +3179,23 @@ function LibroDiario() {
       {sheet?.type === 'edit-location' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header"><span className="sheet-title">Actualizar {sheet.location.tipo === 'tarjeta' ? 'tarjeta' : 'efectivo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="sheet-header"><span className="sheet-title">Actualizar {sheet.location.tipo === 'tarjeta' ? 'tarjeta' : 'monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>{sheet.location.persona} · {sheet.location.tipo === 'tarjeta' ? (sheet.location.nombre || 'Tarjeta') : 'Monedero'}</div>
             {sheet.location.tipo === 'tarjeta' && (
               <>
                 <div className="field-label">Nombre del banco o cuenta</div>
                 <input className="text-input" value={editLocForm.nombre} onChange={(e) => setEditLocForm((f) => ({ ...f, nombre: e.target.value }))} />
+                <div className="field-label">CLABE interbancaria (opcional)</div>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={18}
+                  placeholder="18 dígitos"
+                  value={editLocForm.clabe}
+                  onChange={(e) => setEditLocForm((f) => ({ ...f, clabe: e.target.value.replace(/\D/g, '').slice(0, 18) }))}
+                />
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                  {getBankStyle(editLocForm.nombre) ? `Se usará el diseño de ${getBankStyle(editLocForm.nombre).name}.` : 'Escribe el nombre de tu banco para usar su color en tu tarjeta.'}
+                  {getBankInfo(editLocForm) ? `Banco identificado: ${getBankInfo(editLocForm).name}.` : 'Escribe el nombre de tu banco o captura tu CLABE para identificarlo automáticamente.'}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
@@ -3140,6 +3232,22 @@ function LibroDiario() {
                     <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={editLocForm.diaPago} onChange={(e) => setEditLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
                   </div>
                 </div>
+                <div className="field-label">Monto a pagar (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo.</div>
+                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.montoAPagar} onChange={(e) => setEditLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
+                {deudas.length > 0 && (
+                  <>
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div className="cat-grid">
+                      {deudas.map((d) => (
+                        <div key={d.id} className={`cat-choice ${editLocForm.prestamoId === d.id ? 'selected' : ''}`} onClick={() => setEditLocForm((f) => ({ ...f, prestamoId: f.prestamoId === d.id ? '' : d.id }))}>
+                          <Icon name="Landmark" size={15} />
+                          <span className="cat-choice-label">{d.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
             <div className="field-label">{sheet.location.tipo === 'tarjeta' && editLocForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
@@ -3281,8 +3389,19 @@ function LibroDiario() {
             )}
             {moveForm.kind === 'deposito' && (
               <>
-                <div className="field-label">¿De dónde vino ese dinero? *</div>
-                <input className="text-input" placeholder="Ej. quincena, venta, regalo..." value={moveForm.origen} onChange={(e) => setMoveForm((f) => ({ ...f, origen: e.target.value }))} />
+                <div className="field-label">¿De qué cuenta se tomó ese dinero? *</div>
+                {moneyLocations.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Primero registra una tarjeta o monedero en la pestaña Tarjetas.</div>
+                ) : (
+                  <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                    {moneyLocations.filter((l) => l.id !== moveForm.locationId).map((l) => (
+                      <div key={l.id} className={`cat-choice ${moveForm.origen === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, origen: f.origen === l.id ? '' : l.id }))}>
+                        <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
+                        <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
             <div className="field-label">Fecha</div>
@@ -3290,7 +3409,7 @@ function LibroDiario() {
             {moveError && <div className="form-error">{moveError}</div>}
             <button
               className="save-btn"
-              disabled={!(toNumber(moveForm.amount) > 0 && moveForm.persona.trim() && moveForm.locationId && (moveForm.kind === 'retiro' || moveForm.origen.trim()))}
+              disabled={!(toNumber(moveForm.amount) > 0 && moveForm.persona.trim() && moveForm.locationId && (moveForm.kind === 'retiro' || moveForm.origen))}
               onClick={submitMove}
             ><Icon name="Check" size={16} /> Confirmar</button>
           </div>
