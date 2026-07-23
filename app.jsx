@@ -152,6 +152,9 @@ const formatAmountTyping = (raw) => {
 };
 // Convierte un monto (ya sea "3,000.50" o "3000.5") a número real para sumar/guardar.
 const toNumber = (raw) => parseFloat(String(raw ?? '').replace(/,/g, '')) || 0;
+// Formatea dígitos de un número de tarjeta en bloques de 4 mientras se escribe,
+// solo para mostrarlo legible (el valor guardado en estado son puros dígitos).
+const formatCardNumberTyping = (digits) => (digits || '').replace(/(.{4})/g, '$1 ').trim();
 
 // Conciliación manual: el usuario pega líneas copiadas de su banco. Formato
 // recomendado "AAAA-MM-DD | monto | concepto", pero también intenta leer
@@ -244,6 +247,40 @@ const getBankFromClabe = (clabe) => {
   const digits = (clabe || '').replace(/\D/g, '');
   if (digits.length < 3) return null;
   return CLABE_BANKS[digits.slice(0, 3)] || null;
+};
+// Detección de red (Visa/Mastercard/Amex) a partir del número de tarjeta.
+// Se basa en los rangos de BIN públicos y estandarizados por las propias
+// marcas (ISO/IEC 7812), por lo que es 100% determinística y confiable,
+// a diferencia de intentar adivinar el banco exacto por los primeros
+// dígitos (eso sí varía banco a banco y no está estandarizado).
+const detectCardNetwork = (numero) => {
+  const digits = (numero || '').replace(/\D/g, '');
+  if (digits.length < 2) return null;
+  if (digits[0] === '4') return 'Visa';
+  const two = parseInt(digits.slice(0, 2), 10);
+  const four = parseInt(digits.slice(0, 4), 10);
+  if (two >= 51 && two <= 55) return 'Mastercard';
+  if (four >= 2221 && four <= 2720) return 'Mastercard';
+  if (two === 34 || two === 37) return 'American Express';
+  return null;
+};
+// Iniciales para el "logo" del banco: como no usamos imágenes de marcas
+// reales (por derechos de autor/marca), generamos un monograma de 1-2
+// letras a partir del nombre, en el color de la tarjeta identificada.
+const getInitials = (name) => {
+  if (!name) return '';
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+};
+// Clase CSS para colorear el badge de red (Visa/Mastercard/Amex) sin usar
+// los logos reales de las marcas.
+const networkClass = (net) => {
+  if (!net) return '';
+  if (/visa/i.test(net)) return 'net-visa';
+  if (/mastercard/i.test(net)) return 'net-mastercard';
+  if (/amex|american express/i.test(net)) return 'net-amex';
+  return '';
 };
 // Identifica el banco de una ubicación: primero por CLABE (más confiable,
 // no depende de cómo el usuario haya escrito el nombre), y si no hay CLABE
@@ -1347,6 +1384,9 @@ function LibroDiario() {
 
   const [locForm, setLocForm] = useState({ persona: '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [locError, setLocError] = useState('');
+  // Número de tarjeta capturado solo para auto-detectar red y últimos 4
+  // dígitos; nunca se persiste completo (no guardamos el PAN por seguridad).
+  const [locCardNumber, setLocCardNumber] = useState('');
 
   // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
   // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
@@ -1354,9 +1394,11 @@ function LibroDiario() {
   const [traspasoError, setTraspasoError] = useState('');
   const [editLocForm, setEditLocForm] = useState({ monto: '', nombre: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
   const [editLocError, setEditLocError] = useState('');
+  const [editLocCardNumber, setEditLocCardNumber] = useState('');
 
   const openNewLocation = (personaDefault) => {
     setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
+    setLocCardNumber('');
     setLocError('');
     setSheet({ type: 'new-location' });
   };
@@ -1386,6 +1428,7 @@ function LibroDiario() {
 
   const openEditLocation = (loc) => {
     setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito, limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '', ultimos4: loc.ultimos4 || '', red: loc.red || '', clabe: loc.clabe || '', montoAPagar: loc.montoAPagar != null ? String(loc.montoAPagar) : '', prestamoId: loc.prestamoId || '' });
+    setEditLocCardNumber('');
     setEditLocError('');
     setSheet({ type: 'edit-location', location: loc });
   };
@@ -1699,7 +1742,11 @@ function LibroDiario() {
         .wallet-card-caption { font-size: 10.5px; opacity: 0.85; margin-top: 2px; }
         .wallet-card-limitrow { display: flex; justify-content: space-between; font-size: 11.5px; opacity: 0.9; margin-bottom: 6px; }
         .wallet-card-footrow { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-family: var(--mono); font-size: 13px; letter-spacing: 1px; opacity: 0.92; }
-        .wallet-card-network { font-family: var(--sans); font-style: italic; font-weight: 700; letter-spacing: 0; text-transform: uppercase; font-size: 12px; opacity: 0.85; }
+        .wallet-card-network { font-family: var(--sans); font-style: italic; font-weight: 700; letter-spacing: 0; text-transform: uppercase; font-size: 12px; opacity: 0.85; padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.18); }
+        .wallet-card-network.net-visa { color: #fff; background: rgba(255,255,255,0.16); }
+        .wallet-card-network.net-mastercard { color: #FFB020; background: rgba(0,0,0,0.18); }
+        .wallet-card-network.net-amex { color: #6FD3FF; background: rgba(0,0,0,0.18); }
+        .bank-monogram { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.24); font-size: 9.5px; font-weight: 800; letter-spacing: 0.3px; flex-shrink: 0; margin-top: 1px; }
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
         .wallet-pill-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 20px; }
@@ -2186,16 +2233,20 @@ function LibroDiario() {
                   const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
                   const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
                   const bg = cardBg(l);
-                  const net = l.red || getBankInfo(l)?.network;
+                  const bankInfo = getBankInfo(l);
+                  const net = l.red || bankInfo?.network;
                   const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
                   const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
                   return (
                     <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
                       <div className="wallet-card-top">
-                        <div>
-                          <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
-                          <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                          {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                          {bankInfo?.name && <span className="bank-monogram">{getInitials(bankInfo.name)}</span>}
+                          <div>
+                            <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
+                            <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                            {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                          </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div className="wallet-card-amount">{fmt(l.monto)}</div>
@@ -2233,7 +2284,7 @@ function LibroDiario() {
                       {(l.ultimos4 || net) && (
                         <div className="wallet-card-footrow">
                           <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
-                          {net && <span className="wallet-card-network">{net}</span>}
+                          {net && <span className={`wallet-card-network ${networkClass(net)}`}>{net}</span>}
                         </div>
                       )}
                     </div>
@@ -2997,7 +3048,8 @@ function LibroDiario() {
         const diasCorte = loc.esCredito ? diasHasta(loc.diaCorte) : null;
         const diasPago = loc.esCredito ? diasHasta(loc.diaPago) : null;
         const bg = cardBg(loc);
-        const net = loc.red || getBankInfo(loc)?.network;
+        const bankInfo = getBankInfo(loc);
+        const net = loc.red || bankInfo?.network;
         const sobregirada = loc.esCredito && loc.limite && loc.monto > loc.limite + 0.01;
         const prestamoLigado = loc.esCredito && loc.prestamoId ? deudas.find((d) => d.id === loc.prestamoId) : null;
         return (
@@ -3006,10 +3058,13 @@ function LibroDiario() {
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }}>
                 <div className="wallet-card-top">
-                  <div>
-                    <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
-                    <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'MONEDERO'}</span>
-                    {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    {loc.tipo === 'tarjeta' && bankInfo?.name && <span className="bank-monogram">{getInitials(bankInfo.name)}</span>}
+                    <div>
+                      <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
+                      <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'MONEDERO'}</span>
+                      {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="wallet-card-amount">{fmt(loc.monto)}</div>
@@ -3042,7 +3097,7 @@ function LibroDiario() {
                 {(loc.ultimos4 || net) && (
                   <div className="wallet-card-footrow">
                     <span>{loc.ultimos4 ? `•••• ${loc.ultimos4}` : ''}</span>
-                    {net && <span className="wallet-card-network">{net}</span>}
+                    {net && <span className={`wallet-card-network ${networkClass(net)}`}>{net}</span>}
                   </div>
                 )}
               </div>
@@ -3117,6 +3172,26 @@ function LibroDiario() {
                 <div style={{ fontSize: 11, color: getBankFromClabe(locForm.clabe) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
                   {getBankInfo(locForm) ? `Banco identificado: ${getBankInfo(locForm).name}.` : 'Escribe el nombre de tu banco (ej. Banamex, BBVA, Santander, Nu) o captura tu CLABE para identificarlo automáticamente.'}
                 </div>
+                <div className="field-label">Número de tarjeta (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Solo para detectar la red (Visa/Mastercard/Amex) y los últimos 4 dígitos; no se guarda el número completo.</div>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={19}
+                  placeholder="•••• •••• •••• ••••"
+                  value={formatCardNumberTyping(locCardNumber)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
+                    setLocCardNumber(digits);
+                    const net = detectCardNetwork(digits);
+                    setLocForm((f) => ({ ...f, ultimos4: digits.length >= 4 ? digits.slice(-4) : f.ultimos4, red: net || f.red }));
+                  }}
+                />
+                {locCardNumber.length >= 2 && (
+                  <div style={{ fontSize: 11, color: detectCardNetwork(locCardNumber) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                    {detectCardNetwork(locCardNumber) ? `Red detectada: ${detectCardNetwork(locCardNumber)}.` : 'No se reconoce la red con estos dígitos.'}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Últimos 4 dígitos (opcional)</div>
@@ -3200,6 +3275,26 @@ function LibroDiario() {
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
                   {getBankInfo(editLocForm) ? `Banco identificado: ${getBankInfo(editLocForm).name}.` : 'Escribe el nombre de tu banco o captura tu CLABE para identificarlo automáticamente.'}
                 </div>
+                <div className="field-label">Número de tarjeta (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Solo para detectar la red (Visa/Mastercard/Amex) y los últimos 4 dígitos; no se guarda el número completo.</div>
+                <input
+                  className="text-input"
+                  inputMode="numeric"
+                  maxLength={19}
+                  placeholder="•••• •••• •••• ••••"
+                  value={formatCardNumberTyping(editLocCardNumber)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
+                    setEditLocCardNumber(digits);
+                    const net = detectCardNetwork(digits);
+                    setEditLocForm((f) => ({ ...f, ultimos4: digits.length >= 4 ? digits.slice(-4) : f.ultimos4, red: net || f.red }));
+                  }}
+                />
+                {editLocCardNumber.length >= 2 && (
+                  <div style={{ fontSize: 11, color: detectCardNetwork(editLocCardNumber) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                    {detectCardNetwork(editLocCardNumber) ? `Red detectada: ${detectCardNetwork(editLocCardNumber)}.` : 'No se reconoce la red con estos dígitos.'}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Últimos 4 dígitos (opcional)</div>
