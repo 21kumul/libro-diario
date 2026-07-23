@@ -207,8 +207,7 @@ const CARD_GRADIENTS = [
 // Estilos inspirados en el diseño real de bancos/fintechs mexicanos más
 // comunes. Se detectan automáticamente por el nombre que el usuario le puso
 // a su tarjeta (ej. "Banamex", "BBVA", "Nu"), sin necesidad de conectarse a
-// ningún banco: es una captura manual, no una lectura NFC de la tarjeta real
-// (los navegadores no pueden leer el chip/EMV de una tarjeta bancaria).
+// ningún banco: es una captura manual de los datos de tu tarjeta.
 const BANK_STYLES = [
   { match: /banamex|citibanamex/i, name: 'Banamex', gradient: 'linear-gradient(135deg, #7a0f1e, #b21e2f)', network: 'Mastercard' },
   { match: /bbva|bancomer/i, name: 'BBVA', gradient: 'linear-gradient(135deg, #072146, #1464F4)', network: 'Visa' },
@@ -228,6 +227,23 @@ const BANK_STYLES = [
 const getBankStyle = (nombre) => {
   if (!nombre) return null;
   return BANK_STYLES.find((b) => b.match.test(nombre)) || null;
+};
+// Detección de banco por Clave Interbancaria (CLABE): los primeros 3 dígitos
+// son el código de institución asignado por Banxico/ABM. Cubre los bancos y
+// fintechs más comunes en México; si no se reconoce el código, simplemente
+// no se autocompleta nada (no afecta el registro manual).
+const CLABE_BANKS = {
+  '002': 'Banamex', '012': 'BBVA', '014': 'Santander', '021': 'HSBC',
+  '030': 'BanBajío', '036': 'Inbursa', '042': 'Mifel', '044': 'Scotiabank',
+  '058': 'Banregio', '059': 'Invex', '060': 'Bansi', '062': 'Afirme',
+  '072': 'Banorte', '103': 'American Express', '127': 'Banco Azteca',
+  '130': 'Compartamos', '137': 'BanCoppel', '143': 'CIBanco', '166': 'Banco del Bienestar',
+  '646': 'Fintech (STP)', '699': 'Fondeadora',
+};
+const getBankFromClabe = (clabe) => {
+  const digits = (clabe || '').replace(/\D/g, '');
+  if (digits.length < 3) return null;
+  return CLABE_BANKS[digits.slice(0, 3)] || null;
 };
 // Color/degradado final de una tarjeta: usa el diseño real del banco si se
 // reconoce el nombre; si no, cae al degradado genérico asignado por id.
@@ -1507,7 +1523,7 @@ function LibroDiario() {
           --shadow-card: 0 1px 1px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.055);
           --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.12);
           font-family: var(--sans); color: var(--ink); background: var(--paper-dim);
-          max-width: 460px; margin: 0 auto; height: 100dvh; height: 100vh; display: flex; flex-direction: column;
+          max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
         }
         .masthead { background: var(--green); color: var(--paper); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
@@ -1569,8 +1585,8 @@ function LibroDiario() {
         .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 6px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
         .nav-btn.active { font-weight: 700; }
         .fab { position: absolute; right: 18px; bottom: 78px; width: 56px; height: 56px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(194,155,62,0.45); cursor: pointer; z-index: 5; }
-        .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: env(safe-area-inset-top, 0px); }
-        .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(88vh, calc(100vh - env(safe-area-inset-top, 0px) - 28px)); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; }
+        .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
+        .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
         .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
         .sheet-title { font-family: var(--mono); font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
@@ -1641,6 +1657,15 @@ function LibroDiario() {
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: none; box-shadow: var(--shadow-card); }
         .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); }
+        .wallet-card-cash {
+          background: linear-gradient(135deg, #2f6b45, #468a5c);
+          background-image: linear-gradient(135deg, #2f6b45, #468a5c), radial-gradient(circle, rgba(255,255,255,0.07) 1.5px, transparent 1.5px);
+          background-size: auto, 14px 14px;
+          position: relative; overflow: hidden;
+        }
+        .wallet-card-cash::after {
+          content: '$'; position: absolute; right: 8px; bottom: -18px; font-family: var(--mono); font-size: 96px; font-weight: 700; color: rgba(255,255,255,0.08); line-height: 1; pointer-events: none;
+        }
         .wallet-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
         .wallet-card-name { font-size: 16px; font-weight: 700; }
         .wallet-card-pill { display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; background: rgba(255,255,255,0.22); padding: 2px 8px; border-radius: 6px; margin-top: 5px; }
@@ -2177,15 +2202,20 @@ function LibroDiario() {
                   <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, color: 'var(--ink-soft)', margin: '14px 2px 10px' }}>Monedero</div>
                 )}
                 {moneyLocationsByPerson.map(([persona, locs]) => locs.filter((l) => l.tipo === 'efectivo').map((l) => (
-                  <div className="mini-row" key={l.id} onClick={() => openWalletDetail(l)} style={{ cursor: 'pointer' }}>
-                    <div className="savings-icon" style={{ width: 28, height: 28, background: '#5F8A4C', color: '#fff' }}>
-                      <Icon name="Wallet" size={14} />
+                  <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
+                    <div className="wallet-card-top">
+                      <div>
+                        <div className="wallet-card-name">Monedero</div>
+                        <span className="wallet-card-pill">EFECTIVO</span>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="wallet-card-amount">{fmt(l.monto)}</div>
+                        <div className="wallet-card-caption">{persona}</div>
+                      </div>
                     </div>
-                    <div className="mini-row-mid">
-                      <div className="mini-row-name">Monedero</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{persona}</div>
+                    <div className="wallet-card-footrow">
+                      <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
                     </div>
-                    <div className="mini-row-amount" style={{ color: 'var(--ink)' }}>{fmt(l.monto)}</div>
                   </div>
                 )))}
                 <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
@@ -2931,7 +2961,7 @@ function LibroDiario() {
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-              <div className="wallet-card" style={{ background: bg, cursor: 'default', marginBottom: 16 }}>
+              <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16 }}>
                 <div className="wallet-card-top">
                   <div>
                     <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
@@ -3032,9 +3062,6 @@ function LibroDiario() {
                       <option value="American Express">Amex</option>
                     </select>
                   </div>
-                </div>
-                <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-                  Captura manual — los navegadores no pueden leer el chip NFC de una tarjeta bancaria real por seguridad.
                 </div>
                 <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
                   <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
