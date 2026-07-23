@@ -1679,7 +1679,10 @@ function LibroDiario() {
         .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: none; box-shadow: var(--shadow-card); }
-        .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); }
+        .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); box-sizing: border-box; width: 100%; aspect-ratio: 1.6 / 1; min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+        .wallet-card-body { display: flex; flex-direction: column; gap: 0; overflow-y: auto; flex: 1; margin: -2px 0; padding-right: 2px; scrollbar-width: thin; }
+        .wallet-card-body::-webkit-scrollbar { width: 3px; }
+        .wallet-card-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
         .wallet-card-cash {
           background: linear-gradient(135deg, #2f6b45, #468a5c);
           background-image: linear-gradient(135deg, #2f6b45, #468a5c), radial-gradient(circle, rgba(255,255,255,0.07) 1.5px, transparent 1.5px);
@@ -2200,7 +2203,7 @@ function LibroDiario() {
                         </div>
                       </div>
                       {l.esCredito && (
-                        <>
+                        <div className="wallet-card-body">
                           <div className="wallet-card-limitrow">
                             <span>Uso del límite</span>
                             <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
@@ -2225,7 +2228,7 @@ function LibroDiario() {
                             {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
                             {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
                           </div>
-                        </>
+                        </div>
                       )}
                       {(l.ultimos4 || net) && (
                         <div className="wallet-card-footrow">
@@ -3014,7 +3017,7 @@ function LibroDiario() {
                   </div>
                 </div>
                 {loc.esCredito && (
-                  <>
+                  <div className="wallet-card-body">
                     <div className="wallet-card-limitrow"><span>Uso del límite</span><span>{loc.limite ? `${pct.toFixed(1)}%` : '---%'}</span></div>
                     <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
                     <div className="wallet-card-limitrow" style={{ marginBottom: loc.montoAPagar || prestamoLigado ? 6 : 12 }}><span>Límite: {loc.limite ? fmt(loc.limite) : '····'}</span></div>
@@ -3034,7 +3037,7 @@ function LibroDiario() {
                       {loc.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
                       {loc.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
                     </div>
-                  </>
+                  </div>
                 )}
                 {(loc.ultimos4 || net) && (
                   <div className="wallet-card-footrow">
