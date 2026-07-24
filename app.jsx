@@ -521,22 +521,36 @@ function LibroDiario() {
   const [tab, setTab] = useState('resumen');
   // Barra inferior "cristal": se oculta al hacer scroll hacia abajo dentro del
   // contenido y reaparece al hacer scroll hacia arriba, al llegar al inicio
-  // de la página, o al cambiar de pestaña.
+  // de la página, o al cambiar de pestaña. Usamos un acumulado (no el delta
+  // de cada evento) para que no se oculte con un scroll pequeño/rápido:
+  // hace falta bajar bastante para ocultarla, y basta con subir un poco
+  // para regresarla.
   const [navVisible, setNavVisible] = useState(true);
+  const contentRef = useRef(null);
   const lastScrollY = useRef(0);
+  const scrollAccum = useRef(0);
   const handleContentScroll = useCallback((e) => {
     const y = e.currentTarget.scrollTop;
     const delta = y - lastScrollY.current;
-    if (y <= 24) {
-      setNavVisible(true);
-    } else if (delta > 4) {
-      setNavVisible(false);
-    } else if (delta < -4) {
-      setNavVisible(true);
-    }
     lastScrollY.current = y;
+    if (y <= 40) { setNavVisible(true); scrollAccum.current = 0; return; }
+    if ((delta > 0 && scrollAccum.current < 0) || (delta < 0 && scrollAccum.current > 0)) scrollAccum.current = 0;
+    scrollAccum.current += delta;
+    if (scrollAccum.current > 90) {
+      setNavVisible(false);
+      scrollAccum.current = 0;
+    } else if (scrollAccum.current < -25) {
+      setNavVisible(true);
+      scrollAccum.current = 0;
+    }
   }, []);
-  const goTab = (t) => { setTab(t); setNavVisible(true); };
+  const goTab = (t) => {
+    setTab(t);
+    setNavVisible(true);
+    scrollAccum.current = 0;
+    lastScrollY.current = 0;
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  };
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1752,15 +1766,17 @@ function LibroDiario() {
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
           border-radius: 26px;
-          display: flex; padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px)) 4px;
-          justify-content: space-around; align-items: center;
+          display: flex; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)) 6px;
+          align-items: center; gap: 4px;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
           transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease;
         }
         .bottom-nav.nav-hidden { transform: translateY(calc(100% + 22px)); opacity: 0; pointer-events: none; }
-        .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 6px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
+        .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 2px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
         .nav-btn.active { font-weight: 700; }
-        .fab { position: absolute; right: 18px; bottom: 78px; width: 56px; height: 56px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(194,155,62,0.45); cursor: pointer; z-index: 5; }
+        .nav-tabs { display: flex; flex: 1; min-width: 0; align-items: center; }
+        .nav-divider { width: 1px; align-self: stretch; margin: 6px 2px; background: rgba(0,0,0,0.08); flex-shrink: 0; }
+        .nav-fab-btn { flex-shrink: 0; width: 42px; height: 42px; border-radius: 15px; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(194,155,62,0.45); cursor: pointer; }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
@@ -1966,7 +1982,7 @@ function LibroDiario() {
       </div>
       <div className="tape-edge" />
 
-      <div className="content" onScroll={handleContentScroll}>
+      <div className="content" ref={contentRef} onScroll={handleContentScroll}>
         {loading ? (
           <div className="empty-state"><span className="eyebrow">Abriendo el libro…</span></div>
         ) : tab === 'resumen' ? (
@@ -1974,7 +1990,7 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>¿Dónde está el dinero?</span>
-                <button className="mini-abonar" onClick={() => setTab('tarjetas')}>Ver detalle</button>
+                <button className="mini-abonar" onClick={() => goTab('tarjetas')}>Ver detalle</button>
               </div>
               {moneyLocations.length === 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien desde la pestaña Tarjetas.</div>
@@ -2013,7 +2029,7 @@ function LibroDiario() {
                     <div className="cxp-total-amount">{fmt(deudas.reduce((s, c) => s + (c.pendiente > 0.01 ? c.pendiente : 0), 0))}</div>
                     <div className="cxp-total-label">{deudas.filter((c) => c.pendiente > 0.01).length} préstamo{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''} pendiente{deudas.filter((c) => c.pendiente > 0.01).length !== 1 ? 's' : ''}</div>
                   </div>
-                  <button className="mini-abonar" onClick={() => setTab('compromisos')}>Ver detalle</button>
+                  <button className="mini-abonar" onClick={() => goTab('compromisos')}>Ver detalle</button>
                 </div>
               </div>
             )}
@@ -2021,7 +2037,7 @@ function LibroDiario() {
               <div className="card">
                 <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span>Por cobrar (gastos compartidos)</span>
-                  <button className="mini-abonar" onClick={() => setTab('movimientos')}>Ver en Movimientos</button>
+                  <button className="mini-abonar" onClick={() => goTab('movimientos')}>Ver en Movimientos</button>
                 </div>
                 {pendingByPerson.map((p) => (
                   <div className="person-row" key={p.name}>
@@ -2579,15 +2595,17 @@ function LibroDiario() {
         )}
       </div>
 
-      <button className="fab" onClick={fabAction}><Icon name="Plus" size={26} /></button>
-
       <div className={`bottom-nav ${navVisible ? '' : 'nav-hidden'}`}>
-        <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => goTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
-        <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
-        <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={17} />Cuentas</button>
-        <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={17} />Tarjetas</button>
-        <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
-        <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => goTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
+        <div className="nav-tabs">
+          <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => goTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
+          <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
+          <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={17} />Cuentas</button>
+          <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={17} />Tarjetas</button>
+          <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
+          <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => goTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
+        </div>
+        <div className="nav-divider" />
+        <button className="nav-fab-btn" onClick={fabAction} aria-label="Agregar"><Icon name="Plus" size={20} /></button>
       </div>
 
       {sheet?.type === 'add-tx' && (
