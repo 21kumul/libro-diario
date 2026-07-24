@@ -1212,7 +1212,7 @@ function LibroDiario() {
   };
 
   const openNewCompromiso = (prefill) => {
-    setCompForm({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [], locationId: '', ...prefill });
+    setCompForm({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', recurFreq: 'mensual', shared: false, participants: [], locationId: '', ...prefill });
     setCompError('');
     setSheet({ type: 'new-compromiso' });
   };
@@ -1236,6 +1236,7 @@ function LibroDiario() {
       const day = parseInt(compForm.notifyDay, 10);
       if (day >= 1 && day <= 31) notifyDay = day;
     }
+    const recurFreq = (compForm.kind === 'fijo' || compForm.kind === 'ingreso_fijo') ? (compForm.recurFreq || 'mensual') : null;
     let shared = null;
     if (compForm.kind === 'fijo' && compForm.shared) {
       const parts = compForm.participants.filter((p) => p.name.trim() && toNumber(p.amount) > 0)
@@ -1244,7 +1245,7 @@ function LibroDiario() {
       if (sumParts > amt + 0.01) return setCompError('La suma de las partes no puede ser mayor al monto mensual.');
       if (parts.length) shared = { participants: parts };
     }
-    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, shared };
+    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, recurFreq, shared };
     const next = [...compromisos, compromiso];
     const patch = { compromisos: next };
     // Si al dar de alta un préstamo o una cuenta por cobrar se eligió una
@@ -1422,9 +1423,6 @@ function LibroDiario() {
       if (!locForm.nombre.trim()) return setLocError('Ponle un alias a la tarjeta (ej. Tarjeta de nómina).');
       const idInfo = identifyByDigits(locIdentificador);
       if (!idInfo.tipo) return setLocError('Captura tu CLABE (18 dígitos) o el número de tu tarjeta.');
-      if (!locForm.monto.toString().trim()) return setLocError('Ingresa el monto actual.');
-    } else if (!locForm.monto.toString().trim()) {
-      return setLocError('Ingresa el monto actual.');
     }
     const monto = toNumber(locForm.monto);
     const esCredito = locForm.tipo === 'tarjeta' && locForm.esCredito;
@@ -1766,7 +1764,16 @@ function LibroDiario() {
         .wallet-card-network.net-visa { color: #fff; background: rgba(255,255,255,0.16); }
         .wallet-card-network.net-mastercard { color: #FFB020; background: rgba(0,0,0,0.18); }
         .wallet-card-network.net-amex { color: #6FD3FF; background: rgba(0,0,0,0.18); }
-        .bank-monogram { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.24); font-size: 9.5px; font-weight: 800; letter-spacing: 0.3px; flex-shrink: 0; margin-top: 1px; }
+        .bank-monogram { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.24); color: #fff; flex-shrink: 0; margin-top: 1px; }
+        .net-glyph { display: inline-flex; align-items: center; }
+        .net-circle { width: 15px; height: 15px; border-radius: 50%; display: inline-block; }
+        .net-circle-a { background: #EB5B3C; }
+        .net-circle-b { background: #F2A93C; margin-left: -6px; mix-blend-mode: screen; }
+        .net-glyph-visa { width: 22px; height: 14px; border-radius: 3px; background: linear-gradient(135deg, #fff, #dfe6f0); position: relative; }
+        .net-glyph-visa::after { content: ''; position: absolute; top: 4px; left: 3px; right: 3px; height: 3px; border-radius: 2px; background: #1a4fa0; }
+        .net-glyph-amex { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; background: rgba(255,255,255,0.22); color: #fff; }
+        .person-section-header { display: flex; align-items: center; gap: 8px; margin: 4px 2px 10px; font-size: 14px; font-weight: 700; color: var(--ink); }
+        .person-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
         .wallet-pill-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 20px; }
@@ -2245,91 +2252,94 @@ function LibroDiario() {
               <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Usa el botón + para agregar.</div>
             ) : (
               <>
-                {moneyLocations.some((l) => l.tipo === 'tarjeta') && (
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, color: 'var(--ink-soft)', margin: '4px 2px 10px' }}>Tarjetas</div>
-                )}
-                {moneyLocations.filter((l) => l.tipo === 'tarjeta').map((l) => {
-                  const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
-                  const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
-                  const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
-                  const bg = cardBg(l);
-                  const bankInfo = getBankInfo(l);
-                  const net = l.red || bankInfo?.network;
-                  const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
-                  const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
-                  return (
-                    <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
-                      <div className="wallet-card-top">
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                          {bankInfo?.name && <span className="bank-monogram">{getInitials(bankInfo.name)}</span>}
+                {moneyLocationsByPerson.map(([persona, locs]) => (
+                  <div key={persona} style={{ marginBottom: 18 }}>
+                    <div className="person-section-header">
+                      <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
+                      <span>{persona}</span>
+                    </div>
+                    {locs.filter((l) => l.tipo === 'tarjeta').map((l) => {
+                      const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
+                      const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
+                      const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
+                      const bg = cardBg(l);
+                      const bankInfo = getBankInfo(l);
+                      const net = l.red || bankInfo?.network;
+                      const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
+                      const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
+                      return (
+                        <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
+                          <div className="wallet-card-top">
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                              {bankInfo?.name && <span className="bank-monogram"><Icon name="Landmark" size={14} /></span>}
+                              <div>
+                                <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
+                                <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                                {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div className="wallet-card-amount">{fmt(l.monto)}</div>
+                              {l.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
+                            </div>
+                          </div>
+                          {l.esCredito && (
+                            <div className="wallet-card-body">
+                              <div className="wallet-card-limitrow">
+                                <span>Uso del límite</span>
+                                <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
+                              </div>
+                              <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                              <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
+                                <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
+                              </div>
+                              {l.montoAPagar > 0 && (
+                                <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                                  <span>Monto a pagar</span>
+                                  <span>{fmt(l.montoAPagar)}</span>
+                                </div>
+                              )}
+                              {prestamoLigado && (
+                                <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                                  <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                                  <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
+                                {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
+                              </div>
+                            </div>
+                          )}
+                          {(l.ultimos4 || net) && (
+                            <div className="wallet-card-footrow">
+                              <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
+                              {/mastercard/i.test(net || '') && <span className="net-glyph"><span className="net-circle net-circle-a" /><span className="net-circle net-circle-b" /></span>}
+                              {/visa/i.test(net || '') && <span className="net-glyph net-glyph-visa" />}
+                              {/amex|american express/i.test(net || '') && <span className="net-glyph net-glyph-amex"><Icon name="CreditCard" size={12} /></span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {locs.filter((l) => l.tipo === 'efectivo').map((l) => (
+                      <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
+                        <div className="wallet-card-top">
                           <div>
-                            <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
-                            <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                            {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                            <div className="wallet-card-name">Monedero</div>
+                            <span className="wallet-card-pill">EFECTIVO</span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div className="wallet-card-amount">{fmt(l.monto)}</div>
                           </div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                          <div className="wallet-card-caption">{l.esCredito ? 'Gastos del mes (ciclo)' : l.persona}</div>
-                        </div>
-                      </div>
-                      {l.esCredito && (
-                        <div className="wallet-card-body">
-                          <div className="wallet-card-limitrow">
-                            <span>Uso del límite</span>
-                            <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
-                          </div>
-                          <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
-                          <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
-                            <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
-                          </div>
-                          {l.montoAPagar > 0 && (
-                            <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
-                              <span>Monto a pagar</span>
-                              <span>{fmt(l.montoAPagar)}</span>
-                            </div>
-                          )}
-                          {prestamoLigado && (
-                            <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
-                              <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
-                              <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
-                            {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
-                          </div>
-                        </div>
-                      )}
-                      {(l.ultimos4 || net) && (
                         <div className="wallet-card-footrow">
-                          <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
-                          {net && <span className={`wallet-card-network ${networkClass(net)}`}>{net}</span>}
+                          <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {moneyLocations.some((l) => l.tipo === 'efectivo') && (
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, color: 'var(--ink-soft)', margin: '14px 2px 10px' }}>Monedero</div>
-                )}
-                {moneyLocationsByPerson.map(([persona, locs]) => locs.filter((l) => l.tipo === 'efectivo').map((l) => (
-                  <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
-                    <div className="wallet-card-top">
-                      <div>
-                        <div className="wallet-card-name">Monedero</div>
-                        <span className="wallet-card-pill">EFECTIVO</span>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                        <div className="wallet-card-caption">{persona}</div>
-                      </div>
-                    </div>
-                    <div className="wallet-card-footrow">
-                      <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
-                    </div>
+                    ))}
                   </div>
-                )))}
+                ))}
                 <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
                   <div>
                     <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
@@ -2515,7 +2525,7 @@ function LibroDiario() {
                   </div>
                 ) : (
                   <div className="cat-grid">
-                    {moneyLocations.map((l) => (
+                    {(moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations).map((l) => (
                       <div
                         key={l.id}
                         className={`cat-choice ${txForm.locationId === l.id ? 'selected' : ''}`}
@@ -2711,16 +2721,19 @@ function LibroDiario() {
               </div>
             ) : (
               <div className="cat-grid">
-                {moneyLocations.map((l) => (
-                  <div
-                    key={l.id}
-                    className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
-                    onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                  >
-                    <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                    <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
-                  </div>
-                ))}
+                {(() => {
+                  const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
+                  return (funded.length ? funded : moneyLocations).map((l) => (
+                    <div
+                      key={l.id}
+                      className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
+                      onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
+                    >
+                      <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+                      <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+                    </div>
+                  ));
+                })()}
               </div>
             )}
             {(() => {
@@ -2882,7 +2895,7 @@ function LibroDiario() {
               <>
                 <div className="field-label">Categoría</div>
                 <div className="cat-grid">
-                  {CXP_CATS.map((c) => { return (
+                  {(compForm.kind === 'ingreso_fijo' ? INGRESO_CATS : CXP_CATS).map((c) => { return (
                     <div key={c.id} className={`cat-choice ${compForm.category === c.id ? 'selected' : ''}`} onClick={() => setCompForm((f) => ({ ...f, category: c.id }))}>
                       <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
                     </div>
@@ -2913,17 +2926,38 @@ function LibroDiario() {
             )}
             {(compForm.kind === 'fijo' || compForm.kind === 'ingreso_fijo') && (
               <>
-                <div className="field-label">{compForm.kind === 'ingreso_fijo' ? 'Recordarme cada mes el día que debería llegar (opcional)' : 'Recordarme cada mes el día (opcional)'}</div>
-                <input
-                  className="text-input"
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  max="31"
-                  placeholder="Ej. 5"
-                  value={compForm.notifyDay}
-                  onChange={(e) => setCompForm((f) => ({ ...f, notifyDay: e.target.value }))}
-                />
+                <div className="field-label">Repetir</div>
+                <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                  {[
+                    { id: 'diario', label: 'Cada día' },
+                    { id: 'semanal', label: 'Cada semana' },
+                    { id: 'quincenal', label: 'Cada 2 semanas' },
+                    { id: 'mensual', label: 'Cada mes' },
+                  ].map((r) => (
+                    <div key={r.id} className={`cat-choice ${compForm.recurFreq === r.id ? 'selected' : ''}`} onClick={() => setCompForm((f) => ({ ...f, recurFreq: r.id }))}>
+                      <Icon name="RefreshCw" size={14} />
+                      <span className="cat-choice-label">{r.label}</span>
+                    </div>
+                  ))}
+                </div>
+                {compForm.recurFreq === 'mensual' && (
+                  <>
+                    <div className="field-label">{compForm.kind === 'ingreso_fijo' ? '¿Qué día del mes debería llegar? (opcional)' : '¿Qué día del mes se cobra? (opcional)'}</div>
+                    <input
+                      className="text-input"
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max="31"
+                      placeholder="Ej. 15"
+                      value={compForm.notifyDay}
+                      onChange={(e) => setCompForm((f) => ({ ...f, notifyDay: e.target.value }))}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                      Ej. si pones 15, te lo recordamos cada 15 de cada mes.
+                    </div>
+                  </>
+                )}
                 {notifPermission !== 'granted' && (
                   <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
                     Para recibir el aviso, activa las notificaciones en Ajustes primero.
@@ -3076,10 +3110,11 @@ function LibroDiario() {
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '-10px 0 12px' }}>De {loc.persona}</div>
               <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }}>
                 <div className="wallet-card-top">
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    {loc.tipo === 'tarjeta' && bankInfo?.name && <span className="bank-monogram">{getInitials(bankInfo.name)}</span>}
+                    {loc.tipo === 'tarjeta' && bankInfo?.name && <span className="bank-monogram"><Icon name="Landmark" size={14} /></span>}
                     <div>
                       <div className="wallet-card-name">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</div>
                       <span className="wallet-card-pill">{loc.tipo === 'tarjeta' ? (loc.esCredito ? 'CRÉDITO' : 'DÉBITO') : 'MONEDERO'}</span>
@@ -3088,7 +3123,7 @@ function LibroDiario() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="wallet-card-amount">{fmt(loc.monto)}</div>
-                    <div className="wallet-card-caption">{loc.esCredito ? 'Gastos del mes (ciclo)' : loc.persona}</div>
+                    {loc.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
                   </div>
                 </div>
                 {loc.esCredito && (
@@ -3117,7 +3152,9 @@ function LibroDiario() {
                 {(loc.ultimos4 || net) && (
                   <div className="wallet-card-footrow">
                     <span>{loc.ultimos4 ? `•••• ${loc.ultimos4}` : ''}</span>
-                    {net && <span className={`wallet-card-network ${networkClass(net)}`}>{net}</span>}
+                    {/mastercard/i.test(net || '') && <span className="net-glyph"><span className="net-circle net-circle-a" /><span className="net-circle net-circle-b" /></span>}
+                    {/visa/i.test(net || '') && <span className="net-glyph net-glyph-visa" />}
+                    {/amex|american express/i.test(net || '') && <span className="net-glyph net-glyph-amex"><Icon name="CreditCard" size={12} /></span>}
                   </div>
                 )}
               </div>
@@ -3125,7 +3162,7 @@ function LibroDiario() {
                 {moneyLocations.length >= 2 && (
                   <button className="save-btn" style={{ background: 'var(--gold)' }} onClick={() => openTraspaso({ fromId: loc.id })}><Icon name="ArrowLeftRight" size={16} /> Traspasar dinero</button>
                 )}
-                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => openEditLocation(loc)}><Icon name="Pencil" size={16} /> Editar {loc.tipo === 'tarjeta' ? 'tarjeta' : 'efectivo'}</button>
+                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => openEditLocation(loc)}><Icon name="Pencil" size={16} /> Editar {loc.tipo === 'tarjeta' ? 'tarjeta' : 'monedero'}</button>
                 <button className="danger-btn" onClick={() => { setSheet(null); deleteLocation(loc.id); }}><Icon name="Trash2" size={14} /> Eliminar</button>
               </div>
             </div>
@@ -3208,7 +3245,7 @@ function LibroDiario() {
                   <div className="text-input" style={{ display: 'flex', alignItems: 'center', minHeight: 20, color: bancoOk ? 'var(--income)' : 'var(--ink-soft)', background: 'var(--paper-dim)', cursor: 'default' }}>
                     {bancoDisplay}
                   </div>
-                  <div className="field-label">{locForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
+                  <div className="field-label">{locForm.esCredito ? 'Gastado en el ciclo actual (opcional)' : 'Monto actual (opcional)'}</div>
                   <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
                   <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
                     <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
@@ -3252,7 +3289,7 @@ function LibroDiario() {
             )}
             {locForm.tipo === 'efectivo' && (
               <>
-                <div className="field-label">Monto actual</div>
+                <div className="field-label">Monto actual (opcional)</div>
                 <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
               </>
             )}
