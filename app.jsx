@@ -550,6 +550,27 @@ function LibroDiario() {
     scrollAccum.current = 0;
     lastScrollY.current = 0;
     if (contentRef.current) contentRef.current.scrollTop = 0;
+    setGraficasPopoverOpen(false);
+  };
+  // Mantén presionada la pestaña "Resumen" para revelar el acceso a Gráficas
+  // (que ya no tiene su propio botón en la barra, para dejar más espacio a
+  // pestañas más grandes).
+  const [graficasPopoverOpen, setGraficasPopoverOpen] = useState(false);
+  const resumenLongPressTimer = useRef(null);
+  const resumenLongPressFired = useRef(false);
+  const startResumenLongPress = () => {
+    resumenLongPressFired.current = false;
+    resumenLongPressTimer.current = setTimeout(() => {
+      resumenLongPressFired.current = true;
+      setGraficasPopoverOpen(true);
+    }, 420);
+  };
+  const cancelResumenLongPress = () => {
+    if (resumenLongPressTimer.current) { clearTimeout(resumenLongPressTimer.current); resumenLongPressTimer.current = null; }
+  };
+  const handleResumenTap = () => {
+    if (resumenLongPressFired.current) { resumenLongPressFired.current = false; return; }
+    goTab('resumen');
   };
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
@@ -1765,18 +1786,24 @@ function LibroDiario() {
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
-          border-radius: 26px;
-          display: flex; padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px)) 6px;
-          align-items: center; gap: 4px;
+          border-radius: 28px;
+          display: flex; padding: 9px 8px calc(9px + env(safe-area-inset-bottom, 0px)) 8px;
+          align-items: center;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
           transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease;
         }
         .bottom-nav.nav-hidden { transform: translateY(calc(100% + 22px)); opacity: 0; pointer-events: none; }
-        .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 2px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
+        .nav-btn { position: relative; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 9px 4px; border-radius: 16px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; -webkit-tap-highlight-color: transparent; user-select: none; }
         .nav-btn.active { font-weight: 700; }
-        .nav-tabs { display: flex; flex: 1; min-width: 0; align-items: center; }
-        .nav-divider { width: 1px; align-self: stretch; margin: 6px 2px; background: rgba(0,0,0,0.08); flex-shrink: 0; }
-        .nav-fab-btn { flex-shrink: 0; width: 42px; height: 42px; border-radius: 15px; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(194,155,62,0.45); cursor: pointer; }
+        .nav-btn-dot { position: absolute; top: 6px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
+        .nav-tabs { display: flex; flex: 1; min-width: 0; align-items: center; gap: 3px; }
+        .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+        .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
+        .nav-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 7; background: rgba(255,255,255,0.9); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 5px; box-shadow: 0 10px 26px rgba(0,0,0,0.2); animation: navPopIn 0.16s ease-out; }
+        @keyframes navPopIn { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 11px; cursor: pointer; }
+        .nav-popover-item:active { background: var(--paper-dim); }
+        .top-fab-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
@@ -1961,6 +1988,7 @@ function LibroDiario() {
             {profile && <div className="mini-avatar" style={{ background: colorForName(profile.name) }} title={profile.name}>{profile.name.charAt(0).toUpperCase()}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => setSettingsOpen(true)}><Icon name="Settings" size={16} /></button>
+            <button className="top-fab-btn" onClick={fabAction} aria-label="Agregar"><Icon name="Plus" size={19} /></button>
           </div>
         </div>
         <div className="balance-block">
@@ -2596,16 +2624,30 @@ function LibroDiario() {
       </div>
 
       <div className={`bottom-nav ${navVisible ? '' : 'nav-hidden'}`}>
+        {graficasPopoverOpen && <div className="nav-popover-backdrop" onClick={() => setGraficasPopoverOpen(false)} />}
         <div className="nav-tabs">
-          <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => goTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
-          <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
-          <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={17} />Cuentas</button>
-          <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={17} />Tarjetas</button>
-          <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
-          <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => goTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
+          <div className="nav-btn-wrap">
+            <button
+              className={`nav-btn ${tab === 'resumen' || tab === 'graficas' ? 'active' : ''}`}
+              style={tab === 'resumen' || tab === 'graficas' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined}
+              onMouseDown={startResumenLongPress} onMouseUp={cancelResumenLongPress} onMouseLeave={cancelResumenLongPress}
+              onTouchStart={startResumenLongPress} onTouchEnd={cancelResumenLongPress}
+              onClick={handleResumenTap}
+            >
+              <Icon name="LayoutGrid" size={20} />Resumen
+              {tab === 'graficas' && <span className="nav-btn-dot" style={{ background: TAB_COLORS.graficas }} />}
+            </button>
+            {graficasPopoverOpen && (
+              <div className="nav-popover">
+                <button className="nav-popover-item" onClick={() => goTab('graficas')}><Icon name="BarChart3" size={15} /> Ver gráficas</button>
+              </div>
+            )}
+          </div>
+          <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={20} />Movs.</button>
+          <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={20} />Cuentas</button>
+          <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={20} />Tarjetas</button>
+          <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={20} />Ahorro</button>
         </div>
-        <div className="nav-divider" />
-        <button className="nav-fab-btn" onClick={fabAction} aria-label="Agregar"><Icon name="Plus" size={20} /></button>
       </div>
 
       {sheet?.type === 'add-tx' && (
