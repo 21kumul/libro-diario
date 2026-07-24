@@ -566,7 +566,18 @@ function LibroDiario() {
     if (!el || !wrap) return;
     setNavHighlight({ left: el.offsetLeft, width: el.offsetWidth, ready: true });
   }, [tab]);
-  useEffect(() => { updateNavHighlight(); }, [tab, navCompact, updateNavHighlight]);
+  useEffect(() => {
+    // La pastilla compacta cambia el tamaño de los botones con una
+    // transición CSS (~0.3s); si solo medimos una vez, el indicador se queda
+    // con la posición de ANTES de que termine de encoger/crecer y se ve
+    // desalineado ("salido") mientras dura la animación. Volvemos a medir
+    // varias veces durante esa ventana para que se quede pegado al ícono.
+    updateNavHighlight();
+    const t1 = setTimeout(updateNavHighlight, 80);
+    const t2 = setTimeout(updateNavHighlight, 160);
+    const t3 = setTimeout(updateNavHighlight, 320);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [tab, navCompact, updateNavHighlight]);
   useEffect(() => {
     window.addEventListener('resize', updateNavHighlight);
     return () => window.removeEventListener('resize', updateNavHighlight);
@@ -583,10 +594,12 @@ function LibroDiario() {
   const [graficasPopoverOpen, setGraficasPopoverOpen] = useState(false);
   const resumenLongPressTimer = useRef(null);
   const resumenLongPressFired = useRef(false);
-  const startResumenLongPress = () => {
+  const startResumenLongPress = (e) => {
+    if (e.cancelable) e.preventDefault();
     resumenLongPressFired.current = false;
     resumenLongPressTimer.current = setTimeout(() => {
       resumenLongPressFired.current = true;
+      if (navigator.vibrate) navigator.vibrate(8);
       setGraficasPopoverOpen(true);
     }, 420);
   };
@@ -1806,21 +1819,21 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
         .bottom-nav {
-          position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 6;
+          position: absolute; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 6;
           background: rgba(250,250,250,0.62);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
           border-radius: 999px;
           display: flex; align-items: center;
-          padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px;
+          padding: 8px 10px;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
           transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
         }
-        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
+        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: 5px; }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
         .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
-        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
@@ -2670,6 +2683,7 @@ function LibroDiario() {
                 onMouseLeave={isResumen ? cancelResumenLongPress : undefined}
                 onTouchStart={isResumen ? startResumenLongPress : undefined}
                 onTouchEnd={isResumen ? cancelResumenLongPress : undefined}
+                onContextMenu={isResumen ? (e) => e.preventDefault() : undefined}
                 onClick={isResumen ? handleResumenTap : () => goTab(n.key)}
               >
                 <Icon name={n.icon} size={20} />{n.label}
