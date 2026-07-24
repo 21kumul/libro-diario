@@ -559,14 +559,50 @@ function LibroDiario() {
   const navBtnRefs = useRef({});
   const navTabsRef = useRef(null);
   const [navHighlight, setNavHighlight] = useState({ left: 0, width: 0, ready: false });
+  // Arrastre en vivo sobre la barra (como Instagram/Meta): al deslizar el
+  // dedo sin soltarlo por encima de los íconos, cada pestaña se va
+  // resaltando conforme el dedo pasa por ella, y se cambia a esa pestaña
+  // al soltar.
+  const [dragTabKey, setDragTabKey] = useState(null);
+  const navDragStartKey = useRef(null);
+  const findNavKeyAtPoint = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const btn = el && el.closest ? el.closest('.nav-btn') : null;
+    return btn ? btn.dataset.navkey : null;
+  };
+  const handleNavTouchStart = (e) => {
+    const t = e.touches[0];
+    const key = findNavKeyAtPoint(t.clientX, t.clientY);
+    navDragStartKey.current = key;
+    if (key) setDragTabKey(key);
+  };
+  const handleNavTouchMove = (e) => {
+    if (!navDragStartKey.current) return;
+    const t = e.touches[0];
+    const key = findNavKeyAtPoint(t.clientX, t.clientY);
+    if (key && key !== dragTabKey) {
+      if (navDragStartKey.current === 'resumen') cancelResumenLongPress();
+      if (navigator.vibrate) navigator.vibrate(4);
+      setDragTabKey(key);
+    }
+  };
+  const handleNavTouchEnd = () => {
+    if (dragTabKey && dragTabKey !== navDragStartKey.current) goTab(dragTabKey === 'graficas' ? 'graficas' : dragTabKey);
+    navDragStartKey.current = null;
+    setDragTabKey(null);
+  };
   const updateNavHighlight = useCallback(() => {
-    const key = tab === 'graficas' ? 'resumen' : tab;
+    const rawKey = dragTabKey || tab;
+    const key = rawKey === 'graficas' ? 'resumen' : rawKey;
     const el = navBtnRefs.current[key];
     const wrap = navTabsRef.current;
     if (!el || !wrap) return;
     setNavHighlight({ left: el.offsetLeft, width: el.offsetWidth, ready: true });
-  }, [tab]);
+  }, [tab, dragTabKey]);
   useEffect(() => {
+    // Mientras se arrastra, la pastilla debe seguir al dedo al instante
+    // (sin la animación de resorte), así que solo medimos una vez.
+    if (dragTabKey) { updateNavHighlight(); return; }
     // La pastilla compacta cambia el tamaño de los botones con una
     // transición CSS (~0.3s); si solo medimos una vez, el indicador se queda
     // con la posición de ANTES de que termine de encoger/crecer y se ve
@@ -577,7 +613,7 @@ function LibroDiario() {
     const t2 = setTimeout(updateNavHighlight, 160);
     const t3 = setTimeout(updateNavHighlight, 320);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [tab, navCompact, updateNavHighlight]);
+  }, [tab, navCompact, dragTabKey, updateNavHighlight]);
   useEffect(() => {
     window.addEventListener('resize', updateNavHighlight);
     return () => window.removeEventListener('resize', updateNavHighlight);
@@ -1819,7 +1855,7 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
         .bottom-nav {
-          position: absolute; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+          position: absolute; left: 12px; right: 12px; bottom: max(env(safe-area-inset-bottom, 0px), 6px); z-index: 6;
           background: rgba(250,250,250,0.62);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
@@ -1837,8 +1873,9 @@ function LibroDiario() {
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
-        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 2px; }
+        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 2px; touch-action: none; }
         .nav-highlight { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
+        .nav-highlight.dragging { transition: transform 0.06s linear, width 0.06s linear; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
         .nav-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 7; background: rgba(255,255,255,0.9); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 5px; box-shadow: 0 10px 26px rgba(0,0,0,0.2); animation: navPopIn 0.16s ease-out; }
@@ -2667,14 +2704,23 @@ function LibroDiario() {
 
       <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
         {graficasPopoverOpen && <div className="nav-popover-backdrop" onClick={() => setGraficasPopoverOpen(false)} />}
-        <div className="nav-tabs" ref={navTabsRef}>
-          {navHighlight.ready && <div className="nav-highlight" style={{ transform: `translateX(${navHighlight.left}px)`, width: navHighlight.width }} />}
+        <div
+          className="nav-tabs"
+          ref={navTabsRef}
+          onTouchStart={handleNavTouchStart}
+          onTouchMove={handleNavTouchMove}
+          onTouchEnd={handleNavTouchEnd}
+          onTouchCancel={handleNavTouchEnd}
+        >
+          {navHighlight.ready && <div className={`nav-highlight ${dragTabKey ? 'dragging' : ''}`} style={{ transform: `translateX(${navHighlight.left}px)`, width: navHighlight.width }} />}
           {NAV_TABS.map((n) => {
             const isResumen = n.key === 'resumen';
-            const active = isResumen ? (tab === 'resumen' || tab === 'graficas') : tab === n.key;
+            const highlightKey = dragTabKey || tab;
+            const active = isResumen ? (highlightKey === 'resumen' || highlightKey === 'graficas') : highlightKey === n.key;
             const btn = (
               <button
                 key={n.key}
+                data-navkey={n.key}
                 ref={(el) => { navBtnRefs.current[n.key] = el; }}
                 className={`nav-btn ${active ? 'active' : ''}`}
                 style={active ? { color: TAB_COLORS[isResumen ? 'resumen' : n.key] } : undefined}
