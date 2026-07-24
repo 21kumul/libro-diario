@@ -519,36 +519,61 @@ function LibroDiario() {
   const [conciliaRaw, setConciliaRaw] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
-  // Barra inferior "cristal": se oculta al hacer scroll hacia abajo dentro del
-  // contenido y reaparece al hacer scroll hacia arriba, al llegar al inicio
-  // de la página, o al cambiar de pestaña. Usamos un acumulado (no el delta
-  // de cada evento) para que no se oculte con un scroll pequeño/rápido:
-  // hace falta bajar bastante para ocultarla, y basta con subir un poco
-  // para regresarla.
-  const [navVisible, setNavVisible] = useState(true);
+  const NAV_TABS = [
+    { key: 'resumen', label: 'Resumen', icon: 'LayoutGrid' },
+    { key: 'movimientos', label: 'Movs.', icon: 'List' },
+    { key: 'compromisos', label: 'Cuentas', icon: 'Landmark' },
+    { key: 'tarjetas', label: 'Tarjetas', icon: 'CreditCard' },
+    { key: 'ahorro', label: 'Ahorro', icon: 'PiggyBank' },
+  ];
+  // Barra inferior "cristal": arriba de la página se ve a su tamaño completo;
+  // al hacer scroll hacia abajo se vuelve compacta (se reduce, no desaparece),
+  // y regresa a su tamaño completo al subir o al llegar al inicio.
+  const [navCompact, setNavCompact] = useState(false);
   const contentRef = useRef(null);
-  const lastScrollY = useRef(0);
-  const scrollAccum = useRef(0);
   const handleContentScroll = useCallback((e) => {
-    const y = e.currentTarget.scrollTop;
-    const delta = y - lastScrollY.current;
-    lastScrollY.current = y;
-    if (y <= 40) { setNavVisible(true); scrollAccum.current = 0; return; }
-    if ((delta > 0 && scrollAccum.current < 0) || (delta < 0 && scrollAccum.current > 0)) scrollAccum.current = 0;
-    scrollAccum.current += delta;
-    if (scrollAccum.current > 90) {
-      setNavVisible(false);
-      scrollAccum.current = 0;
-    } else if (scrollAccum.current < -25) {
-      setNavVisible(true);
-      scrollAccum.current = 0;
-    }
+    setNavCompact(e.currentTarget.scrollTop > 40);
   }, []);
+  // Deslizar (swipe) horizontal sobre el contenido para pasar entre pestañas,
+  // como en apps tipo WhatsApp/Meta.
+  const touchStartRef = useRef(null);
+  const handleContentTouchStart = (e) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+  };
+  const handleContentTouchEnd = (e) => {
+    if (!touchStartRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartRef.current.x;
+    const dy = t.clientY - touchStartRef.current.y;
+    const dt = Date.now() - touchStartRef.current.time;
+    touchStartRef.current = null;
+    if (dt > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const order = NAV_TABS.map((n) => n.key);
+    const curIdx = order.indexOf(tab === 'graficas' ? 'resumen' : tab);
+    if (curIdx === -1) return;
+    if (dx < 0 && curIdx < order.length - 1) goTab(order[curIdx + 1]);
+    else if (dx > 0 && curIdx > 0) goTab(order[curIdx - 1]);
+  };
+  // Indicador "encendido" que se desliza suavemente hacia la pestaña activa.
+  const navBtnRefs = useRef({});
+  const navTabsRef = useRef(null);
+  const [navHighlight, setNavHighlight] = useState({ left: 0, width: 0, ready: false });
+  const updateNavHighlight = useCallback(() => {
+    const key = tab === 'graficas' ? 'resumen' : tab;
+    const el = navBtnRefs.current[key];
+    const wrap = navTabsRef.current;
+    if (!el || !wrap) return;
+    setNavHighlight({ left: el.offsetLeft, width: el.offsetWidth, ready: true });
+  }, [tab]);
+  useEffect(() => { updateNavHighlight(); }, [tab, navCompact, updateNavHighlight]);
+  useEffect(() => {
+    window.addEventListener('resize', updateNavHighlight);
+    return () => window.removeEventListener('resize', updateNavHighlight);
+  }, [updateNavHighlight]);
   const goTab = (t) => {
     setTab(t);
-    setNavVisible(true);
-    scrollAccum.current = 0;
-    lastScrollY.current = 0;
+    setNavCompact(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
     setGraficasPopoverOpen(false);
   };
@@ -1781,22 +1806,26 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
         .bottom-nav {
-          position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
+          position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 6;
           background: rgba(250,250,250,0.62);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
-          border-radius: 28px;
-          display: flex; padding: 9px 8px calc(9px + env(safe-area-inset-bottom, 0px)) 8px;
-          align-items: center;
+          border-radius: 999px;
+          display: flex; align-items: center;
+          padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
-          transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease;
+          transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
         }
-        .bottom-nav.nav-hidden { transform: translateY(calc(100% + 22px)); opacity: 0; pointer-events: none; }
-        .nav-btn { position: relative; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 9px 4px; border-radius: 16px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; -webkit-tap-highlight-color: transparent; user-select: none; }
+        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
+        .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
+        .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
+        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
-        .nav-btn-dot { position: absolute; top: 6px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
-        .nav-tabs { display: flex; flex: 1; min-width: 0; align-items: center; gap: 3px; }
+        .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
+        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 2px; }
+        .nav-highlight { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
         .nav-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 7; background: rgba(255,255,255,0.9); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 5px; box-shadow: 0 10px 26px rgba(0,0,0,0.2); animation: navPopIn 0.16s ease-out; }
@@ -2010,7 +2039,7 @@ function LibroDiario() {
       </div>
       <div className="tape-edge" />
 
-      <div className="content" ref={contentRef} onScroll={handleContentScroll}>
+      <div className="content" ref={contentRef} onScroll={handleContentScroll} onTouchStart={handleContentTouchStart} onTouchEnd={handleContentTouchEnd}>
         {loading ? (
           <div className="empty-state"><span className="eyebrow">Abriendo el libro…</span></div>
         ) : tab === 'resumen' ? (
@@ -2623,30 +2652,42 @@ function LibroDiario() {
         )}
       </div>
 
-      <div className={`bottom-nav ${navVisible ? '' : 'nav-hidden'}`}>
+      <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
         {graficasPopoverOpen && <div className="nav-popover-backdrop" onClick={() => setGraficasPopoverOpen(false)} />}
-        <div className="nav-tabs">
-          <div className="nav-btn-wrap">
-            <button
-              className={`nav-btn ${tab === 'resumen' || tab === 'graficas' ? 'active' : ''}`}
-              style={tab === 'resumen' || tab === 'graficas' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined}
-              onMouseDown={startResumenLongPress} onMouseUp={cancelResumenLongPress} onMouseLeave={cancelResumenLongPress}
-              onTouchStart={startResumenLongPress} onTouchEnd={cancelResumenLongPress}
-              onClick={handleResumenTap}
-            >
-              <Icon name="LayoutGrid" size={20} />Resumen
-              {tab === 'graficas' && <span className="nav-btn-dot" style={{ background: TAB_COLORS.graficas }} />}
-            </button>
-            {graficasPopoverOpen && (
-              <div className="nav-popover">
-                <button className="nav-popover-item" onClick={() => goTab('graficas')}><Icon name="BarChart3" size={15} /> Ver gráficas</button>
+        <div className="nav-tabs" ref={navTabsRef}>
+          {navHighlight.ready && <div className="nav-highlight" style={{ transform: `translateX(${navHighlight.left}px)`, width: navHighlight.width }} />}
+          {NAV_TABS.map((n) => {
+            const isResumen = n.key === 'resumen';
+            const active = isResumen ? (tab === 'resumen' || tab === 'graficas') : tab === n.key;
+            const btn = (
+              <button
+                key={n.key}
+                ref={(el) => { navBtnRefs.current[n.key] = el; }}
+                className={`nav-btn ${active ? 'active' : ''}`}
+                style={active ? { color: TAB_COLORS[isResumen ? 'resumen' : n.key] } : undefined}
+                onMouseDown={isResumen ? startResumenLongPress : undefined}
+                onMouseUp={isResumen ? cancelResumenLongPress : undefined}
+                onMouseLeave={isResumen ? cancelResumenLongPress : undefined}
+                onTouchStart={isResumen ? startResumenLongPress : undefined}
+                onTouchEnd={isResumen ? cancelResumenLongPress : undefined}
+                onClick={isResumen ? handleResumenTap : () => goTab(n.key)}
+              >
+                <Icon name={n.icon} size={20} />{n.label}
+                {isResumen && tab === 'graficas' && <span className="nav-btn-dot" style={{ background: TAB_COLORS.graficas }} />}
+              </button>
+            );
+            if (!isResumen) return btn;
+            return (
+              <div className="nav-btn-wrap" key={n.key}>
+                {btn}
+                {graficasPopoverOpen && (
+                  <div className="nav-popover">
+                    <button className="nav-popover-item" onClick={() => goTab('graficas')}><Icon name="BarChart3" size={15} /> Ver gráficas</button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={20} />Movs.</button>
-          <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={20} />Cuentas</button>
-          <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={20} />Tarjetas</button>
-          <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={20} />Ahorro</button>
+            );
+          })}
         </div>
       </div>
 
