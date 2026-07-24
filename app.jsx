@@ -524,38 +524,19 @@ function LibroDiario() {
   // de la página, o al cambiar de pestaña.
   const [navVisible, setNavVisible] = useState(true);
   const lastScrollY = useRef(0);
-  const scrollTicking = useRef(false);
-  const contentRef = useRef(null);
   const handleContentScroll = useCallback((e) => {
     const y = e.currentTarget.scrollTop;
-    if (scrollTicking.current) return;
-    scrollTicking.current = true;
-    requestAnimationFrame(() => {
-      const delta = y - lastScrollY.current;
-      // Umbral más tolerante: hace falta un desplazamiento real (no un
-      // roce accidental) para ocultar la barra, y basta con un pequeño
-      // scroll hacia arriba para que vuelva a aparecer.
-      if (y <= 40) {
-        setNavVisible(true);
-      } else if (delta > 18) {
-        setNavVisible(false);
-      } else if (delta < -8) {
-        setNavVisible(true);
-      }
-      lastScrollY.current = y;
-      scrollTicking.current = false;
-    });
+    const delta = y - lastScrollY.current;
+    if (y <= 24) {
+      setNavVisible(true);
+    } else if (delta > 4) {
+      setNavVisible(false);
+    } else if (delta < -4) {
+      setNavVisible(true);
+    }
+    lastScrollY.current = y;
   }, []);
   const goTab = (t) => { setTab(t); setNavVisible(true); };
-  // Al cambiar de pestaña, el scroll siempre debe iniciar desde arriba
-  // (antes el contenedor .content es el mismo nodo para todas las
-  // pestañas, así que conservaba la posición de scroll de la pestaña
-  // anterior).
-  useEffect(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-    lastScrollY.current = 0;
-    setNavVisible(true);
-  }, [tab]);
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [settingsOpen, setSettingsOpen] = useState(false);
