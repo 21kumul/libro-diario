@@ -1,4 +1,4 @@
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 const MEMBER_COLORS = ['#2E7D5B', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93'];
 const colorForName = (name) => {
@@ -185,6 +185,24 @@ const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+// Los campos de "día del mes" (corte/pago de tarjeta, recordatorio de un
+// gasto/ingreso fijo mensual) son recurrentes: no importa el mes/año, solo
+// el número de día. Para poder elegirlos con un calendario (en vez de
+// escribir el número a mano), mostramos ese día dentro del mes actual, y al
+// elegir una fecha nos quedamos solo con el día.
+const dayToDateInput = (day) => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const maxDay = new Date(y, m + 1, 0).getDate();
+  const d = day ? Math.min(maxDay, Math.max(1, parseInt(day, 10))) : now.getDate();
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+const dateInputToDay = (dateStr) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  return parts[2] ? String(parseInt(parts[2], 10)) : '';
+};
 
 // Días que faltan para la próxima vez que ocurra ese día del mes (corte/pago
 // de una tarjeta de crédito). Si ya pasó este mes, calcula el del siguiente.
@@ -195,6 +213,37 @@ const diasHasta = (dia) => {
   let target = new Date(y, m, dia);
   if (target < new Date(y, m, d)) target = new Date(y, m + 1, dia);
   return Math.round((target - new Date(y, m, d)) / 86400000);
+};
+// Días que faltan para la próxima vez que "toque" un gasto/ingreso fijo
+// semanal o quincenal, contando de 7 en 7 (o de 14 en 14) a partir de la
+// fecha de referencia que el usuario eligió (anchorDate). Si esa fecha
+// todavía no llega, cuenta los días que faltan para llegar a ella.
+const diasHastaRecurrencia = (anchorDate, everyDays) => {
+  if (!anchorDate) return null;
+  const [ay, am, ad] = anchorDate.split('-').map(Number);
+  const anchor = new Date(ay, am - 1, ad);
+  const hoy = new Date();
+  const hoyLimpio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const diffDias = Math.round((hoyLimpio - anchor) / 86400000);
+  if (diffDias < 0) return -diffDias;
+  const resto = diffDias % everyDays;
+  return resto === 0 ? 0 : everyDays - resto;
+};
+// Texto legible de la recurrencia de un gasto/ingreso fijo para mostrarlo en
+// las tarjetas de Cuentas, incluyendo la próxima fecha cuando hay suficiente
+// información (día del mes para mensual, o fecha de referencia para
+// semanal/quincenal).
+const recurrenceText = (c) => {
+  const freq = c.recurFreq || 'mensual';
+  if (freq === 'mensual') return c.notifyDay ? `Recordatorio el día ${c.notifyDay} de cada mes` : 'Mensual';
+  if (freq === 'semanal' || freq === 'quincenal') {
+    const label = freq === 'semanal' ? 'Cada semana' : 'Cada 2 semanas';
+    if (!c.anchorDate) return label;
+    const restantes = diasHastaRecurrencia(c.anchorDate, freq === 'semanal' ? 7 : 14);
+    const cuando = restantes === 0 ? 'hoy' : restantes === 1 ? 'mañana' : `en ${restantes} días`;
+    return `${label} · próximo ${cuando}`;
+  }
+  return 'Cada día';
 };
 const hashStr = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 997; return h; };
 // Degradados inspirados en tarjetas bancarias reales, para diferenciar cada
@@ -470,6 +519,24 @@ function LibroDiario() {
   const [conciliaRaw, setConciliaRaw] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
+  // Barra inferior "cristal": se oculta al hacer scroll hacia abajo dentro del
+  // contenido y reaparece al hacer scroll hacia arriba, al llegar al inicio
+  // de la página, o al cambiar de pestaña.
+  const [navVisible, setNavVisible] = useState(true);
+  const lastScrollY = useRef(0);
+  const handleContentScroll = useCallback((e) => {
+    const y = e.currentTarget.scrollTop;
+    const delta = y - lastScrollY.current;
+    if (y <= 24) {
+      setNavVisible(true);
+    } else if (delta > 4) {
+      setNavVisible(false);
+    } else if (delta < -4) {
+      setNavVisible(true);
+    }
+    lastScrollY.current = y;
+  }, []);
+  const goTab = (t) => { setTab(t); setNavVisible(true); };
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1212,7 +1279,7 @@ function LibroDiario() {
   };
 
   const openNewCompromiso = (prefill) => {
-    setCompForm({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', recurFreq: 'mensual', shared: false, participants: [], locationId: '', ...prefill });
+    setCompForm({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', recurFreq: 'mensual', anchorDate: todayStr(), shared: false, participants: [], locationId: '', ...prefill });
     setCompError('');
     setSheet({ type: 'new-compromiso' });
   };
@@ -1237,6 +1304,7 @@ function LibroDiario() {
       if (day >= 1 && day <= 31) notifyDay = day;
     }
     const recurFreq = (compForm.kind === 'fijo' || compForm.kind === 'ingreso_fijo') ? (compForm.recurFreq || 'mensual') : null;
+    const anchorDate = (recurFreq === 'semanal' || recurFreq === 'quincenal') && compForm.anchorDate ? compForm.anchorDate : null;
     let shared = null;
     if (compForm.kind === 'fijo' && compForm.shared) {
       const parts = compForm.participants.filter((p) => p.name.trim() && toNumber(p.amount) > 0)
@@ -1245,7 +1313,7 @@ function LibroDiario() {
       if (sumParts > amt + 0.01) return setCompError('La suma de las partes no puede ser mayor al monto mensual.');
       if (parts.length) shared = { participants: parts };
     }
-    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, recurFreq, shared };
+    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, recurFreq, anchorDate, shared };
     const next = [...compromisos, compromiso];
     const patch = { compromisos: next };
     // Si al dar de alta un préstamo o una cuenta por cobrar se eligió una
@@ -1515,9 +1583,21 @@ function LibroDiario() {
     const today = new Date();
     const day = today.getDate();
     const period = currentPeriodKey;
-    compromisosView.filter((c) => (c.kind === 'fijo' || c.kind === 'ingreso_fijo') && c.notifyDay && c.pendiente > 0.01).forEach((c) => {
-      if (c.notifyDay !== day) return;
-      const flagKey = `libroDiario:notified:${c.id}:${period}`;
+    const hoyStr = todayStr();
+    compromisosView.filter((c) => (c.kind === 'fijo' || c.kind === 'ingreso_fijo') && c.pendiente > 0.01).forEach((c) => {
+      const freq = c.recurFreq || 'mensual';
+      let flagKey;
+      if (freq === 'mensual') {
+        if (!c.notifyDay || c.notifyDay !== day) return;
+        flagKey = `libroDiario:notified:${c.id}:${period}`;
+      } else if ((freq === 'semanal' || freq === 'quincenal') && c.anchorDate) {
+        const every = freq === 'semanal' ? 7 : 14;
+        if (diasHastaRecurrencia(c.anchorDate, every) !== 0) return;
+        // Dedup por día (no por mes): así puede volver a avisar la próxima semana/quincena.
+        flagKey = `libroDiario:notified:${c.id}:${hoyStr}`;
+      } else {
+        return; // diario, o semanal/quincenal sin fecha de referencia configurada: no hay recordatorio.
+      }
       if (localStorage.getItem(flagKey)) return;
       const isIngreso = c.kind === 'ingreso_fijo';
       const title = isIngreso ? 'Libro·Diario — Ingreso esperado' : 'Libro·Diario — Gasto pendiente';
@@ -1665,7 +1745,19 @@ function LibroDiario() {
         .tx-amount.in { color: var(--income); } .tx-amount.out { color: var(--expense); }
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
-        .bottom-nav { position: sticky; bottom: 0; background: var(--paper); border-top: 1px solid var(--line); display: flex; padding: 7px 4px calc(7px + env(safe-area-inset-bottom, 0px)) 4px; justify-content: space-around; align-items: center; }
+        .bottom-nav {
+          position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
+          background: rgba(250,250,250,0.62);
+          -webkit-backdrop-filter: blur(22px) saturate(180%);
+          backdrop-filter: blur(22px) saturate(180%);
+          border: 1px solid rgba(255,255,255,0.55);
+          border-radius: 26px;
+          display: flex; padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px)) 4px;
+          justify-content: space-around; align-items: center;
+          box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
+          transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease;
+        }
+        .bottom-nav.nav-hidden { transform: translateY(calc(100% + 22px)); opacity: 0; pointer-events: none; }
         .nav-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--ink-soft); font-size: 8.5px; font-weight: 600; padding: 6px 6px; border-radius: 12px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: background 0.15s, color 0.15s; }
         .nav-btn.active { font-weight: 700; }
         .fab { position: absolute; right: 18px; bottom: 78px; width: 56px; height: 56px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(194,155,62,0.45); cursor: pointer; z-index: 5; }
@@ -1874,7 +1966,7 @@ function LibroDiario() {
       </div>
       <div className="tape-edge" />
 
-      <div className="content">
+      <div className="content" onScroll={handleContentScroll}>
         {loading ? (
           <div className="empty-state"><span className="eyebrow">Abriendo el libro…</span></div>
         ) : tab === 'resumen' ? (
@@ -2178,10 +2270,10 @@ function LibroDiario() {
                           <span>Pagado: {fmt(c.pagado)}</span>
                           <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
                         </div>
-                        {c.notifyDay && (
+                        {((c.recurFreq && c.recurFreq !== 'mensual') || c.notifyDay) && (
                           <div className="compromiso-notify">
                             <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                            Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                            {recurrenceText(c)}{notifPermission !== 'granted' && (c.notifyDay || c.anchorDate) ? ' (activa notificaciones en Ajustes)' : ''}
                           </div>
                         )}
                         <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
@@ -2217,10 +2309,10 @@ function LibroDiario() {
                           <span>Recibido: {fmt(c.pagado)}</span>
                           <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
                         </div>
-                        {c.notifyDay && (
+                        {((c.recurFreq && c.recurFreq !== 'mensual') || c.notifyDay) && (
                           <div className="compromiso-notify">
                             <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
-                            Recordatorio el día {c.notifyDay} de cada mes{notifPermission !== 'granted' ? ' (activa notificaciones en Ajustes)' : ''}
+                            {recurrenceText(c)}{notifPermission !== 'granted' && (c.notifyDay || c.anchorDate) ? ' (activa notificaciones en Ajustes)' : ''}
                           </div>
                         )}
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -2489,13 +2581,13 @@ function LibroDiario() {
 
       <button className="fab" onClick={fabAction}><Icon name="Plus" size={26} /></button>
 
-      <div className="bottom-nav">
-        <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => setTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
-        <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => setTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
-        <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => setTab('compromisos')}><Icon name="Landmark" size={17} />Cuentas</button>
-        <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => setTab('tarjetas')}><Icon name="CreditCard" size={17} />Tarjetas</button>
-        <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => setTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
-        <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => setTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
+      <div className={`bottom-nav ${navVisible ? '' : 'nav-hidden'}`}>
+        <button className={`nav-btn ${tab === 'resumen' ? 'active' : ''}`} style={tab === 'resumen' ? { color: TAB_COLORS.resumen, background: `${TAB_COLORS.resumen}1A` } : undefined} onClick={() => goTab('resumen')}><Icon name="LayoutGrid" size={17} />Resumen</button>
+        <button className={`nav-btn ${tab === 'movimientos' ? 'active' : ''}`} style={tab === 'movimientos' ? { color: TAB_COLORS.movimientos, background: `${TAB_COLORS.movimientos}1A` } : undefined} onClick={() => goTab('movimientos')}><Icon name="List" size={17} />Movs.</button>
+        <button className={`nav-btn ${tab === 'compromisos' ? 'active' : ''}`} style={tab === 'compromisos' ? { color: TAB_COLORS.compromisos, background: `${TAB_COLORS.compromisos}1A` } : undefined} onClick={() => goTab('compromisos')}><Icon name="Landmark" size={17} />Cuentas</button>
+        <button className={`nav-btn ${tab === 'tarjetas' ? 'active' : ''}`} style={tab === 'tarjetas' ? { color: TAB_COLORS.tarjetas, background: `${TAB_COLORS.tarjetas}1A` } : undefined} onClick={() => goTab('tarjetas')}><Icon name="CreditCard" size={17} />Tarjetas</button>
+        <button className={`nav-btn ${tab === 'ahorro' ? 'active' : ''}`} style={tab === 'ahorro' ? { color: TAB_COLORS.ahorro, background: `${TAB_COLORS.ahorro}1A` } : undefined} onClick={() => goTab('ahorro')}><Icon name="PiggyBank" size={17} />Ahorro</button>
+        <button className={`nav-btn ${tab === 'graficas' ? 'active' : ''}`} style={tab === 'graficas' ? { color: TAB_COLORS.graficas, background: `${TAB_COLORS.graficas}1A` } : undefined} onClick={() => goTab('graficas')}><Icon name="BarChart3" size={17} />Gráf.</button>
       </div>
 
       {sheet?.type === 'add-tx' && (
@@ -2629,7 +2721,7 @@ function LibroDiario() {
                 <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" style={{ fontSize: 22 }} type="text" inputMode="decimal" placeholder={txForm.amount || '0.00'} value={txForm.fijoAmount} onChange={(e) => setTxForm((f) => ({ ...f, fijoAmount: formatAmountTyping(e.target.value) }))} /></div>
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -8, marginBottom: 12 }}>Déjalo en blanco si el monto de arriba ya cubre el total mensual.</div>
                 <div className="field-label">Recordarme cada mes el día (opcional)</div>
-                <input className="text-input" type="text" inputMode="numeric" placeholder="Ej. 5" value={txForm.fijoNotifyDay} onChange={(e) => setTxForm((f) => ({ ...f, fijoNotifyDay: e.target.value.replace(/[^\d]/g, '').slice(0, 2) }))} />
+                <input className="text-input" type="date" value={dayToDateInput(txForm.fijoNotifyDay)} onChange={(e) => setTxForm((f) => ({ ...f, fijoNotifyDay: dateInputToDay(e.target.value) }))} />
                 {(() => {
                   const paidAmt = toNumber(txForm.amount);
                   const totalAmt = txForm.fijoAmount ? toNumber(txForm.fijoAmount) : paidAmt;
@@ -2791,7 +2883,7 @@ function LibroDiario() {
                         <div className="compromiso-icon" style={{ background: pagado ? 'var(--ink-soft)' : 'var(--expense)' }}><Icon name="CalendarCheck" size={16} /></div>
                         <div style={{ flex: 1 }}>
                           <div className="compromiso-name">{c.name}</div>
-                          <div className="compromiso-sub">Mensual{c.notifyDay ? ` · Día ${c.notifyDay}` : ''}</div>
+                          <div className="compromiso-sub">{recurrenceText(c)}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: c.kind === 'ingreso_fijo' ? 'var(--income)' : 'var(--expense)' }}>{fmt(c.amount)}</div>
@@ -2945,16 +3037,26 @@ function LibroDiario() {
                     <div className="field-label">{compForm.kind === 'ingreso_fijo' ? '¿Qué día del mes debería llegar? (opcional)' : '¿Qué día del mes se cobra? (opcional)'}</div>
                     <input
                       className="text-input"
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      max="31"
-                      placeholder="Ej. 15"
-                      value={compForm.notifyDay}
-                      onChange={(e) => setCompForm((f) => ({ ...f, notifyDay: e.target.value }))}
+                      type="date"
+                      value={dayToDateInput(compForm.notifyDay)}
+                      onChange={(e) => setCompForm((f) => ({ ...f, notifyDay: dateInputToDay(e.target.value) }))}
                     />
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                      Ej. si pones 15, te lo recordamos cada 15 de cada mes.
+                      Elige cualquier fecha; solo tomamos el día. Ej. si eliges el 15, te lo recordamos cada 15 de cada mes.
+                    </div>
+                  </>
+                )}
+                {(compForm.recurFreq === 'semanal' || compForm.recurFreq === 'quincenal') && (
+                  <>
+                    <div className="field-label">{compForm.kind === 'ingreso_fijo' ? '¿Qué día debería llegar? (opcional)' : '¿Qué día se cobra? (opcional)'}</div>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={compForm.anchorDate || todayStr()}
+                      onChange={(e) => setCompForm((f) => ({ ...f, anchorDate: e.target.value }))}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                      Elige cualquier fecha en la que caiga este {compForm.kind === 'ingreso_fijo' ? 'ingreso' : 'pago'}; a partir de ahí contamos cada {compForm.recurFreq === 'semanal' ? '7' : '14'} días para el siguiente y para el recordatorio.
                     </div>
                   </>
                 )}
@@ -3261,11 +3363,11 @@ function LibroDiario() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Día de corte</div>
-                    <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 18" value={locForm.diaCorte} onChange={(e) => setLocForm((f) => ({ ...f, diaCorte: e.target.value }))} />
+                    <input className="text-input" type="date" value={dayToDateInput(locForm.diaCorte)} onChange={(e) => setLocForm((f) => ({ ...f, diaCorte: dateInputToDay(e.target.value) }))} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Día de pago</div>
-                    <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={locForm.diaPago} onChange={(e) => setLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
+                    <input className="text-input" type="date" value={dayToDateInput(locForm.diaPago)} onChange={(e) => setLocForm((f) => ({ ...f, diaPago: dateInputToDay(e.target.value) }))} />
                   </div>
                 </div>
                 <div className="field-label">Monto a pagar (opcional)</div>
@@ -3368,11 +3470,11 @@ function LibroDiario() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Día de corte</div>
-                    <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 18" value={editLocForm.diaCorte} onChange={(e) => setEditLocForm((f) => ({ ...f, diaCorte: e.target.value }))} />
+                    <input className="text-input" type="date" value={dayToDateInput(editLocForm.diaCorte)} onChange={(e) => setEditLocForm((f) => ({ ...f, diaCorte: dateInputToDay(e.target.value) }))} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="field-label">Día de pago</div>
-                    <input className="text-input" type="number" min="1" max="31" placeholder="Ej. 6" value={editLocForm.diaPago} onChange={(e) => setEditLocForm((f) => ({ ...f, diaPago: e.target.value }))} />
+                    <input className="text-input" type="date" value={dayToDateInput(editLocForm.diaPago)} onChange={(e) => setEditLocForm((f) => ({ ...f, diaPago: dateInputToDay(e.target.value) }))} />
                   </div>
                 </div>
                 <div className="field-label">Monto a pagar (opcional)</div>
