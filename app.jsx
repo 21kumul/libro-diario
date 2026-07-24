@@ -282,9 +282,22 @@ const networkClass = (net) => {
   if (/amex|american express/i.test(net)) return 'net-amex';
   return '';
 };
-// Identifica el banco de una ubicación: primero por CLABE (más confiable,
-// no depende de cómo el usuario haya escrito el nombre), y si no hay CLABE
-// o no se reconoce, cae al nombre que el usuario escribió a mano.
+// Identifica qué escribió el usuario en el campo único "Clave interbancaria
+// o número de tarjeta" y qué se puede autocompletar con ello:
+// - CLABE: siempre son exactamente 18 dígitos (estándar Banxico/ABM), así
+//   que con esa longitud exacta identificamos el banco de forma confiable.
+// - Número de tarjeta: 12-19 dígitos (cualquier longitud distinta de 18),
+//   de ahí solo se puede derivar la red (Visa/Mastercard/Amex) de forma
+//   confiable; el banco exacto no se puede inferir solo con esos dígitos.
+const identifyByDigits = (digits) => {
+  const d = digits || '';
+  if (d.length === 18) return { tipo: 'clabe', bankName: getBankFromClabe(d), network: null };
+  if (d.length >= 12 && d.length <= 19) return { tipo: 'card', bankName: null, network: detectCardNetwork(d) };
+  return { tipo: null, bankName: null, network: null };
+};
+// Identifica el banco de una ubicación ya guardada: primero por CLABE (más
+// confiable, no depende de cómo el usuario haya escrito el nombre), y si no
+// hay CLABE o no se reconoce, cae al nombre que el usuario escribió a mano.
 const getBankInfo = (loc) => {
   const byClabe = getBankFromClabe(loc?.clabe);
   if (byClabe) {
@@ -1386,7 +1399,7 @@ function LibroDiario() {
   const [locError, setLocError] = useState('');
   // Número de tarjeta capturado solo para auto-detectar red y últimos 4
   // dígitos; nunca se persiste completo (no guardamos el PAN por seguridad).
-  const [locCardNumber, setLocCardNumber] = useState('');
+  const [locIdentificador, setLocIdentificador] = useState('');
 
   // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
   // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
@@ -1398,14 +1411,21 @@ function LibroDiario() {
 
   const openNewLocation = (personaDefault) => {
     setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
-    setLocCardNumber('');
+    setLocIdentificador('');
     setLocError('');
     setSheet({ type: 'new-location' });
   };
 
   const submitLocation = () => {
     if (!locForm.persona.trim()) return setLocError('Elige o escribe a quién pertenece.');
-    if (locForm.tipo === 'tarjeta' && !locForm.nombre.trim()) return setLocError('Ponle un nombre a la tarjeta o cuenta (ej. Nu, BBVA...).');
+    if (locForm.tipo === 'tarjeta') {
+      if (!locForm.nombre.trim()) return setLocError('Ponle un alias a la tarjeta (ej. Tarjeta de nómina).');
+      const idInfo = identifyByDigits(locIdentificador);
+      if (!idInfo.tipo) return setLocError('Captura tu CLABE (18 dígitos) o el número de tu tarjeta.');
+      if (!locForm.monto.toString().trim()) return setLocError('Ingresa el monto actual.');
+    } else if (!locForm.monto.toString().trim()) {
+      return setLocError('Ingresa el monto actual.');
+    }
     const monto = toNumber(locForm.monto);
     const esCredito = locForm.tipo === 'tarjeta' && locForm.esCredito;
     const next = [...moneyLocations, {
@@ -3152,67 +3172,51 @@ function LibroDiario() {
               <button className={locForm.tipo === 'efectivo' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, tipo: 'efectivo', nombre: '' }))}><Icon name="Wallet" size={14} /> Monedero</button>
               <button className={locForm.tipo === 'tarjeta' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, tipo: 'tarjeta' }))}><Icon name="CreditCard" size={14} /> Tarjeta</button>
             </div>
-            {locForm.tipo === 'tarjeta' && (
-              <>
-                <div className="field-label">Nombre del banco o cuenta</div>
-                <input className="text-input" placeholder="Ej. Banamex, BBVA, Nu..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
-                <div className="field-label">CLABE interbancaria (opcional)</div>
-                <input
-                  className="text-input"
-                  inputMode="numeric"
-                  maxLength={18}
-                  placeholder="18 dígitos"
-                  value={locForm.clabe}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
-                    const detected = getBankFromClabe(digits);
-                    setLocForm((f) => ({ ...f, clabe: digits, nombre: detected && !f.nombre.trim() ? detected : f.nombre }));
-                  }}
-                />
-                <div style={{ fontSize: 11, color: getBankFromClabe(locForm.clabe) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                  {getBankInfo(locForm) ? `Banco identificado: ${getBankInfo(locForm).name}.` : 'Escribe el nombre de tu banco (ej. Banamex, BBVA, Santander, Nu) o captura tu CLABE para identificarlo automáticamente.'}
-                </div>
-                <div className="field-label">Número de tarjeta (opcional)</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Solo para detectar la red (Visa/Mastercard/Amex) y los últimos 4 dígitos; no se guarda el número completo.</div>
-                <input
-                  className="text-input"
-                  inputMode="numeric"
-                  maxLength={19}
-                  placeholder="•••• •••• •••• ••••"
-                  value={formatCardNumberTyping(locCardNumber)}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
-                    setLocCardNumber(digits);
-                    const net = detectCardNetwork(digits);
-                    setLocForm((f) => ({ ...f, ultimos4: digits.length >= 4 ? digits.slice(-4) : f.ultimos4, red: net || f.red }));
-                  }}
-                />
-                {locCardNumber.length >= 2 && (
-                  <div style={{ fontSize: 11, color: detectCardNetwork(locCardNumber) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
-                    {detectCardNetwork(locCardNumber) ? `Red detectada: ${detectCardNetwork(locCardNumber)}.` : 'No se reconoce la red con estos dígitos.'}
+            {locForm.tipo === 'tarjeta' && (() => {
+              const idInfo = identifyByDigits(locIdentificador);
+              const bancoDisplay = idInfo.tipo === 'clabe'
+                ? (idInfo.bankName || 'CLABE no reconocida')
+                : idInfo.tipo === 'card'
+                  ? (idInfo.network ? `Red ${idInfo.network} detectada (banco no identificable solo con el número de tarjeta)` : 'Número de tarjeta no reconocido')
+                  : 'Ingresa tu CLABE o número de tarjeta';
+              const bancoOk = idInfo.tipo === 'clabe' ? !!idInfo.bankName : idInfo.tipo === 'card' ? !!idInfo.network : false;
+              return (
+                <>
+                  <div className="field-label">Nombre / alias</div>
+                  <input className="text-input" placeholder="Ej. Tarjeta de nómina, Tarjeta principal..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
+                  <div className="field-label">Clave interbancaria o número de tarjeta</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Tu CLABE (18 dígitos) o el número de tu tarjeta. Con eso identificamos el banco o la red automáticamente.</div>
+                  <input
+                    className="text-input"
+                    inputMode="numeric"
+                    maxLength={23}
+                    placeholder="18 dígitos (CLABE) o número de tarjeta"
+                    value={formatCardNumberTyping(locIdentificador)}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
+                      setLocIdentificador(digits);
+                      const info = identifyByDigits(digits);
+                      setLocForm((f) => ({
+                        ...f,
+                        clabe: info.tipo === 'clabe' ? digits : '',
+                        ultimos4: digits.length >= 4 ? digits.slice(-4) : '',
+                        red: info.tipo === 'card' ? (info.network || '') : '',
+                      }));
+                    }}
+                  />
+                  <div className="field-label">Banco</div>
+                  <div className="text-input" style={{ display: 'flex', alignItems: 'center', minHeight: 20, color: bancoOk ? 'var(--income)' : 'var(--ink-soft)', background: 'var(--paper-dim)', cursor: 'default' }}>
+                    {bancoDisplay}
                   </div>
-                )}
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div className="field-label">Últimos 4 dígitos (opcional)</div>
-                    <input className="text-input" inputMode="numeric" maxLength={4} placeholder="Ej. 0102" value={locForm.ultimos4} onChange={(e) => setLocForm((f) => ({ ...f, ultimos4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} />
+                  <div className="field-label">{locForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
+                  <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
+                  <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
+                    <div className={`switch ${locForm.esCredito ? 'on' : ''}`} onClick={() => setLocForm((f) => ({ ...f, esCredito: !f.esCredito }))} />
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="field-label">Red (opcional)</div>
-                    <select className="text-input" value={locForm.red} onChange={(e) => setLocForm((f) => ({ ...f, red: e.target.value }))}>
-                      <option value="">Auto</option>
-                      <option value="Visa">Visa</option>
-                      <option value="Mastercard">Mastercard</option>
-                      <option value="American Express">Amex</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>¿Es tarjeta de crédito?</span>
-                  <div className={`switch ${locForm.esCredito ? 'on' : ''}`} onClick={() => setLocForm((f) => ({ ...f, esCredito: !f.esCredito }))} />
-                </div>
-              </>
-            )}
+                </>
+              );
+            })()}
             {locForm.tipo === 'tarjeta' && locForm.esCredito && (
               <>
                 <div className="field-label">Límite de crédito</div>
@@ -3246,8 +3250,12 @@ function LibroDiario() {
                 )}
               </>
             )}
-            <div className="field-label">{locForm.tipo === 'tarjeta' && locForm.esCredito ? 'Gastado en el ciclo actual' : 'Monto actual'}</div>
-            <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
+            {locForm.tipo === 'efectivo' && (
+              <>
+                <div className="field-label">Monto actual</div>
+                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
+              </>
+            )}
             {locError && <div className="form-error">{locError}</div>}
             <button className="save-btn" onClick={submitLocation}><Icon name="Check" size={16} /> Guardar ubicación</button>
           </div>
