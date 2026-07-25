@@ -1805,6 +1805,17 @@ function LibroDiario() {
 
   const clearAll = async () => { await persist({ transactions: [], compromisos: [], savings: [], moneyLocations: [] }); setSettingsOpen(false); };
 
+  // Sale del grupo/código de familia actual: borra el código y el perfil de
+  // este celular (los datos compartidos siguen intactos para el resto de la
+  // familia) y recarga la app para volver a la pantalla de bienvenida, donde
+  // se puede entrar a otro código o crear una familia nueva.
+  const leaveFamily = async () => {
+    if (!window.confirm('¿Salir de esta familia en este celular? Dejarás de ver y compartir estos movimientos. Podrás volver a entrar con el mismo código cuando quieras.')) return;
+    try { await window.storage.delete('miPerfil', false); } catch (e) { /* sigue igual */ }
+    window.libroDiario.clearFamilyCode();
+    window.location.reload();
+  };
+
   const requestNotifPermission = async () => {
     if (!('Notification' in window)) return;
     try {
@@ -4102,6 +4113,9 @@ function LibroDiario() {
             </button>
             <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setSheet({ type: 'catalogo-cuentas' }); }}>
               <Icon name="List" size={14} /> Catálogo de cuentas contables
+            </button>
+            <button className="danger-btn" onClick={leaveFamily}>
+              <Icon name="LogOut" size={14} /> Salir de la familia
             </button>
 
             {notifPermission !== 'unsupported' && (
