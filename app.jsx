@@ -1779,6 +1779,7 @@ function LibroDiario() {
     <div className="ledger-app">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+        html, body { background: var(--paper-dim); }
         .ledger-app {
           --paper: #FAFAFA; --paper-dim: #EFEFF2; --ink: #1C1C1E; --ink-soft: #6E6E73;
           --green: #1E3D32; --green-soft: #2C5645; --gold: #C29B3E; --income: #2E7D5B;
@@ -1787,8 +1788,28 @@ function LibroDiario() {
           --shadow-card: 0 1px 1px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.055);
           --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.12);
           font-family: var(--sans); color: var(--ink); background: var(--paper-dim);
-          max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
+          width: 100%; max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
+        }
+        /* En pantallas anchas (PC / tablet / celular en horizontal con espacio
+           de sobra) el "teléfono" se queda a su ancho normal, centrado, pero
+           con espacio a los costados en vez de estirarse feo o perder forma. */
+        @media (min-width: 600px) and (pointer: fine) {
+          html, body { background: linear-gradient(180deg, #E7E4DB, #DDD9CC); }
+          .ledger-app { max-width: 430px; height: min(100vh, 900px); height: min(100dvh, 900px); margin: max(16px, 2vh) auto; border-radius: 28px; box-shadow: 0 30px 60px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04); }
+        }
+        /* Celular en horizontal: la pantalla es baja, así que compactamos el
+           encabezado para que quede espacio real para el contenido. */
+        @media (orientation: landscape) and (max-height: 520px) {
+          .masthead { padding: calc(10px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 14px 14px; }
+          .balance-block { margin-top: 8px; }
+          .balance-amount { font-size: clamp(20px, 6vw, 28px); margin-top: 2px; }
+          .balance-label { font-size: 10.5px; }
+          .ahorro-line { margin-top: 0; }
+          .period-tabs { margin-top: 8px; }
+          .period-chip { padding: 5px 10px; font-size: 11px; }
+          .family-name-line { font-size: 11px; margin-top: 2px; }
+          .content { padding-bottom: 110px; }
         }
         .masthead { background: var(--green); color: var(--paper); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
