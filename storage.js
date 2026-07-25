@@ -19,6 +19,9 @@
   function setFamilyCode(code) {
     localStorage.setItem(LOCAL_PREFIX + 'familyCode', code);
   }
+  function clearFamilyCode() {
+    try { localStorage.removeItem(LOCAL_PREFIX + 'familyCode'); } catch (e) { /* nada que limpiar */ }
+  }
 
   var app = null, db = null;
 
@@ -119,5 +122,5 @@
     },
   };
 
-  window.libroDiario = { getFamilyCode: getFamilyCode, setFamilyCode: setFamilyCode };
+  window.libroDiario = { getFamilyCode: getFamilyCode, setFamilyCode: setFamilyCode, clearFamilyCode: clearFamilyCode };
 })();
