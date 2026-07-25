@@ -1837,7 +1837,7 @@ function LibroDiario() {
           .family-name-line { font-size: 11px; margin-top: 2px; }
           .content { padding-bottom: 110px; }
         }
-        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; flex-shrink: 0; }
+        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 14px 20px; border-radius: 0 0 20px 20px; flex-shrink: 0; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
         .family-name-line { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); margin-top: 4px; text-transform: uppercase; }
         .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 3px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
