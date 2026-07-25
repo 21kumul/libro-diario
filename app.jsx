@@ -176,7 +176,56 @@ const parseConciliaLine = (line) => {
   const concepto = raw.replace(dateMatch[0], '').replace(lastTok, '').replace(/[|·]/g, ' ').replace(/\s+/g, ' ').trim();
   return { raw, date: dateMatch[0], amount, concepto: concepto || '(sin concepto)', invalid: isNaN(amount) };
 };
+// Diccionario de "lectores" de estado de cuenta por banco. Cada uno recibe el
+// texto plano ya extraído del PDF y regresa un arreglo de movimientos
+// { date, amount, concepto }. Para agregar otro banco en el futuro, solo se
+// suma una función nueva aquí con su propio patrón de texto.
+const MESES_ES = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11 };
 
+const parseBanamexPDFTexto = (texto, refDate = new Date()) => {
+  // Formato real de "Envío de movimientos" de Banamex, ej:
+  //   "20 Jul MERPAGO*SANROQUE MAG 2105031W3 5411AUTHORIZED $35.00"
+  //   "16 Jul NOMINAAUTHORIZED +$5,000.00"
+  const re = /(\d{1,2})\s+([A-Za-zÁÉÍÓÚñÑ]{3,4})\.?\s+(.*?)AUTHORIZED\s*([+-]?)\$\s?([\d,]+\.\d{2})/gis;
+  const out = [];
+  let m;
+  while ((m = re.exec(texto)) !== null) {
+    const [, diaStr, mesAbr, descRaw, signo, montoStr] = m;
+    const mesKey = mesAbr.toLowerCase().slice(0, 3);
+    const mes = MESES_ES[mesKey];
+    if (mes === undefined) continue;
+    let anio = refDate.getFullYear();
+    // Si el mes leído es "futuro" respecto a hoy, el corte es del año pasado.
+    if (mes > refDate.getMonth()) anio -= 1;
+    const dia = String(parseInt(diaStr, 10)).padStart(2, '0');
+    const fecha = `${anio}-${String(mes + 1).padStart(2, '0')}-${dia}`;
+    let monto = parseFloat(montoStr.replace(/,/g, ''));
+    if (signo !== '+') monto = -Math.abs(monto); // sin signo en Banamex = cargo/gasto
+    const concepto = descRaw.replace(/\s+/g, ' ').trim() || '(sin concepto)';
+    out.push({ date: fecha, amount: monto, concepto });
+  }
+  return out;
+};
+
+const BANK_PARSERS = {
+  banamex: { label: 'Banamex', parse: parseBanamexPDFTexto },
+};
+
+// Extrae todo el texto de un PDF (leído en el propio navegador, sin subirlo a
+// ningún servidor) usando pdf.js. Si el PDF es una imagen escaneada sin capa
+// de texto, esto regresa vacío y hay que avisarle al usuario.
+const extraerTextoDePDF = async (file) => {
+  if (!window.pdfjsLib) throw new Error('El lector de PDF no cargó. Revisa tu conexión e intenta de nuevo.');
+  const buf = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  let texto = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    texto += content.items.map((it) => it.str).join(' ') + '\n';
+  }
+  return texto;
+};
 const fmt = (n) => {
   return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 };
@@ -517,6 +566,8 @@ function LibroDiario() {
   const [filterAutor, setFilterAutor] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [conciliaRaw, setConciliaRaw] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
   const NAV_TABS = [
@@ -3733,6 +3784,42 @@ function LibroDiario() {
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 10px' }}>
                 Pega aquí los movimientos de tu estado de cuenta o app del banco, uno por línea, así: <b>AAAA-MM-DD | monto | concepto</b>. Ejemplo: <code style={{ fontSize: 10.5 }}>2026-07-14 | -700.00 | Pago tarjeta</code>. Usa monto negativo para cargos/gastos y positivo para depósitos/ingresos.
               </div>
+              <input
+                type="file"
+                accept="application/pdf"
+                id="pdf-banco-input"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files && e.target.files[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  setPdfError('');
+                  setPdfLoading(true);
+                  try {
+                    const texto = await extraerTextoDePDF(file);
+                    const filas = BANK_PARSERS.banamex.parse(texto);
+                    if (!filas.length) {
+                      setPdfError('No se encontraron movimientos. Si tu PDF es una imagen escaneada (sin texto seleccionable), no se puede leer así — pega los movimientos a mano abajo.');
+                    } else {
+                      const lineas = filas.map((r) => `${r.date} | ${r.amount.toFixed(2)} | ${r.concepto}`).join('\n');
+                      setConciliaRaw((prev) => (prev ? prev + '\n' + lineas : lineas));
+                    }
+                  } catch (err) {
+                    setPdfError('No se pudo leer el PDF: ' + err.message);
+                  } finally {
+                    setPdfLoading(false);
+                  }
+                }}
+              />
+              <button
+                className="multiselect-toggle"
+                style={{ marginBottom: 10 }}
+                disabled={pdfLoading}
+                onClick={() => document.getElementById('pdf-banco-input').click()}
+              >
+                <Icon name="Upload" size={12} /> {pdfLoading ? 'Leyendo PDF…' : 'Subir PDF de Banamex'}
+              </button>
+              {pdfError && <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 10px' }}>{pdfError}</div>}
               <textarea
                 className="text-input"
                 style={{ minHeight: 110, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.5 }}
