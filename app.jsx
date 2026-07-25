@@ -538,6 +538,15 @@ function LibroDiario() {
   // como en apps tipo WhatsApp/Meta.
   const touchStartRef = useRef(null);
   const handleContentTouchStart = (e) => {
+    // Si el toque empieza dentro de algo que YA tiene su propio scroll
+    // horizontal (como la fila de chips de filtro), no lo tomamos como
+    // gesto de "cambiar de pestaña": si no, competían entre sí y el swipe
+    // sobre los chips terminaba cambiando de pestaña en vez de solo
+    // deslizar los chips.
+    if (e.target.closest && e.target.closest('.filter-row')) {
+      touchStartRef.current = null;
+      return;
+    }
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
   };
@@ -1797,6 +1806,13 @@ function LibroDiario() {
         @media (min-width: 600px) and (pointer: fine) {
           html, body { background: linear-gradient(180deg, #E7E4DB, #DDD9CC); }
           .ledger-app { max-width: 430px; height: min(100vh, 900px); height: min(100dvh, 900px); margin: max(16px, 2vh) auto; border-radius: 28px; box-shadow: 0 30px 60px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04); }
+        }
+        /* En PC de verdad (pantallas anchas de escritorio) ya no hace falta
+           fingir que es un celular angosto: se usa más del espacio real de
+           la ventana, en vez de quedar una tarjeta chiquita perdida en medio
+           de tanto fondo vacío. */
+        @media (min-width: 900px) and (pointer: fine) {
+          .ledger-app { max-width: min(600px, 92vw); }
         }
         /* Celular en horizontal: la pantalla es baja, así que compactamos el
            encabezado para que quede espacio real para el contenido. */
