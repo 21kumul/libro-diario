@@ -176,77 +176,101 @@ const parseConciliaLine = (line) => {
   const concepto = raw.replace(dateMatch[0], '').replace(lastTok, '').replace(/[|·]/g, ' ').replace(/\s+/g, ' ').trim();
   return { raw, date: dateMatch[0], amount, concepto: concepto || '(sin concepto)', invalid: isNaN(amount) };
 };
-// Diccionario de "lectores" de estado de cuenta por banco. Cada uno recibe el
-// texto plano ya extraído del PDF y regresa un arreglo de movimientos
-// { date, amount, concepto }. Para agregar otro banco en el futuro, solo se
-// suma una función nueva aquí con su propio patrón de texto.
-const MESES_ES = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11 };
 
-const parseBanamexPDFTexto = (texto, refDate = new Date()) => {
-  // Formato real de "Envío de movimientos" de Banamex, ej:
-  //   "20 Jul MERPAGO*SANROQUE MAG 2105031W3 5411AUTHORIZED $35.00"
-  //   "16 Jul NOMINAAUTHORIZED +$5,000.00"
-  const re = /(\d{1,2})\s+([A-Za-zÁÉÍÓÚñÑ]{3,4})\.?\s+(.*?)AUTHORIZED\s*([+-]?)\$\s?([\d,]+\.\d{2})/gis;
-  const out = [];
-  let m;
-  while ((m = re.exec(texto)) !== null) {
-    const [, diaStr, mesAbr, descRaw, signo, montoStr] = m;
-    const mesKey = mesAbr.toLowerCase().slice(0, 3);
-    const mes = MESES_ES[mesKey];
-    if (mes === undefined) continue;
-    let anio = refDate.getFullYear();
-    // Si el mes leído es "futuro" respecto a hoy, el corte es del año pasado.
-    if (mes > refDate.getMonth()) anio -= 1;
-    const dia = String(parseInt(diaStr, 10)).padStart(2, '0');
-    const fecha = `${anio}-${String(mes + 1).padStart(2, '0')}-${dia}`;
-    let monto = parseFloat(montoStr.replace(/,/g, ''));
-    if (signo !== '+') monto = -Math.abs(monto); // sin signo en Banamex = cargo/gasto
-    const concepto = descRaw.replace(/\s+/g, ' ').trim() || '(sin concepto)';
-    out.push({ date: fecha, amount: monto, concepto });
-  }
-  return out;
+// ---------- Leer PDF del banco (para "Conciliar con mi banco") ----------
+// Muchos bancos (como Banamex) mandan el estado de cuenta como un PDF que en
+// realidad es una imagen (no tiene texto que se pueda copiar/seleccionar),
+// así que hace falta OCR (reconocimiento óptico) para leerlo. Cargamos las
+// librerías necesarias solo cuando se usa esta función (no al abrir la app),
+// para no hacerla más pesada de entrada.
+const _loadedScripts = {};
+const loadScriptOnce = (src) => {
+  if (_loadedScripts[src]) return _loadedScripts[src];
+  _loadedScripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('No se pudo cargar ' + src));
+    document.body.appendChild(s);
+  });
+  return _loadedScripts[src];
 };
 
-const BANK_PARSERS = {
-  banamex: { label: 'Banamex', parse: parseBanamexPDFTexto },
+const MESES_ABBR = { ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5, jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11 };
+const quitarAcentos = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Convierte el texto ya reconocido por OCR (todas las páginas juntas) en
+// líneas con el mismo formato que ya entiende "Conciliar con mi banco":
+// AAAA-MM-DD | ±monto | concepto
+const ocrTextoALineasConcilia = (textoCompleto) => {
+  // El PDF trae la fecha en la que se solicitó el reporte (ej. "25/07/2026"),
+  // la usamos para saber a qué año pertenecen las fechas "DD Mon" de cada
+  // movimiento (que no traen año). Si no la encuentra, usa el año actual.
+  const fechaReporte = textoCompleto.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const anioReporte = fechaReporte ? parseInt(fechaReporte[3], 10) : new Date().getFullYear();
+
+  const lineaRegex = /(\d{1,2})\s+([A-Za-zÑñ]{3,4})\.?\s+(.+?)\s+([+\-]?\$?\s?\d[\d,]*\.\d{2})\s*$/;
+  const salida = [];
+  let sinLeer = 0;
+
+  textoCompleto.split('\n').forEach((linea) => {
+    const l = linea.trim();
+    if (!l) return;
+    const m = l.match(lineaRegex);
+    if (!m) { if (/\d/.test(l) && /[A-Za-z]{3,}/.test(l)) sinLeer++; return; }
+    const [, dia, mesTxt, conceptoRaw, montoTxt] = m;
+    const mesKey = quitarAcentos(mesTxt.toLowerCase()).slice(0, 3);
+    const mes = MESES_ABBR[mesKey];
+    if (mes === undefined) { sinLeer++; return; }
+    const fecha = `${anioReporte}-${String(mes + 1).padStart(2, '0')}-${String(parseInt(dia, 10)).padStart(2, '0')}`;
+    const esIngreso = montoTxt.trim().startsWith('+');
+    const monto = parseFloat(montoTxt.replace(/[^0-9.]/g, ''));
+    if (isNaN(monto)) { sinLeer++; return; }
+    const montoFinal = esIngreso ? monto : -monto;
+    // Quita el "AUTHORIZED"/"AUTORIZADO" pegado al final del concepto, y
+    // ruido que a veces mete el OCR al principio (como un "=" leído de la
+    // rayita de la tabla), para que quede más legible.
+    const concepto = conceptoRaw
+      .replace(/AUTHORIZED$/i, '')
+      .replace(/AUTORIZAD[OA]$/i, '')
+      .replace(/^[^A-Za-zÀ-ÿ0-9]+/, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim() || '(sin concepto)';
+    salida.push(`${fecha} | ${montoFinal.toFixed(2)} | ${concepto}`);
+  });
+
+  return { texto: salida.join('\n'), leidas: salida.length, sinLeer };
 };
 
-// Extrae todo el texto de un PDF (leído en el propio navegador, sin subirlo a
-// ningún servidor) usando pdf.js. Si el PDF es una imagen escaneada sin capa
-// de texto, esto regresa vacío y hay que avisarle al usuario.
-const extraerTextoDePDF = async (file, onProgreso) => {
-  if (!window.pdfjsLib) throw new Error('El lector de PDF no cargó. Revisa tu conexión e intenta de nuevo.');
-  const buf = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+// Lee un archivo PDF (imagen escaneada) y devuelve el texto reconocido de
+// todas sus páginas, usando pdf.js (para convertir cada página en una
+// imagen) + Tesseract.js (OCR). Ambas se cargan de internet la primera vez
+// que se usa esta función.
+const leerPdfConOcr = async (file, onProgress) => {
+  await loadScriptOnce('https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js');
+  await loadScriptOnce('https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
-  // Intento 1: texto real seleccionable dentro del PDF (rápido).
-  let texto = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    texto += content.items.map((it) => it.str).join(' ') + '\n';
-  }
-  if (texto.trim().length >= 20) return texto;
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
 
-  // Intento 2: el PDF es una imagen/captura (sin texto real) -> se convierte
-  // cada página a imagen y se le hace OCR con Tesseract, directo en el
-  // navegador. Es más lento (varios segundos por página).
-  if (!window.Tesseract) throw new Error('El lector de imágenes (OCR) no cargó. Revisa tu conexión e intenta de nuevo.');
-  texto = '';
+  let textoCompleto = '';
   for (let i = 1; i <= pdf.numPages; i++) {
-    if (onProgreso) onProgreso(i, pdf.numPages);
+    onProgress && onProgress(`Leyendo página ${i} de ${pdf.numPages}…`);
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.5 }); // más resolución = OCR más preciso
+    const viewport = page.getViewport({ scale: 2.2 }); // más escala = mejor OCR
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
     const { data } = await window.Tesseract.recognize(canvas, 'spa');
-    texto += data.text + '\n';
+    textoCompleto += '\n' + data.text;
   }
-  return texto;
+  return textoCompleto;
 };
-const fmt = (n) => {
+
+
   return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 };
 
@@ -586,9 +610,10 @@ function LibroDiario() {
   const [filterAutor, setFilterAutor] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [conciliaRaw, setConciliaRaw] = useState('');
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState('');
   const [pdfError, setPdfError] = useState('');
-  const [pdfProgreso, setPdfProgreso] = useState('');
+  const pdfInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
   const NAV_TABS = [
@@ -992,6 +1017,31 @@ function LibroDiario() {
     const type = row.amount < 0 ? 'gasto' : 'ingreso';
     setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setSheet({ type: 'add-tx' });
+  };
+
+  // Lee un PDF de estado de cuenta (imagen escaneada, sin texto seleccionable)
+  // con OCR y agrega lo que reconoce al cuadro de "Conciliar con mi banco",
+  // en el mismo formato que ya se usa ahí — así el resto de la pantalla
+  // (qué ya está registrado / qué falta) sigue funcionando exactamente igual.
+  const handlePdfBanco = async (file) => {
+    setPdfBusy(true);
+    setPdfError('');
+    setPdfProgress('Abriendo PDF…');
+    try {
+      const textoOcr = await leerPdfConOcr(file, setPdfProgress);
+      const { texto, leidas, sinLeer } = ocrTextoALineasConcilia(textoOcr);
+      if (!leidas) {
+        setPdfError('No logré reconocer ningún movimiento en este PDF. Puedes intentar de nuevo o pegar los movimientos a mano abajo.');
+      } else {
+        setConciliaRaw((prev) => (prev.trim() ? prev.trim() + '\n' + texto : texto));
+        if (sinLeer > 0) setPdfError(`Se agregaron ${leidas} movimiento${leidas !== 1 ? 's' : ''}. ${sinLeer} línea${sinLeer !== 1 ? 's' : ''} no se pudo${sinLeer !== 1 ? 'ieron' : ''} leer bien — revisa el texto de abajo por si falta algo.`);
+      }
+    } catch (e) {
+      setPdfError('No se pudo leer el PDF: ' + (e.message || e) + '. Revisa tu conexión a internet (la primera vez necesita descargar el lector de PDF/OCR).');
+    } finally {
+      setPdfBusy(false);
+      setPdfProgress('');
+    }
   };
 
   const gastosPorCategoria = useMemo(() => {
@@ -3802,46 +3852,28 @@ function LibroDiario() {
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-header"><span className="sheet-title">Conciliar con mi banco</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 10px' }}>
-                Pega aquí los movimientos de tu estado de cuenta o app del banco, uno por línea, así: <b>AAAA-MM-DD | monto | concepto</b>. Ejemplo: <code style={{ fontSize: 10.5 }}>2026-07-14 | -700.00 | Pago tarjeta</code>. Usa monto negativo para cargos/gastos y positivo para depósitos/ingresos.
-              </div>
               <input
                 type="file"
                 accept="application/pdf"
-                id="pdf-banco-input"
+                ref={pdfInputRef}
                 style={{ display: 'none' }}
-                onChange={async (e) => {
-                  const file = e.target.files && e.target.files[0];
-                  e.target.value = '';
-                  if (!file) return;
-                  setPdfError('');
-                  setPdfLoading(true);
-                  try {
-                    const texto = await extraerTextoDePDF(file, (pagina, total) => setPdfProgreso(`Leyendo imagen ${pagina} de ${total}… (puede tardar 20-30 seg por página)`));
-                    const filas = BANK_PARSERS.banamex.parse(texto);
-                    if (!filas.length) {
-                      setPdfError('No se encontraron movimientos. Si tu PDF es una imagen escaneada (sin texto seleccionable), no se puede leer así — pega los movimientos a mano abajo.');
-                    } else {
-                      const lineas = filas.map((r) => `${r.date} | ${r.amount.toFixed(2)} | ${r.concepto}`).join('\n');
-                      setConciliaRaw((prev) => (prev ? prev + '\n' + lineas : lineas));
-                    }
-                  } catch (err) {
-                    setPdfError('No se pudo leer el PDF: ' + err.message);
-                  } finally {
-                    setPdfLoading(false);
-                    setPdfProgreso('');
-                  }
-                }}
+                onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) handlePdfBanco(f); }}
               />
               <button
-                className="multiselect-toggle"
-                style={{ marginBottom: 10 }}
-                disabled={pdfLoading}
-                onClick={() => document.getElementById('pdf-banco-input').click()}
+                className="mini-abonar"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}
+                disabled={pdfBusy}
+                onClick={() => pdfInputRef.current && pdfInputRef.current.click()}
               >
-                <Icon name="Upload" size={12} /> {pdfLoading ? (pdfProgreso || 'Leyendo PDF…') : 'Subir PDF'}
+                <Icon name="Upload" size={13} />
+                {pdfBusy ? (pdfProgress || 'Leyendo…') : 'Leer PDF de mi banco'}
               </button>
-              {pdfError && <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 10px' }}>{pdfError}</div>}
+              {pdfError && (
+                <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 10px', lineHeight: 1.4 }}>{pdfError}</div>
+              )}
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 10px' }}>
+                Sube el PDF que te manda tu banco (aunque sea una imagen, sin texto seleccionable) y se agregan solos abajo. O si prefieres, pega aquí los movimientos a mano, uno por línea, así: <b>AAAA-MM-DD | monto | concepto</b>. Ejemplo: <code style={{ fontSize: 10.5 }}>2026-07-14 | -700.00 | Pago tarjeta</code>. Usa monto negativo para cargos/gastos y positivo para depósitos/ingresos.
+              </div>
               <textarea
                 className="text-input"
                 style={{ minHeight: 110, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.5 }}
