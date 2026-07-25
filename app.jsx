@@ -1741,17 +1741,19 @@ function LibroDiario() {
   const removeParticipant = (id) => setTxForm((f) => ({ ...f, participants: f.participants.filter((p) => p.id !== id) }));
   const myShare = txForm.amount ? Math.max(0, toNumber(txForm.amount) - txForm.participants.reduce((s, p) => s + toNumber(p.amount), 0)) : 0;
 
-  // Atajo desde el icono de la app (Android: mantener presionado el ícono)
+// Atajo desde el icono de la app (Android: mantener presionado el ícono)
   // o desde un acceso directo de iOS Shortcuts que abra index.html?accion=gasto
+  //
+  // A propósito NO borramos el parámetro de la URL: como este ícono vive
+  // guardado en la pantalla de inicio con esta URL fija, cada vez que se abre
+  // vuelve a cargar la misma página desde cero — así que queremos que SIEMPRE
+  // dispare el formulario, no solo la primera vez.
   useEffect(() => {
     if (loading || onboarding) return;
     const params = new URLSearchParams(window.location.search);
     const accion = params.get('accion');
     if (accion === 'gasto' || accion === 'ingreso') {
       openAddTx(accion === 'ingreso' ? 'ingreso' : 'gasto');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('accion');
-      window.history.replaceState({}, '', url.pathname + url.search);
     }
   }, [loading, onboarding]);
 
