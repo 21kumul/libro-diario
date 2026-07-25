@@ -1827,24 +1827,32 @@ function LibroDiario() {
           .family-name-line { font-size: 11px; margin-top: 2px; }
           .content { padding-bottom: 110px; }
         }
-        .masthead { background: var(--green); color: var(--paper); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
+        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
         .family-name-line { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); margin-top: 4px; text-transform: uppercase; }
         .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 3px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
         .brand .dot { color: var(--gold); margin: 0 6px; }
         .icon-btn { background: rgba(255,255,255,0.1); border: none; color: var(--paper); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .icon-btn:hover { background: rgba(255,255,255,0.18); }
-        .balance-block { margin-top: 18px; }
-        .balance-label { font-size: 12px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1.5px; }
-        .balance-amount { font-family: var(--mono); font-weight: 700; font-size: clamp(26px, 8vw, 36px); margin-top: 4px; letter-spacing: -0.5px; overflow-wrap: break-word; }
+        .balance-block { margin-top: 10px; }
+        .balance-label { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1.5px; }
+        .balance-amount { font-family: var(--mono); font-weight: 700; font-size: clamp(24px, 7vw, 30px); margin-top: 2px; letter-spacing: -0.5px; overflow-wrap: break-word; }
         .balance-amount.pos { color: #8FD9B6; } .balance-amount.neg { color: #F0A98F; }
-        .ahorro-line { font-size: 11.5px; opacity: 0.75; margin-top: 2px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
-        .period-tabs { display: flex; gap: 6px; margin-top: 14px; }
-        .period-chip { font-family: var(--sans); font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
+        .ahorro-line { font-size: 11px; opacity: 0.75; margin-top: 1px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
+        .period-tabs { display: flex; gap: 6px; margin-top: 10px; }
+        .period-chip { font-family: var(--sans); font-size: 11.5px; font-weight: 500; padding: 5px 11px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
         .period-chip.active { background: var(--paper); color: var(--green); border-color: var(--paper); font-weight: 600; }
-        .stub-row { display: flex; gap: 8px; margin-top: 14px; padding-bottom: 18px; }
-        .stub { flex: 1; min-width: 0; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 10px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+        .stub-row { display: flex; gap: 8px; margin-top: 10px; padding-bottom: 12px; }
+        .stub { flex: 1; min-width: 0; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 8px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
         .stub-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        /* Al hacer scroll hacia abajo en el contenido, el panel verde se
+           compacta todavía más (oculta ingresos/gastos, achica el monto) para
+           dejar el máximo de espacio posible visible para la lista. */
+        .masthead { transition: padding 0.25s ease; }
+        .masthead-compact { padding-bottom: 10px !important; }
+        .masthead-compact .balance-amount { font-size: 22px; }
+        .masthead-compact .ahorro-line, .masthead-compact .stub-row { display: none; }
+        .masthead-compact .period-tabs { margin-top: 8px; }
         .stub-icon.in { background: rgba(143,217,182,0.2); color: #8FD9B6; }
         .stub-icon.out { background: rgba(240,169,143,0.2); color: #F0A98F; }
         .stub-text { display: flex; flex-direction: column; min-width: 0; flex: 1; overflow: hidden; }
@@ -2089,7 +2097,7 @@ function LibroDiario() {
         .you-badge { font-size: 9px; background: var(--green); color: var(--paper); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
       `}</style>
 
-      <div className="masthead">
+      <div className={`masthead ${navCompact ? 'masthead-compact' : ''}`}>
         <div className="masthead-top">
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
