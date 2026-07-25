@@ -556,68 +556,56 @@ function LibroDiario() {
     else if (dx > 0 && curIdx > 0) goTab(order[curIdx - 1]);
   };
   // Indicador "encendido" que se desliza suavemente hacia la pestaña activa.
-  const navBtnRefs = useRef({});
   const navTabsRef = useRef(null);
-  const [navHighlight, setNavHighlight] = useState({ left: 0, width: 0, ready: false });
+  // La burbuja se posiciona en % del ancho del contenedor (no en píxeles
+  // medidos con JS). Así, cuando la barra se compacta/expande con el scroll,
+  // la burbuja se mueve exactamente en el mismo instante y con la misma
+  // curva que los botones (porque ambos son proporcionales al mismo
+  // contenedor) — sin rebotes ni desincronía, y sin tener que re-medir nada.
+  const navIndex = (key) => Math.max(0, NAV_TABS.findIndex((n) => n.key === key));
+  const navPct = 100 / NAV_TABS.length;
   // Arrastre en vivo sobre la barra (como Instagram/Meta): al deslizar el
-  // dedo sin soltarlo por encima de los íconos, cada pestaña se va
-  // resaltando conforme el dedo pasa por ella, y se cambia a esa pestaña
-  // al soltar.
+  // dedo sin soltarlo por encima de los íconos, la burbuja sigue la posición
+  // exacta del dedo (en píxeles, de forma continua) para que se vea como una
+  // sola pieza deslizándose, no como saltos entre pestañas.
   const [dragTabKey, setDragTabKey] = useState(null);
+  const [dragLeftPx, setDragLeftPx] = useState(null);
   const navDragStartKey = useRef(null);
-  const findNavKeyAtPoint = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    const btn = el && el.closest ? el.closest('.nav-btn') : null;
-    return btn ? btn.dataset.navkey : null;
-  };
+  const navDragRect = useRef(null);
   const handleNavTouchStart = (e) => {
+    const wrap = navTabsRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const btnWidth = rect.width / NAV_TABS.length;
+    navDragRect.current = { left: rect.left, width: rect.width, btnWidth };
     const t = e.touches[0];
-    const key = findNavKeyAtPoint(t.clientX, t.clientY);
-    navDragStartKey.current = key;
-    if (key) setDragTabKey(key);
+    const x = Math.max(0, Math.min(rect.width - btnWidth, t.clientX - rect.left - btnWidth / 2));
+    const idx = Math.min(NAV_TABS.length - 1, Math.max(0, Math.round(x / btnWidth)));
+    navDragStartKey.current = NAV_TABS[idx].key;
+    setDragTabKey(NAV_TABS[idx].key);
+    setDragLeftPx(x);
   };
   const handleNavTouchMove = (e) => {
-    if (!navDragStartKey.current) return;
+    const r = navDragRect.current;
+    if (!r || !navDragStartKey.current) return;
     const t = e.touches[0];
-    const key = findNavKeyAtPoint(t.clientX, t.clientY);
-    if (key && key !== dragTabKey) {
+    const x = Math.max(0, Math.min(r.width - r.btnWidth, t.clientX - r.left - r.btnWidth / 2));
+    setDragLeftPx(x);
+    const idx = Math.min(NAV_TABS.length - 1, Math.max(0, Math.round(x / r.btnWidth)));
+    const key = NAV_TABS[idx].key;
+    if (key !== dragTabKey) {
       if (navDragStartKey.current === 'resumen') cancelResumenLongPress();
       if (navigator.vibrate) navigator.vibrate(4);
       setDragTabKey(key);
     }
   };
   const handleNavTouchEnd = () => {
-    if (dragTabKey && dragTabKey !== navDragStartKey.current) goTab(dragTabKey === 'graficas' ? 'graficas' : dragTabKey);
+    if (dragTabKey && dragTabKey !== navDragStartKey.current) goTab(dragTabKey);
     navDragStartKey.current = null;
+    navDragRect.current = null;
     setDragTabKey(null);
+    setDragLeftPx(null);
   };
-  const updateNavHighlight = useCallback(() => {
-    const rawKey = dragTabKey || tab;
-    const key = rawKey === 'graficas' ? 'resumen' : rawKey;
-    const el = navBtnRefs.current[key];
-    const wrap = navTabsRef.current;
-    if (!el || !wrap) return;
-    setNavHighlight({ left: el.offsetLeft, width: el.offsetWidth, ready: true });
-  }, [tab, dragTabKey]);
-  useEffect(() => {
-    // Mientras se arrastra, la pastilla debe seguir al dedo al instante
-    // (sin la animación de resorte), así que solo medimos una vez.
-    if (dragTabKey) { updateNavHighlight(); return; }
-    // La pastilla compacta cambia el tamaño de los botones con una
-    // transición CSS (~0.3s); si solo medimos una vez, el indicador se queda
-    // con la posición de ANTES de que termine de encoger/crecer y se ve
-    // desalineado ("salido") mientras dura la animación. Volvemos a medir
-    // varias veces durante esa ventana para que se quede pegado al ícono.
-    updateNavHighlight();
-    const t1 = setTimeout(updateNavHighlight, 80);
-    const t2 = setTimeout(updateNavHighlight, 160);
-    const t3 = setTimeout(updateNavHighlight, 320);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [tab, navCompact, dragTabKey, updateNavHighlight]);
-  useEffect(() => {
-    window.addEventListener('resize', updateNavHighlight);
-    return () => window.removeEventListener('resize', updateNavHighlight);
-  }, [updateNavHighlight]);
   const goTab = (t) => {
     setTab(t);
     setNavCompact(false);
@@ -1522,8 +1510,9 @@ function LibroDiario() {
 
   const submitSavings = () => {
     if (!savForm.name.trim()) return setSavError('Ponle un nombre a tu meta o cuenta.');
-    const target = savForm.target ? toNumber(savForm.target) : null;
-    const next = [...savings, { id: uid(), name: savForm.name.trim(), target: target > 0 ? target : null, movements: [] }];
+    const target = toNumber(savForm.target);
+    if (!target || target <= 0) return setSavError('Ponle una meta (monto a ahorrar) para poder seguir.');
+    const next = [...savings, { id: uid(), name: savForm.name.trim(), target, movements: [] }];
     persist({ savings: next });
     setSheet(null);
   };
@@ -1801,6 +1790,7 @@ function LibroDiario() {
         }
         .masthead { background: var(--green); color: var(--paper); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
+        .family-name-line { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); margin-top: 4px; text-transform: uppercase; }
         .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 3px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
         .brand .dot { color: var(--gold); margin: 0 6px; }
         .icon-btn { background: rgba(255,255,255,0.1); border: none; color: var(--paper); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -1874,8 +1864,8 @@ function LibroDiario() {
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
         .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 2px; touch-action: none; }
-        .nav-highlight { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
-        .nav-highlight.dragging { transition: transform 0.06s linear, width 0.06s linear; }
+        .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
+        .nav-highlight.dragging { transition: none; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
         .nav-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 7; background: rgba(255,255,255,0.9); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 5px; box-shadow: 0 10px 26px rgba(0,0,0,0.2); animation: navPopIn 0.16s ease-out; }
@@ -2070,6 +2060,7 @@ function LibroDiario() {
             <button className="top-fab-btn" onClick={fabAction} aria-label="Agregar"><Icon name="Plus" size={19} /></button>
           </div>
         </div>
+        {familyName && <div className="family-name-line">{familyName}</div>}
         <div className="balance-block">
           <span className="balance-label">Disponible · {PERIOD_LABEL[period]}</span>
           <div className={`balance-amount ${totals.disponible >= 0 ? 'pos' : 'neg'}`}>{fmt(totals.disponible)}</div>
@@ -2712,7 +2703,12 @@ function LibroDiario() {
           onTouchEnd={handleNavTouchEnd}
           onTouchCancel={handleNavTouchEnd}
         >
-          {navHighlight.ready && <div className={`nav-highlight ${dragTabKey ? 'dragging' : ''}`} style={{ transform: `translateX(${navHighlight.left}px)`, width: navHighlight.width }} />}
+          <div
+            className={`nav-highlight ${dragTabKey ? 'dragging' : ''}`}
+            style={dragLeftPx != null
+              ? { left: `${dragLeftPx}px`, width: navDragRect.current ? navDragRect.current.btnWidth : `${navPct}%` }
+              : { left: `${navIndex(tab === 'graficas' ? 'resumen' : tab) * navPct}%`, width: `${navPct}%` }}
+          />
           {NAV_TABS.map((n) => {
             const isResumen = n.key === 'resumen';
             const highlightKey = dragTabKey || tab;
@@ -2721,7 +2717,6 @@ function LibroDiario() {
               <button
                 key={n.key}
                 data-navkey={n.key}
-                ref={(el) => { navBtnRefs.current[n.key] = el; }}
                 className={`nav-btn ${active ? 'active' : ''}`}
                 style={active ? { color: TAB_COLORS[isResumen ? 'resumen' : n.key] } : undefined}
                 onMouseDown={isResumen ? startResumenLongPress : undefined}
@@ -3351,10 +3346,11 @@ function LibroDiario() {
             <div className="sheet-header"><span className="sheet-title">Nueva cuenta de ahorro</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="field-label">Nombre</div>
             <input className="text-input" placeholder="Ej. Fondo de emergencia" value={savForm.name} onChange={(e) => setSavForm((f) => ({ ...f, name: e.target.value }))} />
-            <div className="field-label">Meta (opcional)</div>
+            <div className="field-label">Meta *</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>¿Cuánto quieres juntar? Lo necesitamos para calcular tu avance.</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={savForm.target} onChange={(e) => setSavForm((f) => ({ ...f, target: formatAmountTyping(e.target.value) }))} /></div>
             {savError && <div className="form-error">{savError}</div>}
-            <button className="save-btn" onClick={submitSavings}><Icon name="Check" size={16} /> Crear cuenta</button>
+            <button className="save-btn" disabled={!(savForm.name.trim() && toNumber(savForm.target) > 0)} onClick={submitSavings}><Icon name="Check" size={16} /> Crear cuenta</button>
           </div>
         </div>
       )}
