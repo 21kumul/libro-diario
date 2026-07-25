@@ -271,6 +271,7 @@ const leerPdfConOcr = async (file, onProgress) => {
 };
 
 
+const fmt = (n) => {
   return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 };
 
