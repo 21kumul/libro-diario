@@ -1837,7 +1837,7 @@ function LibroDiario() {
           .family-name-line { font-size: 11px; margin-top: 2px; }
           .content { padding-bottom: 110px; }
         }
-        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; }
+        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 20px 20px; flex-shrink: 0; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
         .family-name-line { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); margin-top: 4px; text-transform: uppercase; }
         .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 3px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
@@ -1858,10 +1858,13 @@ function LibroDiario() {
         /* Al hacer scroll hacia abajo en el contenido, el panel verde se
            encoge de forma continua y proporcional (--collapse va de 0 a 1
            según cuánto scrolleaste), no de golpe: oculta gradualmente
-           "Ahorrado" e Ingresos/Gastos, y el monto se achica suave. */
+           "Ahorrado" e Ingresos/Gastos, y el monto se achica suave.
+           Se hace en dos tiempos para que nunca se vea "cortado": primero
+           (mitad del recorrido) se desvanece el texto por completo, y solo
+           DESPUÉS de que ya es invisible se reduce el espacio que ocupaba. */
         .masthead { --collapse: 0; }
-        .ahorro-line { max-height: calc(16px * (1 - var(--collapse))); opacity: calc(1 - var(--collapse)); overflow: hidden; transition: none; }
-        .stub-row { max-height: calc(70px * (1 - var(--collapse))); opacity: calc(1 - var(--collapse)); margin-top: calc(10px * (1 - var(--collapse))); padding-bottom: calc(12px * (1 - var(--collapse))); overflow: hidden; transition: none; }
+        .ahorro-line { opacity: calc(1 - min(1, var(--collapse) * 2)); max-height: calc(20px * (1 - max(0, (var(--collapse) - 0.5) * 2))); overflow: hidden; transition: none; }
+        .stub-row { opacity: calc(1 - min(1, var(--collapse) * 2)); max-height: calc(90px * (1 - max(0, (var(--collapse) - 0.5) * 2))); margin-top: calc(10px * (1 - max(0, (var(--collapse) - 0.5) * 2))); padding-bottom: calc(12px * (1 - max(0, (var(--collapse) - 0.5) * 2))); overflow: hidden; transition: none; }
         .period-tabs { margin-top: calc(10px - 2px * var(--collapse)); }
         .stub-icon.in { background: rgba(143,217,182,0.2); color: #8FD9B6; }
         .stub-icon.out { background: rgba(240,169,143,0.2); color: #F0A98F; }
