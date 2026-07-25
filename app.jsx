@@ -214,15 +214,35 @@ const BANK_PARSERS = {
 // Extrae todo el texto de un PDF (leído en el propio navegador, sin subirlo a
 // ningún servidor) usando pdf.js. Si el PDF es una imagen escaneada sin capa
 // de texto, esto regresa vacío y hay que avisarle al usuario.
-const extraerTextoDePDF = async (file) => {
+const extraerTextoDePDF = async (file, onProgreso) => {
   if (!window.pdfjsLib) throw new Error('El lector de PDF no cargó. Revisa tu conexión e intenta de nuevo.');
   const buf = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+
+  // Intento 1: texto real seleccionable dentro del PDF (rápido).
   let texto = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     texto += content.items.map((it) => it.str).join(' ') + '\n';
+  }
+  if (texto.trim().length >= 20) return texto;
+
+  // Intento 2: el PDF es una imagen/captura (sin texto real) -> se convierte
+  // cada página a imagen y se le hace OCR con Tesseract, directo en el
+  // navegador. Es más lento (varios segundos por página).
+  if (!window.Tesseract) throw new Error('El lector de imágenes (OCR) no cargó. Revisa tu conexión e intenta de nuevo.');
+  texto = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    if (onProgreso) onProgreso(i, pdf.numPages);
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2.5 }); // más resolución = OCR más preciso
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const { data } = await window.Tesseract.recognize(canvas, 'spa');
+    texto += data.text + '\n';
   }
   return texto;
 };
@@ -568,6 +588,7 @@ function LibroDiario() {
   const [conciliaRaw, setConciliaRaw] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState('');
+  const [pdfProgreso, setPdfProgreso] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('resumen');
   const NAV_TABS = [
@@ -3796,7 +3817,7 @@ function LibroDiario() {
                   setPdfError('');
                   setPdfLoading(true);
                   try {
-                    const texto = await extraerTextoDePDF(file);
+                    const texto = await extraerTextoDePDF(file, (pagina, total) => setPdfProgreso(`Leyendo imagen ${pagina} de ${total}… (puede tardar 20-30 seg por página)`));
                     const filas = BANK_PARSERS.banamex.parse(texto);
                     if (!filas.length) {
                       setPdfError('No se encontraron movimientos. Si tu PDF es una imagen escaneada (sin texto seleccionable), no se puede leer así — pega los movimientos a mano abajo.');
@@ -3808,6 +3829,7 @@ function LibroDiario() {
                     setPdfError('No se pudo leer el PDF: ' + err.message);
                   } finally {
                     setPdfLoading(false);
+                    setPdfProgreso('');
                   }
                 }}
               />
@@ -3817,7 +3839,7 @@ function LibroDiario() {
                 disabled={pdfLoading}
                 onClick={() => document.getElementById('pdf-banco-input').click()}
               >
-                <Icon name="Upload" size={12} /> {pdfLoading ? 'Leyendo PDF…' : 'Subir PDF de Banamex'}
+                <Icon name="Upload" size={12} /> {pdfLoading ? (pdfProgreso || 'Leyendo PDF…') : 'Subir PDF'}
               </button>
               {pdfError && <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 10px' }}>{pdfError}</div>}
               <textarea
