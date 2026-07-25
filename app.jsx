@@ -756,40 +756,7 @@ function LibroDiario() {
       window.removeEventListener('focus', onVisible);
     };
   }, [loading, loadShared]);
-// Captura rápida desde un Shortcut de iOS (automatización de Apple Pay).
-  // El shortcut abre esta misma URL con ?quickadd=1&monto=...&categoria=...
-  // y aquí se guarda como un movimiento normal, sin backend de por medio.
-  useEffect(() => {
-    if (loading || !familyCode) return;
-    let params;
-    try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
-    if (params.get('quickadd') !== '1') return;
 
-    // Limpia la URL de inmediato para que refrescar la página no duplique el gasto.
-    const cleanUrl = new URL(window.location.href);
-    cleanUrl.search = '';
-    window.history.replaceState({}, '', cleanUrl.toString());
-
-    const monto = toNumber(params.get('monto'));
-    if (!monto || monto <= 0) return;
-    const categoria = params.get('categoria') || 'otros_gas';
-    const nota = (params.get('nota') || 'Apple Pay').slice(0, 120);
-    const tipo = params.get('tipo') === 'ingreso' ? 'ingreso' : 'gasto';
-    const locId = params.get('loc') || null;
-
-    const next = [...transactions, {
-      id: uid(), type: tipo, amount: monto, category: categoria,
-      note: nota, date: todayStr(), locationId: locId,
-      autor: profile?.name || 'Familia',
-    }];
-    const patch = { transactions: next };
-    if (locId) {
-      patch.moneyLocations = moneyLocations.map((l) =>
-        l.id === locId ? { ...l, monto: (l.monto || 0) + locationDelta(tipo, monto) } : l
-      );
-    }
-    persist(patch);
-  }, [loading, familyCode]);
   const persist = useCallback(async (patch) => {
     setSavingFlag(true);
     if (patch.transactions) setTransactions(patch.transactions);
