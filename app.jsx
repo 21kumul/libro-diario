@@ -531,8 +531,18 @@ function LibroDiario() {
   // y regresa a su tamaño completo al subir o al llegar al inicio.
   const [navCompact, setNavCompact] = useState(false);
   const contentRef = useRef(null);
+  // El panel verde se encoge de forma continua y proporcional a lo que
+  // llevas scrolleado (no en un salto de golpe): se actualiza escribiendo
+  // directo una variable CSS en el DOM (sin pasar por setState de React)
+  // para que sea tan fluido como el propio scroll, sin ningún retraso.
+  const mastheadRef = useRef(null);
   const handleContentScroll = useCallback((e) => {
-    setNavCompact(e.currentTarget.scrollTop > 40);
+    const st = e.currentTarget.scrollTop;
+    setNavCompact(st > 40);
+    if (mastheadRef.current) {
+      const progress = Math.max(0, Math.min(1, st / 70));
+      mastheadRef.current.style.setProperty('--collapse', progress);
+    }
   }, []);
   // Deslizar (swipe) horizontal sobre el contenido para pasar entre pestañas,
   // como en apps tipo WhatsApp/Meta.
@@ -1836,7 +1846,7 @@ function LibroDiario() {
         .icon-btn:hover { background: rgba(255,255,255,0.18); }
         .balance-block { margin-top: 10px; }
         .balance-label { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1.5px; }
-        .balance-amount { font-family: var(--mono); font-weight: 700; font-size: clamp(24px, 7vw, 30px); margin-top: 2px; letter-spacing: -0.5px; overflow-wrap: break-word; }
+        .balance-amount { font-family: var(--mono); font-weight: 700; font-size: calc(clamp(24px, 7vw, 30px) - 8px * var(--collapse)); margin-top: 2px; letter-spacing: -0.5px; overflow-wrap: break-word; }
         .balance-amount.pos { color: #8FD9B6; } .balance-amount.neg { color: #F0A98F; }
         .ahorro-line { font-size: 11px; opacity: 0.75; margin-top: 1px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
         .period-tabs { display: flex; gap: 6px; margin-top: 10px; }
@@ -1846,13 +1856,13 @@ function LibroDiario() {
         .stub { flex: 1; min-width: 0; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 8px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
         .stub-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         /* Al hacer scroll hacia abajo en el contenido, el panel verde se
-           compacta todavía más (oculta ingresos/gastos, achica el monto) para
-           dejar el máximo de espacio posible visible para la lista. */
-        .masthead { transition: padding 0.25s ease; }
-        .masthead-compact { padding-bottom: 10px !important; }
-        .masthead-compact .balance-amount { font-size: 22px; }
-        .masthead-compact .ahorro-line, .masthead-compact .stub-row { display: none; }
-        .masthead-compact .period-tabs { margin-top: 8px; }
+           encoge de forma continua y proporcional (--collapse va de 0 a 1
+           según cuánto scrolleaste), no de golpe: oculta gradualmente
+           "Ahorrado" e Ingresos/Gastos, y el monto se achica suave. */
+        .masthead { --collapse: 0; }
+        .ahorro-line { max-height: calc(16px * (1 - var(--collapse))); opacity: calc(1 - var(--collapse)); overflow: hidden; transition: none; }
+        .stub-row { max-height: calc(70px * (1 - var(--collapse))); opacity: calc(1 - var(--collapse)); margin-top: calc(10px * (1 - var(--collapse))); padding-bottom: calc(12px * (1 - var(--collapse))); overflow: hidden; transition: none; }
+        .period-tabs { margin-top: calc(10px - 2px * var(--collapse)); }
         .stub-icon.in { background: rgba(143,217,182,0.2); color: #8FD9B6; }
         .stub-icon.out { background: rgba(240,169,143,0.2); color: #F0A98F; }
         .stub-text { display: flex; flex-direction: column; min-width: 0; flex: 1; overflow: hidden; }
@@ -2097,7 +2107,7 @@ function LibroDiario() {
         .you-badge { font-size: 9px; background: var(--green); color: var(--paper); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
       `}</style>
 
-      <div className={`masthead ${navCompact ? 'masthead-compact' : ''}`}>
+      <div className="masthead" ref={mastheadRef}>
         <div className="masthead-top">
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
