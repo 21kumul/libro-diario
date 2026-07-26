@@ -1692,6 +1692,27 @@ function LibroDiario() {
     if (dy > 14) setMsiRevealed(true);
     else if (dy < -14) setMsiRevealed(false);
   };
+  // Tirador "jala para revelar" en Movimientos: como este vive arriba de la
+  // lista (no abajo, como en Cuentas), el gesto se invierte — se jala hacia
+  // ABAJO para revelar conciliación, buscador, categorías y familia. Así la
+  // pantalla de inicio de la pestaña es solo la lista de movimientos.
+  const [movsRevealed, setMovsRevealed] = useState(false);
+  const movsDragStart = useRef(null);
+  const handleMovsHandleTouchStart = (e) => {
+    const t = e.touches[0];
+    movsDragStart.current = { y: t.clientY, time: Date.now() };
+  };
+  const handleMovsHandleTouchEnd = (e) => {
+    if (!movsDragStart.current) return;
+    const t = e.changedTouches[0];
+    const dy = t.clientY - movsDragStart.current.y; // positivo = dedo bajó
+    const dt = Date.now() - movsDragStart.current.time;
+    movsDragStart.current = null;
+    if (dt > 700) return;
+    if (Math.abs(dy) < 10) { setMovsRevealed((v) => !v); return; } // toque simple
+    if (dy > 14) setMovsRevealed(true);
+    else if (dy < -14) setMovsRevealed(false);
+  };
   const openMsi = () => {
     setMsiForm({ name: '', amount: '', months: '12' });
     setSheet({ type: 'msi' });
@@ -2328,8 +2349,10 @@ function LibroDiario() {
         .reveal-handle-bar { width: 36px; height: 4px; border-radius: 2px; background: var(--line); transition: background 0.2s ease; }
         .reveal-handle.open .reveal-handle-bar { background: var(--gold); }
         .reveal-handle-label { display: flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
-        .reveal-panel { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease; }
+        .reveal-panel { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease, margin-bottom 0.3s ease; }
         .reveal-panel.open { max-height: 100px; opacity: 1; margin-top: 8px; }
+        .reveal-handle-top { padding: 2px 0 8px; margin-top: -4px; }
+        .reveal-panel.reveal-panel-top.open { max-height: 320px; margin-top: 0; margin-bottom: 10px; }
         .card { background: var(--paper); border-radius: 18px; padding: 16px; margin-bottom: 14px; border: none; box-shadow: var(--shadow-card); }
         .card-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ink-soft); font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
         .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -2718,6 +2741,46 @@ function LibroDiario() {
           </>
         ) : tab === 'movimientos' ? (
           <>
+            <div
+              className={`reveal-handle reveal-handle-top ${movsRevealed ? 'open' : ''}`}
+              onClick={() => setMovsRevealed((v) => !v)}
+              onTouchStart={handleMovsHandleTouchStart}
+              onTouchEnd={handleMovsHandleTouchEnd}
+            >
+              <span className="reveal-handle-bar" />
+              <span className="reveal-handle-label">
+                <Icon name={movsRevealed ? 'ChevronUp' : 'ChevronDown'} size={12} />
+                {movsRevealed ? 'Ocultar filtros' : 'Buscar y filtrar'}
+              </span>
+            </div>
+            <div className={`reveal-panel reveal-panel-top ${movsRevealed ? 'open' : ''}`}>
+              <button className="multiselect-toggle" style={{ marginBottom: 10 }} onClick={() => { setConciliaRaw(''); setSheet({ type: 'conciliacion' }); }}>
+                <Icon name="ArrowLeftRight" size={12} /> Conciliar con mi banco
+              </button>
+              <div className="search-wrap">
+                <Icon name="Search" size={15} />
+                <input
+                  className="search-input"
+                  type="text"
+                  placeholder="Buscar concepto, monto..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button className="search-clear" onClick={() => setSearchQuery('')}><Icon name="X" size={13} /></button>
+                )}
+              </div>
+              <div className="filter-row">
+                <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
+                {ALL_CATS.map((c) => <button key={c.id} className={`filter-chip ${filterCat === c.id ? 'active' : ''}`} onClick={() => setFilterCat(c.id)}>{c.label}</button>)}
+              </div>
+              {familia.length > 0 && (
+                <div className="filter-row">
+                  <button className={`filter-chip ${filterAutor === 'todos' ? 'active' : ''}`} onClick={() => setFilterAutor('todos')}>Toda la familia</button>
+                  {familia.map((m) => <button key={m} className={`filter-chip ${filterAutor === m ? 'active' : ''}`} onClick={() => setFilterAutor(m)}>{m}</button>)}
+                </div>
+              )}
+            </div>
             {grouped.length === 0 ? (
               <div className="empty-state"><div className="eyebrow">El libro está en blanco</div>Registra tu primer movimiento con el botón +.</div>
             ) : grouped.map(([date, txs]) => (
@@ -2765,32 +2828,6 @@ function LibroDiario() {
                     <button className="mark-paid-btn" onClick={() => markPersonPaid(p.name)}><Icon name="CheckCircle2" size={12} /> Pagó</button>
                   </div>
                 ))}
-              </div>
-            )}
-            <button className="multiselect-toggle" style={{ marginBottom: 10 }} onClick={() => { setConciliaRaw(''); setSheet({ type: 'conciliacion' }); }}>
-              <Icon name="ArrowLeftRight" size={12} /> Conciliar con mi banco
-            </button>
-            <div className="search-wrap">
-              <Icon name="Search" size={15} />
-              <input
-                className="search-input"
-                type="text"
-                placeholder="Buscar concepto, monto..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button className="search-clear" onClick={() => setSearchQuery('')}><Icon name="X" size={13} /></button>
-              )}
-            </div>
-            <div className="filter-row">
-              <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
-              {ALL_CATS.map((c) => <button key={c.id} className={`filter-chip ${filterCat === c.id ? 'active' : ''}`} onClick={() => setFilterCat(c.id)}>{c.label}</button>)}
-            </div>
-            {familia.length > 0 && (
-              <div className="filter-row">
-                <button className={`filter-chip ${filterAutor === 'todos' ? 'active' : ''}`} onClick={() => setFilterAutor('todos')}>Toda la familia</button>
-                {familia.map((m) => <button key={m} className={`filter-chip ${filterAutor === m ? 'active' : ''}`} onClick={() => setFilterAutor(m)}>{m}</button>)}
               </div>
             )}
           </>
