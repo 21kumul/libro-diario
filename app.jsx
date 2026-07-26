@@ -616,6 +616,30 @@ function LibroDiario() {
   const [pdfError, setPdfError] = useState('');
   const pdfInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
+  // Aspecto: preferencia de este celular (no se comparte con la familia).
+  // 'light' | 'dark' | 'system' (system = sigue el ajuste del teléfono).
+  const [appearance, setAppearance] = useState(() => {
+    try { return localStorage.getItem('libroDiario:appearance') || 'system'; } catch (e) { return 'system'; }
+  });
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => {
+    try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia('(prefers-color-scheme: dark)'); } catch (e) { return; }
+    const onChange = (e) => setSystemPrefersDark(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange); };
+  }, []);
+  const darkMode = appearance === 'system' ? systemPrefersDark : appearance === 'dark';
+  const chooseAppearance = (val) => {
+    setAppearance(val);
+    try { localStorage.setItem('libroDiario:appearance', val); } catch (e) { /* nada que guardar */ }
+  };
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', darkMode ? '#121412' : '#1E3D32');
+  }, [darkMode]);
   const [tab, setTab] = useState('resumen');
   const NAV_TABS = [
     { key: 'resumen', label: 'Resumen', icon: 'LayoutGrid' },
@@ -776,7 +800,7 @@ function LibroDiario() {
   const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '', locationId: '' });
   const [abonoError, setAbonoError] = useState('');
 
-  const [savForm, setSavForm] = useState({ name: '', target: '' });
+  const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
   const [savError, setSavError] = useState('');
 
   const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', persona: '', locationId: '', origen: '' });
@@ -874,26 +898,69 @@ function LibroDiario() {
     };
   }, [loading, loadShared]);
 
+  // Refs que siempre reflejan lo último que ESTE celular tenía en pantalla.
+  // Sirven de "base" para persist(): así se puede distinguir un dato que el
+  // usuario borró a propósito de uno que simplemente todavía no había visto.
+  const transactionsRef = useRef(transactions);
+  const compromisosRef = useRef(compromisos);
+  const savingsRef = useRef(savings);
+  const moneyLocationsRef = useRef(moneyLocations);
+  useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
+  useEffect(() => { compromisosRef.current = compromisos; }, [compromisos]);
+  useEffect(() => { savingsRef.current = savings; }, [savings]);
+  useEffect(() => { moneyLocationsRef.current = moneyLocations; }, [moneyLocations]);
+
+  // Antes de guardar un arreglo compartido, revisa si el servidor ya tiene
+  // algo que este celular no conocía (agregado por otro familiar mientras
+  // este celular no había vuelto a sincronizar) y lo conserva en vez de
+  // pisarlo sin querer. Lo que este celular sí conocía y ya no está en lo
+  // que va a guardar (porque el usuario lo borró o lo editó) se queda
+  // fuera: eso sigue siendo una decisión válida de este celular.
+  const mergeAndWrite = async (key, nextArr, baselineArr, setter, ref) => {
+    let toSave = nextArr;
+    try {
+      const remote = await window.storage.get(key, true);
+      const remoteArr = remote ? JSON.parse(remote.value) : [];
+      const baselineIds = new Set((baselineArr || []).map((x) => x.id));
+      const nextIds = new Set(nextArr.map((x) => x.id));
+      const faltantes = remoteArr.filter((r) => r && r.id && !baselineIds.has(r.id) && !nextIds.has(r.id));
+      if (faltantes.length) {
+        toSave = [...nextArr, ...faltantes];
+        setter(toSave);
+        ref.current = toSave;
+      }
+    } catch (e) { /* sin internet: se guarda tal cual y se sincroniza después */ }
+    return window.storage.set(key, JSON.stringify(toSave), true);
+  };
+
   const persist = useCallback(async (patch) => {
     setSavingFlag(true);
-    if (patch.transactions) setTransactions(patch.transactions);
-    if (patch.compromisos) setCompromisos(patch.compromisos);
-    if (patch.savings) setSavings(patch.savings);
-    if (patch.moneyLocations) setMoneyLocations(patch.moneyLocations);
+    const baseline = {
+      transactions: transactionsRef.current,
+      compromisos: compromisosRef.current,
+      savings: savingsRef.current,
+      moneyLocations: moneyLocationsRef.current,
+    };
+    // Actualización local instantánea (optimista), como antes.
+    if (patch.transactions) { setTransactions(patch.transactions); transactionsRef.current = patch.transactions; }
+    if (patch.compromisos) { setCompromisos(patch.compromisos); compromisosRef.current = patch.compromisos; }
+    if (patch.savings) { setSavings(patch.savings); savingsRef.current = patch.savings; }
+    if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
     if (patch.familia) setFamilia(patch.familia);
     if (patch.familyName !== undefined) setFamilyName(patch.familyName);
     try {
       const jobs = [];
-      if (patch.transactions) jobs.push(window.storage.set('transactions', JSON.stringify(patch.transactions), true));
-      if (patch.compromisos) jobs.push(window.storage.set('compromisos', JSON.stringify(patch.compromisos), true));
-      if (patch.savings) jobs.push(window.storage.set('savings', JSON.stringify(patch.savings), true));
-      if (patch.moneyLocations) jobs.push(window.storage.set('moneyLocations', JSON.stringify(patch.moneyLocations), true));
+      if (patch.transactions) jobs.push(mergeAndWrite('transactions', patch.transactions, baseline.transactions, setTransactions, transactionsRef));
+      if (patch.compromisos) jobs.push(mergeAndWrite('compromisos', patch.compromisos, baseline.compromisos, setCompromisos, compromisosRef));
+      if (patch.savings) jobs.push(mergeAndWrite('savings', patch.savings, baseline.savings, setSavings, savingsRef));
+      if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
       if (patch.familyName !== undefined) jobs.push(window.storage.set('familyName', JSON.stringify(patch.familyName), true));
       await Promise.all(jobs);
     } catch (e) { /* local state still holds it for this session */ }
     setSavingFlag(false);
   }, []);
+
 
   const chooseProfile = async (name) => {
     const p = { name };
@@ -1202,6 +1269,34 @@ function LibroDiario() {
   // RESTA (de ahí "salió" el dinero).
   const locationDelta = (type, amt) => (type === 'ingreso' ? amt : -amt);
 
+  // Cuánto de lo que hay en una tarjeta/monedero está "apartado" porque
+  // pertenece a una cuenta de ahorro vinculada a esa misma ubicación.
+  const savedAmount = (acc) => acc.movements.reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0);
+  const reservedForLocation = (locationId) => savings
+    .filter((a) => a.locationId === locationId)
+    .reduce((sum, a) => sum + Math.max(0, savedAmount(a)), 0);
+
+  // Cuando un gasto deja el saldo de una cuenta por debajo de lo apartado
+  // para ahorro, registra un "retiro" automático en la(s) cuenta(s) de
+  // ahorro vinculadas a esa ubicación, por el faltante exacto, para que el
+  // ahorro y la tarjeta/monedero siempre cuadren entre sí.
+  const applySavingsWithdrawal = (locationId, shortfall) => {
+    let restante = shortfall;
+    return savings.map((a) => {
+      if (restante <= 0.01 || a.locationId !== locationId) return a;
+      const saved = savedAmount(a);
+      if (saved <= 0.01) return a;
+      const retiro = Math.min(saved, restante);
+      restante -= retiro;
+      const move = {
+        id: uid(), kind: 'retiro', amount: retiro, date: todayStr(),
+        note: 'Retiro automático: un gasto usó parte de este ahorro.',
+        persona: profile?.name || 'Familia', locationId, origenLocationId: null, autor: profile?.name || 'Familia',
+      };
+      return { ...a, movements: [...a.movements, move] };
+    });
+  };
+
   // Selecciona/quita una cuenta de CxP a la que corresponde este movimiento.
   // - Cuenta NO compartida: selección única (un monto simple); elegir otra la reemplaza.
   // - Cuenta COMPARTIDA: se pueden elegir varias a la vez, y cada una muestra a
@@ -1340,6 +1435,18 @@ function LibroDiario() {
     const patch = { transactions: next, compromisos: nextCompromisos };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
+      // Si este gasto deja el saldo por debajo de lo que tienes apartado
+      // para ahorro en esa misma cuenta, avisa y refleja el retiro en ambas partes.
+      if (txForm.type === 'gasto') {
+        const loc = moneyLocations.find((l) => l.id === locationId);
+        const reserved = reservedForLocation(locationId);
+        const newMonto = (loc?.monto || 0) - amt;
+        if (reserved > 0.01 && newMonto < reserved - 0.01) {
+          const shortfall = Math.min(reserved, reserved - newMonto);
+          if (!window.confirm(`Este gasto usa ${fmt(shortfall)} de tu ahorro guardado en esta cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`)) return;
+          patch.savings = applySavingsWithdrawal(locationId, shortfall);
+        }
+      }
     }
     persist(patch);
     setSheet(null);
@@ -1478,6 +1585,18 @@ function LibroDiario() {
       if (orig?.locationId) nextLocations = nextLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
       if (nextLocationId) nextLocations = nextLocations.map((l) => l.id === nextLocationId ? { ...l, monto: (l.monto || 0) + locationDelta(editTxForm.type, amt) } : l);
       patch.moneyLocations = nextLocations;
+      // Igual que al registrar un gasto nuevo: si el cambio deja el saldo de
+      // la cuenta destino por debajo de lo apartado para ahorro ahí, avisa y
+      // refleja el retiro en el ahorro para que ambas partes cuadren.
+      if (nextLocationId && editTxForm.type === 'gasto') {
+        const nuevaUbic = nextLocations.find((l) => l.id === nextLocationId);
+        const reserved = reservedForLocation(nextLocationId);
+        if (reserved > 0.01 && (nuevaUbic?.monto || 0) < reserved - 0.01) {
+          const shortfall = Math.min(reserved, reserved - (nuevaUbic?.monto || 0));
+          if (!window.confirm(`Este cambio deja ${fmt(shortfall)} de ahorro apartado sin cubrir en esa cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`)) return;
+          patch.savings = applySavingsWithdrawal(nextLocationId, shortfall);
+        }
+      }
     }
     persist(patch);
     setSheet(null);
@@ -1645,7 +1764,7 @@ function LibroDiario() {
   };
 
   const openNewSavings = () => {
-    setSavForm({ name: '', target: '' });
+    setSavForm({ name: '', target: '', locationId: '' });
     setSavError('');
     setSheet({ type: 'new-savings' });
   };
@@ -1654,8 +1773,18 @@ function LibroDiario() {
     if (!savForm.name.trim()) return setSavError('Ponle un nombre a tu meta o cuenta.');
     const target = toNumber(savForm.target);
     if (!target || target <= 0) return setSavError('Ponle una meta (monto a ahorrar) para poder seguir.');
-    const next = [...savings, { id: uid(), name: savForm.name.trim(), target, movements: [] }];
+    const next = [...savings, { id: uid(), name: savForm.name.trim(), target, movements: [], locationId: savForm.locationId || null }];
     persist({ savings: next });
+    setSheet(null);
+  };
+
+  // Vincula (o desvincula) una cuenta de ahorro a una tarjeta/monedero, para
+  // saber en qué cuenta física vive ese dinero y que se refleje en ambas
+  // partes si algún gasto llega a tocarlo.
+  const openLinkSavings = (acc) => setSheet({ type: 'link-savings', account: acc });
+  const submitLinkSavings = (locationId) => {
+    const acc = sheet.account;
+    persist({ savings: savings.map((a) => a.id === acc.id ? { ...a, locationId: locationId || null } : a) });
     setSheet(null);
   };
 
@@ -1816,6 +1945,50 @@ function LibroDiario() {
     window.location.reload();
   };
 
+  // Respaldo manual: descarga todo lo compartido de la familia como un
+  // archivo .json en el celular, por si algo le pasa a Firebase o al
+  // código de familia. Se puede volver a cargar con "Importar respaldo".
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState('');
+  const backupInputRef = useRef(null);
+  const exportBackup = () => {
+    const data = { version: 1, exportedAt: new Date().toISOString(), familyName, transactions, compromisos, savings, moneyLocations, familia };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `libro-diario-respaldo-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const importBackup = async (file) => {
+    setBackupMsg('');
+    setBackupBusy(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || typeof data !== 'object') throw new Error('Archivo inválido');
+      if (!window.confirm('¿Reemplazar los datos compartidos de la familia con lo que hay en este respaldo? Esto afecta a todos los que usan el mismo código.')) {
+        setBackupBusy(false);
+        return;
+      }
+      await persist({
+        transactions: Array.isArray(data.transactions) ? data.transactions : [],
+        compromisos: Array.isArray(data.compromisos) ? data.compromisos : [],
+        savings: Array.isArray(data.savings) ? data.savings : [],
+        moneyLocations: Array.isArray(data.moneyLocations) ? data.moneyLocations : [],
+        familia: Array.isArray(data.familia) ? data.familia : familia,
+        familyName: typeof data.familyName === 'string' ? data.familyName : familyName,
+      });
+      setBackupMsg('Respaldo restaurado.');
+    } catch (e) {
+      setBackupMsg('No se pudo leer ese archivo de respaldo.');
+    }
+    setBackupBusy(false);
+  };
+
   const requestNotifPermission = async () => {
     if (!('Notification' in window)) return;
     try {
@@ -1928,8 +2101,40 @@ function LibroDiario() {
     return openAddTx('gasto');
   };
 
+  // Selector de "¿de dónde sale / a dónde cae el dinero?" agrupado por
+  // familiar (igual que en la pestaña Tarjetas), para no repetir el nombre
+  // de la persona en cada tarjeta/monedero cuando tiene varias cuentas.
+  const renderLocationPicker = (list, selectedId, onSelect) => {
+    const order = [];
+    const grouped = {};
+    list.forEach((l) => {
+      if (!grouped[l.persona]) { grouped[l.persona] = []; order.push(l.persona); }
+      grouped[l.persona].push(l);
+    });
+    return order.map((persona) => (
+      <div key={persona} style={{ marginBottom: 10 }}>
+        <div className="location-group-header">
+          <div className="person-avatar" style={{ width: 20, height: 20, fontSize: 10, background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
+          <span>{persona}</span>
+        </div>
+        <div className="cat-grid">
+          {grouped[persona].map((l) => (
+            <div
+              key={l.id}
+              className={`cat-choice ${selectedId === l.id ? 'selected' : ''}`}
+              onClick={() => onSelect(l.id)}
+            >
+              <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
+              <span className="cat-choice-label">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ));
+  };
+
   return (
-    <div className="ledger-app">
+    <div className={`ledger-app ${darkMode ? 'dark' : ''}`}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
         html, body { background: var(--paper-dim); }
@@ -1944,6 +2149,32 @@ function LibroDiario() {
           width: 100%; max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
         }
+        .ledger-app.dark {
+          --paper: #1C1F1C; --paper-dim: #121412; --ink: #ECECE6; --ink-soft: #96968D;
+          --green-soft: #2C5645; --income: #4FC08C; --expense: #E2735A; --line: #33362F;
+          --shadow-card: 0 1px 1px rgba(0,0,0,0.2), 0 4px 14px rgba(0,0,0,0.35);
+          --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.55);
+          box-shadow: 0 0 40px rgba(0,0,0,0.4);
+        }
+        .ledger-app.dark .nav-fab-btn { box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
+        .appearance-row { display: flex; gap: 10px; margin-top: 10px; }
+        .appearance-opt { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; background: none; border: none; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; }
+        .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 13px; border: 2.5px solid var(--paper-dim); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: border-color 0.15s; }
+        .appearance-opt.active .appearance-preview { border-color: #3B82F6; }
+        .appearance-preview.light { background: #fff; }
+        .appearance-preview.dark { background: #1C1F1C; }
+        .appearance-preview.system { background: linear-gradient(135deg, #fff 0%, #fff 50%, #1C1F1C 50%, #1C1F1C 100%); }
+        .appearance-lines { position: absolute; top: 16%; left: 12%; width: 55%; z-index: 1; }
+        .appearance-preview.light .appearance-line { background: #9A9A9A; }
+        .appearance-preview.dark .appearance-line { background: #6E6E73; }
+        .appearance-preview.system .appearance-line { background: #7A7A7A; }
+        .appearance-line { height: 3px; border-radius: 2px; margin-bottom: 5px; }
+        .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
+        .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+        .appearance-opt.active .appearance-label { color: #3B82F6; }
+        .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
+        .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3); }
+        .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
         /* En pantallas anchas (PC / tablet / celular en horizontal con espacio
            de sobra) el "teléfono" se queda a su ancho normal, centrado, pero
            con espacio a los costados en vez de estirarse feo o perder forma. */
@@ -2067,7 +2298,9 @@ function LibroDiario() {
         @keyframes navPopIn { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
         .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 11px; cursor: pointer; }
         .nav-popover-item:active { background: var(--paper-dim); }
-        .top-fab-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; }
+        .nav-fab-btn { width: 42px; height: 42px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; margin-left: 4px; transition: width 0.25s, height 0.25s, transform 0.15s; -webkit-tap-highlight-color: transparent; }
+        .nav-fab-btn:active { transform: scale(0.92); }
+        .bottom-nav.nav-compact .nav-fab-btn { width: 34px; height: 34px; }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
@@ -2172,6 +2405,7 @@ function LibroDiario() {
         .net-glyph-visa::after { content: ''; position: absolute; top: 4px; left: 3px; right: 3px; height: 3px; border-radius: 2px; background: #1a4fa0; }
         .net-glyph-amex { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; background: rgba(255,255,255,0.22); color: #fff; }
         .person-section-header { display: flex; align-items: center; gap: 8px; margin: 4px 2px 10px; font-size: 14px; font-weight: 700; color: var(--ink); }
+        .location-group-header { display: flex; align-items: center; gap: 6px; margin: 2px 2px 6px; font-size: 11.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.3px; }
         .person-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
@@ -2252,7 +2486,6 @@ function LibroDiario() {
             {profile && <div className="mini-avatar" style={{ background: colorForName(profile.name) }} title={profile.name}>{profile.name.charAt(0).toUpperCase()}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => setSettingsOpen(true)}><Icon name="Settings" size={16} /></button>
-            <button className="top-fab-btn" onClick={fabAction} aria-label="Agregar"><Icon name="Plus" size={19} /></button>
           </div>
         </div>
         {familyName && <div className="family-name-line">{familyName}</div>}
@@ -2684,6 +2917,12 @@ function LibroDiario() {
                               {l.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
                             </div>
                           </div>
+                          {!l.esCredito && reservedForLocation(l.id) > 0.01 && (
+                            <div className="wallet-card-footrow" style={{ marginTop: l.esCredito ? 0 : 10 }}>
+                              <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
+                              <span>{fmt(reservedForLocation(l.id))}</span>
+                            </div>
+                          )}
                           {l.esCredito && (
                             <div className="wallet-card-body">
                               <div className="wallet-card-limitrow">
@@ -2737,6 +2976,12 @@ function LibroDiario() {
                         <div className="wallet-card-footrow">
                           <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
                         </div>
+                        {reservedForLocation(l.id) > 0.01 && (
+                          <div className="wallet-card-footrow">
+                            <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
+                            <span>{fmt(reservedForLocation(l.id))}</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2767,6 +3012,18 @@ function LibroDiario() {
                     </div>
                     <button className="compromiso-del" onClick={() => deleteSavings(acc.id)}><Icon name="Trash2" size={14} /></button>
                   </div>
+                  {(() => {
+                    const linkedLoc = acc.locationId ? moneyLocations.find((l) => l.id === acc.locationId) : null;
+                    return (
+                      <button
+                        onClick={() => openLinkSavings(acc)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, margin: '2px 0 8px', cursor: 'pointer', fontSize: 11.5, color: linkedLoc ? 'var(--ink-soft)' : 'var(--green)', fontWeight: 600 }}
+                      >
+                        <Icon name={linkedLoc?.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={12} />
+                        {linkedLoc ? `Guardado en: ${linkedLoc.persona} · ${linkedLoc.tipo === 'tarjeta' ? (linkedLoc.nombre || 'Tarjeta') : 'Monedero'}` : 'Vincular a una tarjeta o monedero'}
+                      </button>
+                    );
+                  })()}
                   {pct !== null && (
                     <>
                       <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
@@ -2939,6 +3196,7 @@ function LibroDiario() {
             );
           })}
         </div>
+        <button className="nav-fab-btn" onClick={fabAction} aria-label="Agregar movimiento"><Icon name="Plus" size={20} /></button>
       </div>
 
       {sheet?.type === 'add-tx' && (
@@ -2967,17 +3225,12 @@ function LibroDiario() {
                     Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
                   </div>
                 ) : (
-                  <div className="cat-grid">
-                    {(moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations).map((l) => (
-                      <div
-                        key={l.id}
-                        className={`cat-choice ${txForm.locationId === l.id ? 'selected' : ''}`}
-                        onClick={() => setTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                      >
-                        <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                        <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
-                      </div>
-                    ))}
+                  <div>
+                    {renderLocationPicker(
+                      (moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations),
+                      txForm.locationId,
+                      (id) => setTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
+                    )}
                   </div>
                 )}
               </>
@@ -3163,20 +3416,15 @@ function LibroDiario() {
                 Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
               </div>
             ) : (
-              <div className="cat-grid">
-                {(() => {
-                  const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
-                  return (funded.length ? funded : moneyLocations).map((l) => (
-                    <div
-                      key={l.id}
-                      className={`cat-choice ${editTxForm.locationId === l.id ? 'selected' : ''}`}
-                      onClick={() => setEditTxForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                    >
-                      <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                      <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
-                    </div>
-                  ));
-                })()}
+              <div>
+                {renderLocationPicker(
+                  (() => {
+                    const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
+                    return funded.length ? funded : moneyLocations;
+                  })(),
+                  editTxForm.locationId,
+                  (id) => setEditTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
+                )}
               </div>
             )}
             {(() => {
@@ -3544,8 +3792,40 @@ function LibroDiario() {
             <div className="field-label">Meta *</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>¿Cuánto quieres juntar? Lo necesitamos para calcular tu avance.</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={savForm.target} onChange={(e) => setSavForm((f) => ({ ...f, target: formatAmountTyping(e.target.value) }))} /></div>
+            {moneyLocations.length > 0 && (
+              <>
+                <div className="field-label">¿En qué cuenta vive este ahorro? (opcional)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Así sabrás en la pestaña Tarjetas cuánto de esa cuenta ya está apartado.</div>
+                <div>
+                  {renderLocationPicker(moneyLocations, savForm.locationId, (id) => setSavForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}
+                </div>
+              </>
+            )}
             {savError && <div className="form-error">{savError}</div>}
             <button className="save-btn" disabled={!(savForm.name.trim() && toNumber(savForm.target) > 0)} onClick={submitSavings}><Icon name="Check" size={16} /> Crear cuenta</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'link-savings' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">¿En qué cuenta vive "{sheet.account.name}"?</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+              Vincula esta meta a la tarjeta o monedero donde realmente está guardado ese dinero.
+            </div>
+            {moneyLocations.length === 0 ? (
+              <div className="empty-state" style={{ padding: '16px 10px' }}>Todavía no tienes tarjetas ni monederos. Créalos primero desde la pestaña Tarjetas.</div>
+            ) : (
+              <>
+                <div>{renderLocationPicker(moneyLocations, sheet.account.locationId, (id) => submitLinkSavings(sheet.account.locationId === id ? null : id))}</div>
+                {sheet.account.locationId && (
+                  <button className="danger-btn neutral" style={{ marginTop: 10 }} onClick={() => submitLinkSavings(null)}>
+                    <Icon name="X" size={14} /> Quitar vínculo
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3580,6 +3860,12 @@ function LibroDiario() {
                     {loc.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
                   </div>
                 </div>
+                {!loc.esCredito && reservedForLocation(loc.id) > 0.01 && (
+                  <div className="wallet-card-footrow">
+                    <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
+                    <span>{fmt(reservedForLocation(loc.id))}</span>
+                  </div>
+                )}
                 {loc.esCredito && (
                   <div className="wallet-card-body">
                     <div className="wallet-card-limitrow"><span>Uso del límite</span><span>{loc.limite ? `${pct.toFixed(1)}%` : '---%'}</span></div>
@@ -4108,6 +4394,25 @@ function LibroDiario() {
               <button className="add-participant-btn" style={{ width: 'auto', marginTop: 0 }} onClick={() => addFamilyMember(newMemberName, false)}><Icon name="UserPlus" size={14} /></button>
             </div>
             {memberError && <div className="form-error">{memberError}</div>}
+            <div className="card-title" style={{ marginTop: 20 }}>Aspecto</div>
+            <div className="appearance-row">
+              {[
+                { key: 'light', label: 'Claro' },
+                { key: 'dark', label: 'Oscuro' },
+                { key: 'system', label: 'Sistema' },
+              ].map((opt) => (
+                <button key={opt.key} className={`appearance-opt ${appearance === opt.key ? 'active' : ''}`} onClick={() => chooseAppearance(opt.key)}>
+                  <span className={`appearance-preview ${opt.key}`}>
+                    <span className="appearance-lines">
+                      <span className="appearance-line" style={{ width: '85%' }} />
+                      <span className="appearance-line" style={{ width: '60%' }} />
+                    </span>
+                    <span className="appearance-dot" />
+                  </span>
+                  <span className="appearance-label">{opt.label}</span>
+                </button>
+              ))}
+            </div>
             <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setOnboarding(true); }}>
               <Icon name="LogOut" size={14} /> Cambiar de persona
             </button>
@@ -4147,6 +4452,20 @@ function LibroDiario() {
                 <button onClick={loadShared} style={{ background: 'none', border: 'none', color: 'var(--green)', fontWeight: 600, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>actualizar</button>
               </div>
             )}
+            <button className="danger-btn neutral" onClick={exportBackup}>
+              <Icon name="List" size={14} /> Exportar respaldo (.json)
+            </button>
+            <input
+              type="file"
+              accept="application/json"
+              ref={backupInputRef}
+              style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importBackup(f); e.target.value = ''; }}
+            />
+            <button className="danger-btn neutral" disabled={backupBusy} onClick={() => backupInputRef.current?.click()}>
+              <Icon name="RefreshCw" size={14} /> {backupBusy ? 'Restaurando…' : 'Importar respaldo'}
+            </button>
+            {backupMsg && <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{backupMsg}</div>}
             <button className="danger-btn" onClick={() => { if (window.confirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)? Esta acción no se puede deshacer.')) clearAll(); }}>
               <Icon name="Trash2" size={14} /> Borrar todo el historial
             </button>
