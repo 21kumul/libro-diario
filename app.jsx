@@ -892,7 +892,49 @@ function LibroDiario() {
   };
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const sheetDragging = useRef(false);
+  const sheetDragStartY = useRef(0);
+  const handleSheetTouchStart = (e) => {
+    sheetDragging.current = true;
+    sheetDragStartY.current = e.touches[0].clientY;
+  };
+  const handleSheetTouchMove = (e) => {
+    if (!sheetDragging.current) return;
+    const delta = e.touches[0].clientY - sheetDragStartY.current;
+    if (delta > 0) setSheetDragY(delta);
+  };
+  const handleSheetTouchEnd = () => {
+    if (!sheetDragging.current) return;
+    sheetDragging.current = false;
+    if (sheetDragY > 90) setSheet(null);
+    setSheetDragY(0);
+  };
+  const sheetDragStyle = sheetDragY
+    ? { transform: `translateY(${sheetDragY}px)`, transition: 'none' }
+    : { transition: 'transform 0.2s ease' };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsDragY, setSettingsDragY] = useState(0);
+  const settingsDragging = useRef(false);
+  const settingsDragStartY = useRef(0);
+  const handleSettingsTouchStart = (e) => {
+    settingsDragging.current = true;
+    settingsDragStartY.current = e.touches[0].clientY;
+  };
+  const handleSettingsTouchMove = (e) => {
+    if (!settingsDragging.current) return;
+    const delta = e.touches[0].clientY - settingsDragStartY.current;
+    if (delta > 0) setSettingsDragY(delta);
+  };
+  const handleSettingsTouchEnd = () => {
+    if (!settingsDragging.current) return;
+    settingsDragging.current = false;
+    if (settingsDragY > 90) setSettingsOpen(false);
+    setSettingsDragY(0);
+  };
+  const settingsDragStyle = settingsDragY
+    ? { transform: `translateY(${settingsDragY}px)`, transition: 'none' }
+    : { transition: 'transform 0.2s ease' };
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
 
@@ -2511,7 +2553,8 @@ function LibroDiario() {
         .bottom-nav.nav-compact .nav-fab-btn { width: 34px; height: 34px; }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; overflow-x: hidden; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
-        .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); }
+        .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); pointer-events: none; }
+        .sheet-handle { position: absolute; top: 0; left: 0; right: 0; height: 30px; touch-action: none; z-index: 5; }
         .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
         .sheet-title { font-family: var(--mono); font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
         .type-toggle { display: flex; background: var(--paper-dim); border-radius: 12px; padding: 4px; margin-bottom: 18px; }
@@ -3437,7 +3480,8 @@ function LibroDiario() {
 
       {sheet?.type === 'add-tx' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Nuevo movimiento</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="type-toggle">
               <button className={txForm.type === 'ingreso' ? 'active ingreso' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'ingreso', category: '', shared: false }))}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
@@ -3630,7 +3674,8 @@ function LibroDiario() {
 
       {sheet?.type === 'edit-tx' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Editar movimiento</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="type-toggle">
               <button className={editTxForm.type === 'ingreso' ? 'active ingreso' : ''} disabled style={{ opacity: editTxForm.type === 'ingreso' ? 1 : 0.45, cursor: 'default' }}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
@@ -3702,7 +3747,8 @@ function LibroDiario() {
 
       {sheet?.type === 'programados' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Movimientos programados</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             {[...fijos, ...ingresosFijos].length === 0 ? (
               <div className="empty-state" style={{ padding: '20px 10px' }}>No tienes gastos ni ingresos fijos dados de alta todavía.</div>
@@ -3737,7 +3783,8 @@ function LibroDiario() {
       )}
       {sheet?.type === 'msi' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Simular compra a MSI</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               Dale el monto total y a cuántos meses sin intereses lo diferiste; te calculo el pago mensual y, si quieres, lo doy de alta como gasto fijo para que no se te olvide.
@@ -3772,7 +3819,8 @@ function LibroDiario() {
       )}
       {sheet?.type === 'new-compromiso' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">{compForm.kind === 'deuda' ? 'Nueva cuenta por pagar (CxP)' : compForm.kind === 'cxc' ? 'Nueva cuenta por cobrar (CxC)' : compForm.kind === 'ingreso_fijo' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="type-toggle" style={{ flexWrap: 'wrap' }}>
               <button className={compForm.kind === 'deuda' ? 'active deuda' : ''} onClick={() => setCompForm((f) => ({ ...f, kind: 'deuda', category: 'deudas' }))}><Icon name="Landmark" size={14} /> Préstamo</button>
@@ -3899,7 +3947,8 @@ function LibroDiario() {
 
       {sheet?.type === 'abonar' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Ingreso recibido' : sheet.compromiso.kind === 'cxc' ? 'Cobro' : 'Abonar'} · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? 'Monto recibido' : sheet.compromiso.kind === 'cxc' ? 'Monto cobrado' : 'Monto a abonar'} *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" value={abonoForm.amount} onChange={(e) => setAbonoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
@@ -3923,7 +3972,8 @@ function LibroDiario() {
 
       {sheet?.type === 'edit-amount' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Actualizar monto · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
               Saldo actual: {fmt(sheet.compromiso.pendiente)}. Escribe el nuevo monto que te mandó el banco (por ejemplo, con el interés de este mes ya incluido).
@@ -3944,7 +3994,8 @@ function LibroDiario() {
         const paymentsSorted = [...(c.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
               <div className="sheet-header"><span className="sheet-title">{c.name} <span className="shared-badge" style={{ marginLeft: 6 }}>COMPARTIDO</span></span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 14 }}>
                 {catById(c.category).label} · Mensual: {fmt(c.amount)} · Pagado este mes: {fmt(c.pagado)}
@@ -3999,7 +4050,8 @@ function LibroDiario() {
 
       {sheet?.type === 'new-savings' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Nueva cuenta de ahorro</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="field-label">Nombre</div>
             <input className="text-input" placeholder="Ej. Fondo de emergencia" value={savForm.name} onChange={(e) => setSavForm((f) => ({ ...f, name: e.target.value }))} />
@@ -4023,7 +4075,8 @@ function LibroDiario() {
 
       {sheet?.type === 'link-savings' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">¿En qué cuenta vive "{sheet.account.name}"?</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               Vincula esta meta a la tarjeta o monedero donde realmente está guardado ese dinero.
@@ -4056,7 +4109,8 @@ function LibroDiario() {
         const prestamoLigado = loc.esCredito && loc.prestamoId ? deudas.find((d) => d.id === loc.prestamoId) : null;
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
               <div className="sheet-header"><span className="sheet-title">{loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '-10px 0 12px' }}>De {loc.persona}</div>
               <div className={`wallet-card ${loc.tipo === 'efectivo' ? 'wallet-card-cash' : ''}`} style={{ background: loc.tipo === 'tarjeta' ? bg : undefined, cursor: 'default', marginBottom: 16, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }}>
@@ -4126,7 +4180,8 @@ function LibroDiario() {
 
       {sheet?.type === 'wallet-menu' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">¿Qué quieres hacer?</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button className="save-btn" onClick={() => openNewLocation()}><Icon name="Plus" size={16} /> Agregar tarjeta o monedero</button>
@@ -4140,7 +4195,8 @@ function LibroDiario() {
 
       {sheet?.type === 'new-location' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Nueva ubicación de dinero</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Cuando registres un ingreso, podrás elegir a cuál de estas se suma solo.
@@ -4255,7 +4311,8 @@ function LibroDiario() {
 
       {sheet?.type === 'edit-location' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Actualizar {sheet.location.tipo === 'tarjeta' ? 'tarjeta' : 'monedero'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>{sheet.location.persona} · {sheet.location.tipo === 'tarjeta' ? (sheet.location.nombre || 'Tarjeta') : 'Monedero'}</div>
             {sheet.location.tipo === 'tarjeta' && (
@@ -4362,7 +4419,8 @@ function LibroDiario() {
         const invalidCount = conciliacionRows.length - validRows.length;
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
               <div className="sheet-header"><span className="sheet-title">Conciliar con mi banco</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <input
                 type="file"
@@ -4424,7 +4482,8 @@ function LibroDiario() {
 
       {sheet?.type === 'traspaso' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Traspaso entre cuentas</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               Mueve dinero entre tus propias ubicaciones (ej. te llega dinero a tu tarjeta/banco y retiras a efectivo). No suma ni resta a tus ingresos o gastos: una cuenta baja y la otra sube por el mismo monto.
@@ -4447,7 +4506,8 @@ function LibroDiario() {
 
       {sheet?.type === 'savings-move' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">{sheet.account.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="type-toggle">
               <button className={moveForm.kind === 'deposito' ? 'active deposito' : ''} onClick={() => setMoveForm((f) => ({ ...f, kind: 'deposito' }))}>Depositar</button>
@@ -4505,7 +4565,8 @@ function LibroDiario() {
 
       {settingsOpen && (
         <div className="settings-panel" onClick={() => setSettingsOpen(false)}>
-          <div className="settings-card" onClick={(e) => e.stopPropagation()}>
+          <div className="settings-card" onClick={(e) => e.stopPropagation()} style={settingsDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSettingsTouchStart} onTouchMove={handleSettingsTouchMove} onTouchEnd={handleSettingsTouchEnd} />
             <div className="close-row"><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSettingsOpen(false)}><Icon name="X" size={16} /></button></div>
             {familyNameEdit ? (
               <div className="participant-row" style={{ marginBottom: 12 }}>
@@ -4663,7 +4724,8 @@ function LibroDiario() {
       )}
       {sheet?.type === 'catalogo-cuentas' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Catálogo de cuentas contables</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
               Todas las cuentas contables que Libro·Diario ya usa para clasificar tus movimientos, agrupadas como un catálogo contable normal.
