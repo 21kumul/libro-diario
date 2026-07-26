@@ -1629,7 +1629,7 @@ function LibroDiario() {
     setSheet({ type: 'traspaso' });
   };
 
-  const openWalletDetail = (loc) => setSheet({ type: 'wallet-detail', location: loc });
+  const openWalletDetail = (loc) => setSheet({ type: 'wallet-detail', location: loc, historyOpen: false });
   const openWalletMenu = () => setSheet({ type: 'wallet-menu' });
 
   const submitTraspaso = () => {
@@ -4171,6 +4171,48 @@ function LibroDiario() {
                   <button className="save-btn" style={{ background: 'var(--gold)' }} onClick={() => openTraspaso({ fromId: loc.id })}><Icon name="ArrowLeftRight" size={16} /> Traspasar dinero</button>
                 )}
                 <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => openEditLocation(loc)}><Icon name="Pencil" size={16} /> Editar {loc.tipo === 'tarjeta' ? 'tarjeta' : 'monedero'}</button>
+                <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }} onClick={() => setSheet((s) => ({ ...s, historyOpen: !s.historyOpen }))}>
+                  <Icon name={sheet.historyOpen ? 'ChevronUp' : 'ChevronDown'} size={16} /> {sheet.historyOpen ? 'Ocultar historial' : 'Mostrar historial'}
+                </button>
+                {sheet.historyOpen && (() => {
+                  const historyTxs = transactions
+                    .filter((t) => t.locationId === loc.id || t.fromLocationId === loc.id || t.toLocationId === loc.id)
+                    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+                  if (historyTxs.length === 0) {
+                    return <div className="empty-state" style={{ padding: '14px 0' }}>Sin movimientos todavía.</div>;
+                  }
+                  return (
+                    <div className="card" style={{ paddingTop: 4, paddingBottom: 4 }}>
+                      {historyTxs.map((t) => {
+                        const dateLabel = new Date(t.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+                        if (t.type === 'traspaso') {
+                          const isOut = t.fromLocationId === loc.id;
+                          return (
+                            <div className="tx-row" key={t.id} style={{ cursor: 'default' }}>
+                              <div className="tx-icon" style={{ background: 'var(--gold)' }}><Icon name="ArrowLeftRight" size={16} /></div>
+                              <div className="tx-mid">
+                                <div className="tx-cat">Traspaso</div>
+                                <div className="tx-note">{locationLabel(t.fromLocationId)} → {locationLabel(t.toLocationId)} · {dateLabel}</div>
+                              </div>
+                              <div className="tx-amount" style={{ color: isOut ? 'var(--expense)' : 'var(--income)' }}>{isOut ? '-' : '+'}{fmt(t.amount)}</div>
+                            </div>
+                          );
+                        }
+                        const c = catById(t.category);
+                        return (
+                          <div className="tx-row" key={t.id} style={{ cursor: 'default' }}>
+                            <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
+                            <div className="tx-mid">
+                              <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}</div>
+                              <div className="tx-note">{t.note}{t.note && ' · '}{dateLabel}</div>
+                            </div>
+                            <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                 <button className="danger-btn" onClick={() => { setSheet(null); deleteLocation(loc.id); }}><Icon name="Trash2" size={14} /> Eliminar</button>
               </div>
             </div>
