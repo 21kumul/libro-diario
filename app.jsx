@@ -16,6 +16,17 @@ const TAB_COLORS = {
   ahorro: '#8A4FA0',
   graficas: '#A85338',
 };
+// Mismos colores pero aclarados para que se puedan leer sobre el fondo
+// oscuro del modo noche (los de arriba son oscuros a propósito para verse
+// bien sobre el fondo claro, y por eso casi desaparecían en modo oscuro).
+const TAB_COLORS_DARK = {
+  resumen: '#8FD9B6',
+  movimientos: '#8AB4E8',
+  compromisos: '#E8C56B',
+  tarjetas: '#7FC4E0',
+  ahorro: '#D6A8F0',
+  graficas: '#E8A183',
+};
 
 const INGRESO_CATS = [
   { id: 'servicio', label: 'Ventas', icon: 'ShoppingBag', color: '#2F7D5C' },
@@ -632,6 +643,7 @@ function LibroDiario() {
     return () => { mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange); };
   }, []);
   const darkMode = appearance === 'system' ? systemPrefersDark : appearance === 'dark';
+  const tabColors = darkMode ? TAB_COLORS_DARK : TAB_COLORS;
   const chooseAppearance = (val) => {
     setAppearance(val);
     try { localStorage.setItem('libroDiario:appearance', val); } catch (e) { /* nada que guardar */ }
@@ -764,6 +776,7 @@ function LibroDiario() {
     setTab(t);
     setNavCompact(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
+    if (mastheadRef.current) mastheadRef.current.style.setProperty('--collapse', 0);
     setHiddenPopoverFor(null);
   };
   // Mantén presionada una pestaña con hijo escondido (ver HIDDEN_TABS) para
@@ -2074,6 +2087,23 @@ function LibroDiario() {
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  const [codeCopied, setCodeCopied] = useState(false);
+  const copyFamilyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(familyCode);
+    } catch (e) {
+      // Si el navegador no deja usar el portapapeles (poco común), lo
+      // seleccionamos a mano como respaldo.
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = familyCode; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      } catch (e2) { return; }
+    }
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 1800);
+  };
+
   const catOptions = txForm.type === 'ingreso' ? INGRESO_CATS : GASTO_CATS;
   const editCatOptions = editTxForm.type === 'ingreso' ? INGRESO_CATS : GASTO_CATS;
   const addParticipant = () => setTxForm((f) => ({ ...f, participants: [...f.participants, { id: uid(), name: '', amount: '' }] }));
@@ -2195,6 +2225,18 @@ function LibroDiario() {
         .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
         .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
+        /* El verde de marca (var(--green)) se queda fijo a propósito (es el
+           mismo verde del panel superior en ambos temas), pero por eso el
+           texto/fondos que lo usaban para "texto o acento sutil sobre una
+           tarjeta" se perdían en modo oscuro (verde oscuro sobre fondo
+           oscuro). Aquí se aclaran solo esos casos puntuales. */
+        .ledger-app.dark .kind-badge.deuda { background: rgba(143,217,182,0.16); color: #8FD9B6; }
+        .ledger-app.dark .kind-badge.fijo { background: rgba(232,197,107,0.18); color: #E8C56B; }
+        .ledger-app.dark .danger-btn.neutral { color: #8FD9B6; }
+        .ledger-app.dark .add-participant-btn { color: #8FD9B6; }
+        .ledger-app.dark .mark-paid-btn { color: #8FD9B6; }
+        .ledger-app.dark .compromiso-card.selected { border-color: #8FD9B6; background: rgba(143,217,182,0.08); }
+        .ledger-app.dark .text-input:focus { border-color: #8FD9B6; }
         /* En pantallas anchas (PC / tablet / celular en horizontal con espacio
            de sobra) el "teléfono" se queda a su ancho normal, centrado, pero
            con espacio a los costados en vez de estirarse feo o perder forma. */
@@ -2646,6 +2688,42 @@ function LibroDiario() {
           </>
         ) : tab === 'movimientos' ? (
           <>
+            {grouped.length === 0 ? (
+              <div className="empty-state"><div className="eyebrow">El libro está en blanco</div>Registra tu primer movimiento con el botón +.</div>
+            ) : grouped.map(([date, txs]) => (
+              <div className="date-group" key={date}>
+                <div className="date-heading">{new Date(date + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}</div>
+                <div className="card" style={{ paddingTop: 4, paddingBottom: 4 }}>
+                  {txs.map((t) => {
+                    if (t.type === 'traspaso') {
+                      return (
+                        <div className="tx-row" key={t.id} onClick={() => deleteTraspaso(t.id)}>
+                          <div className="tx-icon" style={{ background: 'var(--gold)' }}><Icon name="ArrowLeftRight" size={16} /></div>
+                          <div className="tx-mid">
+                            <div className="tx-cat">Traspaso{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                            <div className="tx-note">{locationLabel(t.fromLocationId)} → {locationLabel(t.toLocationId)}{t.note && ` · ${t.note}`} · <span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
+                          </div>
+                          <div className="tx-amount" style={{ color: 'var(--gold)' }}>{fmt(t.amount)}</div>
+                          <span className="tx-edit-hint"><Icon name="Trash2" size={13} /></span>
+                        </div>
+                      );
+                    }
+                    const c = catById(t.category);
+                    return (
+                      <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
+                        <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
+                        <div className="tx-mid">
+                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                          <div className="tx-note">{t.note}{t.note && ' · '}<span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
+                        </div>
+                        <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
+                        <span className="tx-edit-hint"><Icon name="Pencil" size={13} /></span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
             {pendingByPerson.length > 0 && (
               <div className="card">
                 <div className="card-title">Por cobrar (gastos compartidos)</div>
@@ -2685,52 +2763,12 @@ function LibroDiario() {
                 {familia.map((m) => <button key={m} className={`filter-chip ${filterAutor === m ? 'active' : ''}`} onClick={() => setFilterAutor(m)}>{m}</button>)}
               </div>
             )}
-            {grouped.length === 0 ? (
-              <div className="empty-state"><div className="eyebrow">El libro está en blanco</div>Registra tu primer movimiento con el botón +.</div>
-            ) : grouped.map(([date, txs]) => (
-              <div className="date-group" key={date}>
-                <div className="date-heading">{new Date(date + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}</div>
-                <div className="card" style={{ paddingTop: 4, paddingBottom: 4 }}>
-                  {txs.map((t) => {
-                    if (t.type === 'traspaso') {
-                      return (
-                        <div className="tx-row" key={t.id} onClick={() => deleteTraspaso(t.id)}>
-                          <div className="tx-icon" style={{ background: 'var(--gold)' }}><Icon name="ArrowLeftRight" size={16} /></div>
-                          <div className="tx-mid">
-                            <div className="tx-cat">Traspaso{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
-                            <div className="tx-note">{locationLabel(t.fromLocationId)} → {locationLabel(t.toLocationId)}{t.note && ` · ${t.note}`} · <span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
-                          </div>
-                          <div className="tx-amount" style={{ color: 'var(--gold)' }}>{fmt(t.amount)}</div>
-                          <span className="tx-edit-hint"><Icon name="Trash2" size={13} /></span>
-                        </div>
-                      );
-                    }
-                    const c = catById(t.category);
-                    return (
-                      <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
-                        <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
-                        <div className="tx-mid">
-                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
-                          <div className="tx-note">{t.note}{t.note && ' · '}<span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
-                        </div>
-                        <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
-                        <span className="tx-edit-hint"><Icon name="Pencil" size={13} /></span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
           </>
         ) : tab === 'compromisos' ? (
           <>
             <div className="card-title" style={{ padding: '0 2px' }}>Mis cuentas</div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', padding: '0 2px', margin: '-6px 0 10px' }}>
               Da de alta aquí tus préstamos (CxP), lo que te deben (CxC), gastos fijos e ingresos fijos. Usa el botón + para agregar uno nuevo.
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
-              <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
             </div>
             {deudas.length === 0 && cxc.length === 0 && fijos.length === 0 && ingresosFijos.length === 0 ? (
               <div className="empty-state" style={{ padding: '20px 10px' }}>Sin cuentas registradas todavía.</div>
@@ -2896,6 +2934,10 @@ function LibroDiario() {
                 )}
               </>
             )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+              <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
+              <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
+            </div>
           </>
         ) : tab === 'tarjetas' ? (
           <>
@@ -3190,7 +3232,7 @@ function LibroDiario() {
                 key={n.key}
                 data-navkey={n.key}
                 className={`nav-btn ${active ? 'active' : ''}`}
-                style={active ? { color: TAB_COLORS[hidden && tab === hidden.key ? hidden.key : n.key] } : undefined}
+                style={active ? { color: tabColors[hidden && tab === hidden.key ? hidden.key : n.key] } : undefined}
                 onMouseDown={hidden ? startLongPress(n.key) : undefined}
                 onMouseUp={hidden ? cancelLongPress : undefined}
                 onMouseLeave={hidden ? cancelLongPress : undefined}
@@ -3200,7 +3242,7 @@ function LibroDiario() {
                 onClick={hidden ? handleParentTap(n.key) : () => goTab(n.key)}
               >
                 <Icon name={n.icon} size={20} />{n.label}
-                {hidden && tab === hidden.key && <span className="nav-btn-dot" style={{ background: TAB_COLORS[hidden.key] }} />}
+                {hidden && tab === hidden.key && <span className="nav-btn-dot" style={{ background: tabColors[hidden.key] }} />}
               </button>
             );
             if (!hidden) return btn;
@@ -4322,7 +4364,11 @@ function LibroDiario() {
                 <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-soft)' }}>Código de familia</div>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700 }}>{familyCode}</div>
               </div>
-              <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {codeCopied && <span style={{ fontSize: 11, color: 'var(--income)', fontWeight: 600 }}>¡Copiado!</span>}
+                <button className="icon-btn" style={{ background: codeCopied ? 'var(--income)' : 'var(--paper)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }} title="Copiar código" onClick={copyFamilyCode}><Icon name={codeCopied ? 'Check' : 'Copy'} size={14} /></button>
+                <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
+              </div>
             </div>
             {familia.map((m) => (
               <div className="family-row" key={m}>
