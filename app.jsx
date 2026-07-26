@@ -2488,7 +2488,7 @@ function LibroDiario() {
         .reveal-panel.open { max-height: 100px; opacity: 1; margin-top: 8px; }
         .reveal-handle-top { padding: 2px 0 8px; margin-top: -4px; }
         .reveal-panel.reveal-panel-top.open { max-height: 320px; margin-top: 0; margin-bottom: 10px; }
-        .card { background: var(--paper); border-radius: 18px; padding: 16px; margin-bottom: 14px; border: none; box-shadow: var(--shadow-card); }
+        .card { background: var(--paper); border-radius: 18px; padding: 16px; margin-bottom: 14px; border: 1px solid var(--line); box-shadow: none; }
         .card-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ink-soft); font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
         .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
         .cat-row:last-child { margin-bottom: 0; }
@@ -2622,7 +2622,7 @@ function LibroDiario() {
         .remove-participant { background: none; border: none; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; padding: 4px; }
         .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
-        .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: none; box-shadow: var(--shadow-card); }
+        .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--line); box-shadow: none; }
         .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); box-sizing: border-box; width: 100%; aspect-ratio: 1.6 / 1; min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
         .wallet-card-body { display: flex; flex-direction: column; gap: 0; overflow-y: auto; flex: 1; margin: -2px 0; padding-right: 2px; scrollbar-width: thin; }
         .wallet-card-body::-webkit-scrollbar { width: 3px; }
