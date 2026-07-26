@@ -1669,12 +1669,11 @@ function LibroDiario() {
     setSheet({ type: 'new-compromiso' });
   };
 
-  // Tirador "jala para revelar" en Cuentas: Simular MSI y Movimientos
-  // programados quedan ocultos por defecto (así la pantalla de inicio de la
-  // pestaña es solo las tarjetas de préstamos/gastos) y solo aparecen si el
-  // usuario desliza el tirador hacia arriba (o lo toca), como información
-  // escondida que se descubre a propósito — no compiten visualmente con las
-  // cuentas del mes ni se alcanzan solo por bajar hasta el final.
+  // Tirador "jala para revelar" en Cuentas: vive arriba de la lista (igual
+  // que en Movimientos), así que se jala hacia ABAJO para revelar Simular
+  // MSI y Movimientos programados, y hacia ARRIBA (o con un toque) para
+  // retraerlos — la pantalla de inicio de la pestaña queda solo con las
+  // tarjetas de cuentas.
   const [msiRevealed, setMsiRevealed] = useState(false);
   const msiDragStart = useRef(null);
   const handleMsiHandleTouchStart = (e) => {
@@ -1684,7 +1683,7 @@ function LibroDiario() {
   const handleMsiHandleTouchEnd = (e) => {
     if (!msiDragStart.current) return;
     const t = e.changedTouches[0];
-    const dy = msiDragStart.current.y - t.clientY; // positivo = dedo subió
+    const dy = t.clientY - msiDragStart.current.y; // positivo = dedo bajó
     const dt = Date.now() - msiDragStart.current.time;
     msiDragStart.current = null;
     if (dt > 700) return;
@@ -2833,6 +2832,24 @@ function LibroDiario() {
           </>
         ) : tab === 'compromisos' ? (
           <>
+            <div
+              className={`reveal-handle reveal-handle-top ${msiRevealed ? 'open' : ''}`}
+              onClick={() => setMsiRevealed((v) => !v)}
+              onTouchStart={handleMsiHandleTouchStart}
+              onTouchEnd={handleMsiHandleTouchEnd}
+            >
+              <span className="reveal-handle-bar" />
+              <span className="reveal-handle-label">
+                <Icon name={msiRevealed ? 'ChevronUp' : 'ChevronDown'} size={12} />
+                {msiRevealed ? 'Ocultar opciones' : 'Más opciones'}
+              </span>
+            </div>
+            <div className={`reveal-panel reveal-panel-top ${msiRevealed ? 'open' : ''}`}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
+                <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
+              </div>
+            </div>
             <div className="card-title" style={{ padding: '0 2px' }}>Mis cuentas</div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', padding: '0 2px', margin: '-6px 0 10px' }}>
               Da de alta aquí tus préstamos (CxP), lo que te deben (CxC), gastos fijos e ingresos fijos. Usa el botón + para agregar uno nuevo.
@@ -3001,24 +3018,6 @@ function LibroDiario() {
                 )}
               </>
             )}
-            <div
-              className={`reveal-handle ${msiRevealed ? 'open' : ''}`}
-              onClick={() => setMsiRevealed((v) => !v)}
-              onTouchStart={handleMsiHandleTouchStart}
-              onTouchEnd={handleMsiHandleTouchEnd}
-            >
-              <span className="reveal-handle-bar" />
-              <span className="reveal-handle-label">
-                <Icon name={msiRevealed ? 'ChevronDown' : 'ChevronUp'} size={12} />
-                {msiRevealed ? 'Ocultar opciones' : 'Más opciones'}
-              </span>
-            </div>
-            <div className={`reveal-panel ${msiRevealed ? 'open' : ''}`}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
-                <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
-              </div>
-            </div>
           </>
         ) : tab === 'tarjetas' ? (
           <>
