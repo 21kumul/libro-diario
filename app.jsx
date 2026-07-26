@@ -2388,8 +2388,8 @@ function LibroDiario() {
         .ledger-app.dark .nav-fab-btn { box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
         .appearance-row { display: flex; gap: 10px; margin-top: 10px; }
         .appearance-opt { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; background: none; border: none; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; }
-        .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 13px; border: 2.5px solid var(--paper-dim); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: border-color 0.15s; }
-        .appearance-opt.active .appearance-preview { border-color: #3B82F6; }
+        .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; border: 2.5px solid var(--paper-dim); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: border-color 0.15s; }
+        .appearance-opt.active .appearance-preview { border-color: var(--gold); }
         .appearance-preview.light { background: #fff; }
         .appearance-preview.dark { background: #1C1F1C; }
         .appearance-preview.system { background: linear-gradient(135deg, #fff 0%, #fff 50%, #1C1F1C 50%, #1C1F1C 100%); }
@@ -2400,7 +2400,7 @@ function LibroDiario() {
         .appearance-line { height: 3px; border-radius: 2px; margin-bottom: 5px; }
         .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
         .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
-        .appearance-opt.active .appearance-label { color: #3B82F6; }
+        .appearance-opt.active .appearance-label { color: var(--gold); }
         .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
         .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
@@ -2436,7 +2436,7 @@ function LibroDiario() {
           .masthead { padding: calc(10px + env(safe-area-inset-top, 0px)) 20px 0 20px; border-radius: 0 0 14px 14px; }
           .balance-block { margin-top: 8px; }
           .balance-amount { font-size: clamp(20px, 6vw, 28px); margin-top: 2px; }
-          .balance-label { font-size: 10.5px; }
+          .balance-label { font-size: 11px; }
           .ahorro-line { margin-top: 0; }
           .period-tabs { margin-top: 8px; }
           .period-chip { padding: 5px 10px; font-size: 11px; }
@@ -2456,7 +2456,7 @@ function LibroDiario() {
         .balance-amount.pos { color: #8FD9B6; } .balance-amount.neg { color: #F0A98F; }
         .ahorro-line { font-size: 11px; opacity: 0.75; margin-top: 1px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
         .period-tabs { display: flex; gap: 6px; margin-top: 10px; }
-        .period-chip { font-family: var(--sans); font-size: 11.5px; font-weight: 500; padding: 5px 11px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
+        .period-chip { font-family: var(--sans); font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
         .period-chip.active { background: var(--on-accent); color: var(--green); border-color: var(--on-accent); font-weight: 600; }
         .stub-row { display: flex; gap: 8px; margin-top: 10px; padding-bottom: 12px; }
         .stub { flex: 1; min-width: 0; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 8px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
@@ -2483,7 +2483,7 @@ function LibroDiario() {
         .reveal-handle * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
         .reveal-handle-bar { width: 36px; height: 4px; border-radius: 2px; background: var(--line); transition: background 0.2s ease; }
         .reveal-handle.open .reveal-handle-bar { background: var(--gold); }
-        .reveal-handle-label { display: flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
+        .reveal-handle-label { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
         .reveal-panel { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease, margin-bottom 0.3s ease; }
         .reveal-panel.open { max-height: 100px; opacity: 1; margin-top: 8px; }
         .reveal-handle-top { padding: 2px 0 8px; margin-top: -4px; }
@@ -2513,12 +2513,12 @@ function LibroDiario() {
         .tx-row:hover, .tx-row:active { background: var(--paper-dim); }
         .tx-icon { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: white; }
         .tx-mid { flex: 1; min-width: 0; }
-        .tx-cat { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+        .tx-cat { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
         .tx-note { font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tx-amount { font-family: var(--mono); font-weight: 700; font-size: 14px; flex-shrink: 0; }
         .tx-amount.in { color: var(--income); } .tx-amount.out { color: var(--expense); }
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
-        .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 1px 5px; border-radius: 5px; font-weight: 700; letter-spacing: 0.3px; }
+        .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav {
           position: absolute; left: 12px; right: 12px; bottom: max(env(safe-area-inset-bottom, 0px), 6px); z-index: 6;
           background: rgba(250,250,250,0.62);
@@ -2535,7 +2535,7 @@ function LibroDiario() {
         .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: 5px; }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
         .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
-        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 9.5px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
+        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
@@ -2546,7 +2546,7 @@ function LibroDiario() {
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
         .nav-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 7; background: rgba(255,255,255,0.9); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 5px; box-shadow: 0 10px 26px rgba(0,0,0,0.2); animation: navPopIn 0.16s ease-out; }
         @keyframes navPopIn { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 11px; cursor: pointer; }
+        .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px; cursor: pointer; }
         .nav-popover-item:active { background: var(--paper-dim); }
         .nav-fab-btn { width: 42px; height: 42px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; margin-left: 4px; transition: width 0.25s, height 0.25s, transform 0.15s; -webkit-tap-highlight-color: transparent; }
         .nav-fab-btn:active { transform: scale(0.92); }
@@ -2558,7 +2558,7 @@ function LibroDiario() {
         .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
         .sheet-title { font-family: var(--mono); font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
         .type-toggle { display: flex; background: var(--paper-dim); border-radius: 12px; padding: 4px; margin-bottom: 18px; }
-        .type-toggle button { flex: 1; border: none; background: none; padding: 10px; border-radius: 9px; font-weight: 600; font-size: 13px; cursor: pointer; color: var(--ink-soft); display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .type-toggle button { flex: 1; border: none; background: none; padding: 10px; border-radius: 10px; font-weight: 600; font-size: 13px; cursor: pointer; color: var(--ink-soft); display: flex; align-items: center; justify-content: center; gap: 6px; }
         .type-toggle button.active.ingreso { background: var(--income); color: white; }
         .type-toggle button.active.gasto { background: var(--expense); color: white; }
         .type-toggle button.active.deuda { background: var(--green); color: white; }
@@ -2571,18 +2571,18 @@ function LibroDiario() {
         .amount-input { border: none; background: none; font-family: var(--mono); font-size: 32px; font-weight: 700; width: 100%; color: var(--ink); outline: none; }
         .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
         .subcat-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
-        .subcat-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+        .subcat-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .subcat-chip.selected { background: var(--green); color: var(--on-accent); border-color: var(--green); }
         .account-info-box { background: var(--paper-dim); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 4px 0 12px; }
         .account-info-box .name { font-weight: 700; font-size: 13px; margin-bottom: 3px; }
-        .account-info-box .meta { font-size: 11.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 10px 14px; }
+        .account-info-box .meta { font-size: 12px; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 10px 14px; }
         .account-feedback { display: flex; align-items: center; font-size: 12px; margin: -6px 0 12px; padding: 8px 10px; border-radius: 8px; }
         .account-feedback.ok { background: rgba(46,125,91,0.12); color: var(--income); }
         .account-feedback.pending { background: rgba(176,67,46,0.1); color: var(--expense); }
         .cat-choice { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px; border-radius: 14px; border: none; background: var(--paper-dim); cursor: pointer; }
         .cat-choice.selected { background: rgba(30,61,50,0.09); box-shadow: inset 0 0 0 1.5px var(--green); }
         .cat-choice-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; }
-        .cat-choice-label { font-size: 10.5px; font-weight: 500; text-align: center; }
+        .cat-choice-label { font-size: 11px; font-weight: 500; text-align: center; }
         .text-input { width: 100%; border: none; border-radius: 12px; padding: 11px 12px; font-family: var(--sans); font-size: 14px; outline: none; background: var(--paper-dim); box-sizing: border-box; }
         .text-input:focus { border-color: var(--green); }
         .form-error { color: var(--expense); font-size: 12px; margin-top: 10px; font-weight: 500; }
@@ -2593,8 +2593,8 @@ function LibroDiario() {
         .onboard-option:active { background: var(--paper-dim); }
         .onboard-option-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .onboard-option-text { flex: 1; }
-        .onboard-option-title { font-weight: 700; font-size: 14.5px; color: var(--ink); }
-        .onboard-option-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.4; }
+        .onboard-option-title { font-weight: 700; font-size: 15px; color: var(--ink); }
+        .onboard-option-sub { font-size: 12px; color: var(--ink-soft); margin-top: 2px; line-height: 1.4; }
         .onboard-back { background: none; border: none; color: var(--ink-soft); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 4px; }
         .code-display { text-align: center; background: var(--paper-dim); border: 1.5px dashed var(--line); border-radius: 14px; padding: 22px 12px; margin-bottom: 6px; }
         .code-display-value { font-family: var(--mono); font-size: 24px; font-weight: 700; letter-spacing: 3px; color: var(--ink); word-break: break-all; }
@@ -2602,7 +2602,7 @@ function LibroDiario() {
         .danger-btn.neutral { border-color: var(--line); color: var(--green); }
         .bell-toggle-btn { width: 100%; background: var(--paper-dim); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .bell-toggle-btn.on { background: var(--green); color: var(--on-accent); border-color: var(--green); }
-        .compromiso-notify { font-size: 10.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; margin-top: -4px; margin-bottom: 10px; }
+        .compromiso-notify { font-size: 11px; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; margin-top: -4px; margin-bottom: 10px; }
         .close-row { display: flex; justify-content: flex-end; margin-bottom: 6px; }
         .saving-dot { font-size: 10px; color: var(--gold); font-family: var(--mono); letter-spacing: 1px; }
         .chart-wrap { width: 100%; height: 205px; margin-top: 4px; }
@@ -2620,7 +2620,7 @@ function LibroDiario() {
         .participant-row .text-input { flex: 1; }
         .participant-row .amount-mini { width: 90px; flex-shrink: 0; }
         .remove-participant { background: none; border: none; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; padding: 4px; }
-        .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
+        .add-participant-btn { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--green); background: none; border: 1px dashed var(--line); border-radius: 10px; padding: 9px; width: 100%; justify-content: center; cursor: pointer; margin-top: 4px; }
         .my-share-line { font-size: 12px; color: var(--ink-soft); margin-top: 10px; font-family: var(--mono); }
         .compromiso-card { background: var(--paper); border-radius: 16px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--line); box-shadow: none; }
         .wallet-card { border-radius: 20px; padding: 18px; margin-bottom: 14px; color: #fff; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,0.16); box-sizing: border-box; width: 100%; aspect-ratio: 1.6 / 1; min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
@@ -2638,10 +2638,10 @@ function LibroDiario() {
         }
         .wallet-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
         .wallet-card-name { font-size: 16px; font-weight: 700; }
-        .wallet-card-pill { display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; background: rgba(255,255,255,0.22); padding: 2px 8px; border-radius: 6px; margin-top: 5px; }
+        .wallet-card-pill { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; background: rgba(255,255,255,0.22); padding: 2px 8px; border-radius: 5px; margin-top: 5px; }
         .wallet-card-amount { font-family: var(--mono); font-size: 19px; font-weight: 700; }
-        .wallet-card-caption { font-size: 10.5px; opacity: 0.85; margin-top: 2px; }
-        .wallet-card-limitrow { display: flex; justify-content: space-between; font-size: 11.5px; opacity: 0.9; margin-bottom: 6px; }
+        .wallet-card-caption { font-size: 11px; opacity: 0.85; margin-top: 2px; }
+        .wallet-card-limitrow { display: flex; justify-content: space-between; font-size: 12px; opacity: 0.9; margin-bottom: 6px; }
         .wallet-card-footrow { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-family: var(--mono); font-size: 13px; letter-spacing: 1px; opacity: 0.92; }
         .wallet-card-network { font-family: var(--sans); font-style: italic; font-weight: 700; letter-spacing: 0; text-transform: uppercase; font-size: 12px; opacity: 0.85; padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.18); }
         .wallet-card-network.net-visa { color: #fff; background: rgba(255,255,255,0.16); }
@@ -2656,7 +2656,7 @@ function LibroDiario() {
         .net-glyph-visa::after { content: ''; position: absolute; top: 4px; left: 3px; right: 3px; height: 3px; border-radius: 2px; background: #1a4fa0; }
         .net-glyph-amex { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; background: rgba(255,255,255,0.22); color: #fff; }
         .person-section-header { display: flex; align-items: center; gap: 8px; margin: 4px 2px 10px; font-size: 14px; font-weight: 700; color: var(--ink); }
-        .location-group-header { display: flex; align-items: center; gap: 6px; margin: 2px 2px 6px; font-size: 11.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.3px; }
+        .location-group-header { display: flex; align-items: center; gap: 6px; margin: 2px 2px 6px; font-size: 12px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.3px; }
         .person-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
@@ -2678,11 +2678,11 @@ function LibroDiario() {
         .compromiso-del { margin-left: auto; background: none; border: none; color: var(--ink-soft); opacity: 0.4; cursor: pointer; }
         .progress-track { height: 8px; background: var(--paper-dim); border-radius: 5px; overflow: hidden; margin-bottom: 4px; }
         .progress-fill { height: 100%; border-radius: 5px; background: var(--income); }
-        .progress-pct { font-size: 11.5px; color: var(--ink-soft); font-weight: 600; margin-bottom: 8px; }
+        .progress-pct { font-size: 12px; color: var(--ink-soft); font-weight: 600; margin-bottom: 8px; }
         .compromiso-nums { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; margin-bottom: 10px; }
         .compromiso-nums .pend { color: var(--expense); font-weight: 700; }
         .compromiso-nums .pend.done { color: var(--income); }
-        .abonar-btn { width: 100%; background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 10px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .abonar-btn { width: 100%; background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 10px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .abonar-btn:disabled { background: var(--line); color: var(--ink-soft); cursor: default; }
         .kind-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; }
         .kind-badge.deuda { background: rgba(30,61,50,0.1); color: var(--green); }
@@ -2693,14 +2693,14 @@ function LibroDiario() {
         .savings-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--gold); color: var(--green); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .savings-amount { font-family: var(--mono); font-weight: 700; font-size: 20px; }
         .savings-actions { display: flex; gap: 8px; margin-top: 10px; }
-        .savings-actions button { flex: 1; border-radius: 10px; padding: 9px; font-weight: 600; font-size: 12.5px; cursor: pointer; border: none; }
+        .savings-actions button { flex: 1; border-radius: 10px; padding: 9px; font-weight: 600; font-size: 13px; cursor: pointer; border: none; }
         .btn-deposito { background: var(--income); color: white; }
         .btn-retiro { background: var(--paper-dim); color: var(--ink); border: 1px solid var(--line) !important; }
         .person-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
         .person-row:last-child { border-bottom: none; }
         .person-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--green); color: var(--on-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
         .person-mid { flex: 1; }
-        .person-name { font-weight: 600; font-size: 13.5px; }
+        .person-name { font-weight: 600; font-size: 14px; }
         .person-count { font-size: 11px; color: var(--ink-soft); }
         .person-amount { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--expense); }
         .mark-paid-btn { background: var(--paper-dim); border: 1px solid var(--line); color: var(--green); border-radius: 8px; padding: 6px 8px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 8px; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -2708,25 +2708,25 @@ function LibroDiario() {
         .er-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
         .er-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; }
         .er-cuenta { color: var(--ink); }
-        .er-codigo { font-family: var(--mono); color: var(--ink-soft); font-size: 11.5px; margin-right: 4px; }
+        .er-codigo { font-family: var(--mono); color: var(--ink-soft); font-size: 12px; margin-right: 4px; }
         .er-monto { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
-        .er-empty { font-size: 12.5px; color: var(--ink-soft); padding: 2px 0 6px; }
-        .er-total-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 2px; font-size: 13.5px; font-family: var(--mono); }
+        .er-empty { font-size: 13px; color: var(--ink-soft); padding: 2px 0 6px; }
+        .er-total-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 2px; font-size: 14px; font-family: var(--mono); }
         .cxp-total-row { display: flex; align-items: center; justify-content: space-between; padding-top: 4px; }
         .cxp-total-amount { font-family: var(--mono); font-size: 24px; font-weight: 700; color: var(--ink); }
         .cxp-total-label { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
-        .totals-subhead { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-soft); font-weight: 700; margin: 10px 0 4px; }
+        .totals-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-soft); font-weight: 700; margin: 10px 0 4px; }
         .totals-subhead:first-child { margin-top: 0; }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
-        .mini-row-amount { font-family: var(--mono); font-size: 12.5px; color: var(--expense); font-weight: 600; }
+        .mini-row-amount { font-family: var(--mono); font-size: 13px; color: var(--expense); font-weight: 600; }
         .mini-abonar { background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
-        .mini-avatar { width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11.5px; flex-shrink: 0; font-family: var(--mono); }
+        .mini-avatar { width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0; font-family: var(--mono); }
         .autor-tag { font-weight: 700; }
         .family-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
         .family-row:last-of-type { border-bottom: none; }
-        .family-row-name { font-size: 13.5px; font-weight: 600; flex: 1; }
+        .family-row-name { font-size: 14px; font-weight: 600; flex: 1; }
         .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
       `}</style>
 
