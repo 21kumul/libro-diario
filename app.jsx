@@ -281,7 +281,84 @@ const leerPdfConOcr = async (file, onProgress) => {
   return textoCompleto;
 };
 
-// Lee una imagen (por ejemplo una captura de pantalla de la app del banco)
+// A diferencia del PDF (que trae "día mes concepto monto" todo en una sola
+// línea, como se ve arriba), en una captura de pantalla de una app de banco
+// el concepto y el monto casi siempre quedan juntos en la misma línea (uno
+// a la izquierda, el otro a la derecha de la pantalla), y la fecha aparece
+// SOLA en la línea de abajo — a veces con una línea de referencia/estatus
+// en medio (como en los movimientos de tarjeta: concepto+monto, luego
+// "referencia Aprobada", luego la fecha). Este parser busca ese patrón.
+const ocrCapturaALineasConcilia = (textoCompleto) => {
+  const anioActual = new Date().getFullYear();
+  const lineas = textoCompleto.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const conceptoMontoRe = /^(.{3,60}?)\s+([+\-])?\$?\s?(\d[\d,]*\.\d{2})\s*$/;
+  const diaMesRe = /^(\d{1,2})\s+([A-Za-zÑñ]{3,4})\.?\s*$/; // "20 Jul"
+  const mesDiaRe = /^([A-Za-zÑñ]{3,4})\.?\s+(\d{1,2})\b/; // "Jul 18" (con o sin hora después)
+
+  const parseFecha = (linea) => {
+    let m = linea.match(diaMesRe);
+    if (m) {
+      const mesKey = quitarAcentos(m[2].toLowerCase()).slice(0, 3);
+      const mes = MESES_ABBR[mesKey];
+      if (mes !== undefined) return `${anioActual}-${String(mes + 1).padStart(2, '0')}-${String(parseInt(m[1], 10)).padStart(2, '0')}`;
+    }
+    m = linea.match(mesDiaRe);
+    if (m) {
+      const mesKey = quitarAcentos(m[1].toLowerCase()).slice(0, 3);
+      const mes = MESES_ABBR[mesKey];
+      if (mes !== undefined) return `${anioActual}-${String(mes + 1).padStart(2, '0')}-${String(parseInt(m[2], 10)).padStart(2, '0')}`;
+    }
+    return null;
+  };
+
+  const salida = [];
+  let sinLeer = 0;
+
+  for (let i = 0; i < lineas.length; i++) {
+    const m = lineas[i].match(conceptoMontoRe);
+    if (!m) continue;
+    const [, conceptoRaw, signo, montoTxt] = m;
+    // La fecha vive en la línea siguiente, o dos líneas abajo si en medio hay
+    // una línea de referencia/estatus (no otro concepto+monto).
+    let fecha = i + 1 < lineas.length ? parseFecha(lineas[i + 1]) : null;
+    if (!fecha && i + 2 < lineas.length && !conceptoMontoRe.test(lineas[i + 1])) {
+      fecha = parseFecha(lineas[i + 2]);
+    }
+    // Si no hay fecha cerca, probablemente no era un movimiento real sino un
+    // resumen (ej. "Ayer gastaste -$25.00"), así que se ignora sin contar
+    // como error — evita duplicar el mismo gasto dos veces.
+    if (!fecha) continue;
+
+    const monto = parseFloat(montoTxt.replace(/,/g, ''));
+    if (isNaN(monto)) { sinLeer++; continue; }
+    let esIngreso;
+    if (signo === '+') esIngreso = true;
+    else if (signo === '-') esIngreso = false;
+    else esIngreso = /dep[oó]sito|deposit|recib|abono a favor|reembolso|sueldo|n[oó]mina/i.test(conceptoRaw);
+    const montoFinal = esIngreso ? monto : -monto;
+    const concepto = conceptoRaw
+      .replace(/^[a-zA-Z]{1,3}[)\]]\s*/, '') // basura típica de íconos mal leídos, ej. "is) " o "a] "
+      .replace(/^[<>~^*_|]+\s*/, '') // flechas/símbolos mal reconocidos, ej. "<a "
+      .replace(/^[a-z]\s+(?=[A-ZÀ-Ý])/, '') // letra suelta que quedó pegada de un ícono, ej. "a Depósito"
+      .replace(/\s{2,}/g, ' ')
+      .trim() || '(sin concepto)';
+    salida.push(`${fecha} | ${montoFinal.toFixed(2)} | ${concepto}`);
+  }
+
+  return { texto: salida.join('\n'), leidas: salida.length, sinLeer };
+};
+
+// Un mismo archivo puede venir en cualquiera de los dos formatos (PDF de
+// estado de cuenta vs. captura de pantalla), así que se prueban ambos
+// lectores y nos quedamos con el que haya reconocido más movimientos.
+const interpretarTextoBanco = (textoCompleto) => {
+  const porLinea = ocrTextoALineasConcilia(textoCompleto);
+  const porCaptura = ocrCapturaALineasConcilia(textoCompleto);
+  return porCaptura.leidas >= porLinea.leidas ? porCaptura : porLinea;
+};
+
+
 // directo con OCR. A diferencia del PDF, una imagen no necesita pdf.js para
 // "convertirse" en imagen — ya lo es — así que se le pasa a Tesseract.js tal
 // cual (se carga de internet la primera vez que se usa, igual que con PDF).
@@ -1138,7 +1215,7 @@ function LibroDiario() {
       const textoOcr = file.type === 'application/pdf'
         ? await leerPdfConOcr(file, setPdfProgress)
         : await leerImagenConOcr(file, setPdfProgress);
-      const { texto, leidas, sinLeer } = ocrTextoALineasConcilia(textoOcr);
+      const { texto, leidas, sinLeer } = interpretarTextoBanco(textoOcr);
       if (!leidas) {
         setPdfError('No logré reconocer ningún movimiento aquí. Puedes intentar de nuevo (con más luz o menos recorte) o pegar los movimientos a mano abajo.');
       } else {
