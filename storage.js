@@ -124,3 +124,4 @@
 
   window.libroDiario = { getFamilyCode: getFamilyCode, setFamilyCode: setFamilyCode, clearFamilyCode: clearFamilyCode };
 })();
+
