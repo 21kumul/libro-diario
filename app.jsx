@@ -281,6 +281,17 @@ const leerPdfConOcr = async (file, onProgress) => {
   return textoCompleto;
 };
 
+// Lee una imagen (por ejemplo una captura de pantalla de la app del banco)
+// directo con OCR. A diferencia del PDF, una imagen no necesita pdf.js para
+// "convertirse" en imagen — ya lo es — así que se le pasa a Tesseract.js tal
+// cual (se carga de internet la primera vez que se usa, igual que con PDF).
+const leerImagenConOcr = async (file, onProgress) => {
+  await loadScriptOnce('https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js');
+  onProgress && onProgress('Leyendo imagen…');
+  const { data } = await window.Tesseract.recognize(file, 'spa');
+  return data.text;
+};
+
 
 const fmt = (n) => {
   return (n < 0 ? '-' : '') + Math.abs(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
@@ -1114,25 +1125,28 @@ function LibroDiario() {
     setSheet({ type: 'add-tx' });
   };
 
-  // Lee un PDF de estado de cuenta (imagen escaneada, sin texto seleccionable)
-  // con OCR y agrega lo que reconoce al cuadro de "Conciliar con mi banco",
-  // en el mismo formato que ya se usa ahí — así el resto de la pantalla
-  // (qué ya está registrado / qué falta) sigue funcionando exactamente igual.
-  const handlePdfBanco = async (file) => {
+  // Lee un PDF de estado de cuenta o una imagen (captura de pantalla de la
+  // app del banco) con OCR y agrega lo que reconoce al cuadro de "Conciliar
+  // con mi banco", en el mismo formato que ya se usa ahí — así el resto de
+  // la pantalla (qué ya está registrado / qué falta) sigue funcionando
+  // exactamente igual sin importar de dónde vino el texto.
+  const handleArchivoBanco = async (file) => {
     setPdfBusy(true);
     setPdfError('');
-    setPdfProgress('Abriendo PDF…');
+    setPdfProgress(file.type === 'application/pdf' ? 'Abriendo PDF…' : 'Abriendo imagen…');
     try {
-      const textoOcr = await leerPdfConOcr(file, setPdfProgress);
+      const textoOcr = file.type === 'application/pdf'
+        ? await leerPdfConOcr(file, setPdfProgress)
+        : await leerImagenConOcr(file, setPdfProgress);
       const { texto, leidas, sinLeer } = ocrTextoALineasConcilia(textoOcr);
       if (!leidas) {
-        setPdfError('No logré reconocer ningún movimiento en este PDF. Puedes intentar de nuevo o pegar los movimientos a mano abajo.');
+        setPdfError('No logré reconocer ningún movimiento aquí. Puedes intentar de nuevo (con más luz o menos recorte) o pegar los movimientos a mano abajo.');
       } else {
         setConciliaRaw((prev) => (prev.trim() ? prev.trim() + '\n' + texto : texto));
         if (sinLeer > 0) setPdfError(`Se agregaron ${leidas} movimiento${leidas !== 1 ? 's' : ''}. ${sinLeer} línea${sinLeer !== 1 ? 's' : ''} no se pudo${sinLeer !== 1 ? 'ieron' : ''} leer bien — revisa el texto de abajo por si falta algo.`);
       }
     } catch (e) {
-      setPdfError('No se pudo leer el PDF: ' + (e.message || e) + '. Revisa tu conexión a internet (la primera vez necesita descargar el lector de PDF/OCR).');
+      setPdfError('No se pudo leer el archivo: ' + (e.message || e) + '. Revisa tu conexión a internet (la primera vez necesita descargar el lector de PDF/OCR).');
     } finally {
       setPdfBusy(false);
       setPdfProgress('');
@@ -1682,6 +1696,7 @@ function LibroDiario() {
   };
   const handleMsiHandleTouchEnd = (e) => {
     if (!msiDragStart.current) return;
+    e.preventDefault(); // evita el click fantasma y que el navegador intente "seleccionar texto"
     const t = e.changedTouches[0];
     const dy = t.clientY - msiDragStart.current.y; // positivo = dedo bajó
     const dt = Date.now() - msiDragStart.current.time;
@@ -1703,6 +1718,7 @@ function LibroDiario() {
   };
   const handleMovsHandleTouchEnd = (e) => {
     if (!movsDragStart.current) return;
+    e.preventDefault(); // evita el click fantasma y que el navegador intente "seleccionar texto"
     const t = e.changedTouches[0];
     const dy = t.clientY - movsDragStart.current.y; // positivo = dedo bajó
     const dt = Date.now() - movsDragStart.current.time;
@@ -2344,7 +2360,8 @@ function LibroDiario() {
         .stub-amount { font-family: var(--mono); font-size: clamp(10px, 3.2vw, 14px); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
         .tape-edge { height: 10px; background: linear-gradient(135deg, transparent 6px, var(--paper-dim) 0) 0 0, linear-gradient(-135deg, transparent 6px, var(--paper-dim) 0) 0 0; background-size: 12px 12px; background-repeat: repeat-x; background-color: var(--green); }
         .content { flex: 1; min-height: 0; padding: 16px 16px 150px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-        .reveal-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 4px; margin-top: 2px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+        .reveal-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 4px; margin-top: 2px; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+        .reveal-handle * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
         .reveal-handle-bar { width: 36px; height: 4px; border-radius: 2px; background: var(--line); transition: background 0.2s ease; }
         .reveal-handle.open .reveal-handle-bar { background: var(--gold); }
         .reveal-handle-label { display: flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
@@ -4272,10 +4289,10 @@ function LibroDiario() {
               <div className="sheet-header"><span className="sheet-title">Conciliar con mi banco</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <input
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,image/*"
                 ref={pdfInputRef}
                 style={{ display: 'none' }}
-                onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) handlePdfBanco(f); }}
+                onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) handleArchivoBanco(f); }}
               />
               <button
                 className="mini-abonar"
@@ -4284,13 +4301,13 @@ function LibroDiario() {
                 onClick={() => pdfInputRef.current && pdfInputRef.current.click()}
               >
                 <Icon name="Upload" size={13} />
-                {pdfBusy ? (pdfProgress || 'Leyendo…') : 'Leer PDF de mi banco'}
+                {pdfBusy ? (pdfProgress || 'Leyendo…') : 'Leer PDF o captura de mi banco'}
               </button>
               {pdfError && (
                 <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 10px', lineHeight: 1.4 }}>{pdfError}</div>
               )}
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 10px' }}>
-                Sube el PDF que te manda tu banco (aunque sea una imagen, sin texto seleccionable) y se agregan solos abajo. O si prefieres, pega aquí los movimientos a mano, uno por línea, así: <b>AAAA-MM-DD | monto | concepto</b>. Ejemplo: <code style={{ fontSize: 10.5 }}>2026-07-14 | -700.00 | Pago tarjeta</code>. Usa monto negativo para cargos/gastos y positivo para depósitos/ingresos.
+                Sube el PDF que te manda tu banco (aunque sea una imagen, sin texto seleccionable) o una captura de pantalla de tu app del banco, y se agregan solos abajo. O si prefieres, pega aquí los movimientos a mano, uno por línea, así: <b>AAAA-MM-DD | monto | concepto</b>. Ejemplo: <code style={{ fontSize: 10.5 }}>2026-07-14 | -700.00 | Pago tarjeta</code>. Usa monto negativo para cargos/gastos y positivo para depósitos/ingresos.
               </div>
               <textarea
                 className="text-input"
@@ -4721,4 +4738,3 @@ function LibroDiario() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
-
