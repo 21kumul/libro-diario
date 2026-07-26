@@ -1669,6 +1669,29 @@ function LibroDiario() {
     setSheet({ type: 'new-compromiso' });
   };
 
+  // Tirador "jala para revelar" en Cuentas: Simular MSI y Movimientos
+  // programados quedan ocultos por defecto (así la pantalla de inicio de la
+  // pestaña es solo las tarjetas de préstamos/gastos) y solo aparecen si el
+  // usuario desliza el tirador hacia arriba (o lo toca), como información
+  // escondida que se descubre a propósito — no compiten visualmente con las
+  // cuentas del mes ni se alcanzan solo por bajar hasta el final.
+  const [msiRevealed, setMsiRevealed] = useState(false);
+  const msiDragStart = useRef(null);
+  const handleMsiHandleTouchStart = (e) => {
+    const t = e.touches[0];
+    msiDragStart.current = { y: t.clientY, time: Date.now() };
+  };
+  const handleMsiHandleTouchEnd = (e) => {
+    if (!msiDragStart.current) return;
+    const t = e.changedTouches[0];
+    const dy = msiDragStart.current.y - t.clientY; // positivo = dedo subió
+    const dt = Date.now() - msiDragStart.current.time;
+    msiDragStart.current = null;
+    if (dt > 700) return;
+    if (Math.abs(dy) < 10) { setMsiRevealed((v) => !v); return; } // toque simple
+    if (dy > 14) setMsiRevealed(true);
+    else if (dy < -14) setMsiRevealed(false);
+  };
   const openMsi = () => {
     setMsiForm({ name: '', amount: '', months: '12' });
     setSheet({ type: 'msi' });
@@ -2088,15 +2111,16 @@ function LibroDiario() {
   };
 
   const [codeCopied, setCodeCopied] = useState(false);
-  const copyFamilyCode = async () => {
+  const copyFamilyCode = async (code) => {
+    const value = code || familyCode;
     try {
-      await navigator.clipboard.writeText(familyCode);
+      await navigator.clipboard.writeText(value);
     } catch (e) {
       // Si el navegador no deja usar el portapapeles (poco común), lo
       // seleccionamos a mano como respaldo.
       try {
         const ta = document.createElement('textarea');
-        ta.value = familyCode; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
         document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
       } catch (e2) { return; }
     }
@@ -2300,6 +2324,12 @@ function LibroDiario() {
         .stub-amount { font-family: var(--mono); font-size: clamp(10px, 3.2vw, 14px); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
         .tape-edge { height: 10px; background: linear-gradient(135deg, transparent 6px, var(--paper-dim) 0) 0 0, linear-gradient(-135deg, transparent 6px, var(--paper-dim) 0) 0 0; background-size: 12px 12px; background-repeat: repeat-x; background-color: var(--green); }
         .content { flex: 1; min-height: 0; padding: 16px 16px 150px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .reveal-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 4px; margin-top: 2px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+        .reveal-handle-bar { width: 36px; height: 4px; border-radius: 2px; background: var(--line); transition: background 0.2s ease; }
+        .reveal-handle.open .reveal-handle-bar { background: var(--gold); }
+        .reveal-handle-label { display: flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
+        .reveal-panel { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease; }
+        .reveal-panel.open { max-height: 100px; opacity: 1; margin-top: 8px; }
         .card { background: var(--paper); border-radius: 18px; padding: 16px; margin-bottom: 14px; border: none; box-shadow: var(--shadow-card); }
         .card-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ink-soft); font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
         .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -2934,9 +2964,23 @@ function LibroDiario() {
                 )}
               </>
             )}
-            <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-              <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
-              <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
+            <div
+              className={`reveal-handle ${msiRevealed ? 'open' : ''}`}
+              onClick={() => setMsiRevealed((v) => !v)}
+              onTouchStart={handleMsiHandleTouchStart}
+              onTouchEnd={handleMsiHandleTouchEnd}
+            >
+              <span className="reveal-handle-bar" />
+              <span className="reveal-handle-label">
+                <Icon name={msiRevealed ? 'ChevronDown' : 'ChevronUp'} size={12} />
+                {msiRevealed ? 'Ocultar opciones' : 'Más opciones'}
+              </span>
+            </div>
+            <div className={`reveal-panel ${msiRevealed ? 'open' : ''}`}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="multiselect-toggle" onClick={openMsi}><Icon name="Calculator" size={12} /> Simular compra a MSI</button>
+                <button className="multiselect-toggle" onClick={() => setSheet({ type: 'programados' })}><Icon name="CalendarCheck" size={12} /> Movimientos programados</button>
+              </div>
             </div>
           </>
         ) : tab === 'tarjetas' ? (
@@ -4366,7 +4410,7 @@ function LibroDiario() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {codeCopied && <span style={{ fontSize: 11, color: 'var(--income)', fontWeight: 600 }}>¡Copiado!</span>}
-                <button className="icon-btn" style={{ background: codeCopied ? 'var(--income)' : 'var(--paper)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }} title="Copiar código" onClick={copyFamilyCode}><Icon name={codeCopied ? 'Check' : 'Copy'} size={14} /></button>
+                <button className="icon-btn" style={{ background: codeCopied ? 'var(--income)' : 'var(--paper)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }} title="Copiar código" onClick={() => copyFamilyCode()}><Icon name={codeCopied ? 'Check' : 'Copy'} size={14} /></button>
                 <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
               </div>
             </div>
@@ -4570,7 +4614,14 @@ function LibroDiario() {
                 <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 16, lineHeight: 1.5 }}>
                   Compártelo con tu familia — todos deben escribir exactamente este mismo código para ver la misma información.
                 </div>
-                <div className="code-display"><div className="code-display-value">{codeInput}</div></div>
+                <div className="code-display">
+                  <div className="code-display-value">{codeInput}</div>
+                </div>
+                <button
+                  className="save-btn"
+                  style={{ background: codeCopied ? 'var(--income)' : 'var(--paper-dim)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }}
+                  onClick={() => copyFamilyCode(codeInput)}
+                ><Icon name={codeCopied ? 'Check' : 'Copy'} size={16} /> {codeCopied ? '¡Código copiado!' : 'Copiar código'}</button>
                 <button
                   className="save-btn"
                   style={{ background: '#25D366' }}
