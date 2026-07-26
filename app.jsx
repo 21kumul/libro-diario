@@ -645,9 +645,22 @@ function LibroDiario() {
     { key: 'resumen', label: 'Resumen', icon: 'LayoutGrid' },
     { key: 'movimientos', label: 'Movs.', icon: 'List' },
     { key: 'compromisos', label: 'Cuentas', icon: 'Landmark' },
-    { key: 'tarjetas', label: 'Tarjetas', icon: 'CreditCard' },
     { key: 'ahorro', label: 'Ahorro', icon: 'PiggyBank' },
   ];
+  // Pestañas "escondidas": no tienen su propio botón en la barra (para dejar
+  // más espacio y que los íconos no se vean apretados), pero se llega a ellas
+  // manteniendo presionada la pestaña "padre" de la que cuelgan.
+  const HIDDEN_TABS = {
+    resumen: { key: 'graficas', label: 'Ver gráficas', icon: 'BarChart3' },
+    compromisos: { key: 'tarjetas', label: 'Ver tarjetas', icon: 'CreditCard' },
+  };
+  // Dado un tab actual (que puede ser uno "escondido"), regresa la key del
+  // botón visible correspondiente en la barra — para resaltar el botón
+  // correcto, calcular la posición de la burbuja, el swipe, etc.
+  const parentOfTab = (t) => {
+    const entry = Object.entries(HIDDEN_TABS).find(([, h]) => h.key === t);
+    return entry ? entry[0] : t;
+  };
   // Barra inferior "cristal": arriba de la página se ve a su tamaño completo;
   // al hacer scroll hacia abajo se vuelve compacta (se reduce, no desaparece),
   // y regresa a su tamaño completo al subir o al llegar al inicio.
@@ -691,7 +704,7 @@ function LibroDiario() {
     touchStartRef.current = null;
     if (dt > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
     const order = NAV_TABS.map((n) => n.key);
-    const curIdx = order.indexOf(tab === 'graficas' ? 'resumen' : tab);
+    const curIdx = order.indexOf(parentOfTab(tab));
     if (curIdx === -1) return;
     if (dx < 0 && curIdx < order.length - 1) goTab(order[curIdx + 1]);
     else if (dx > 0 && curIdx > 0) goTab(order[curIdx - 1]);
@@ -703,7 +716,7 @@ function LibroDiario() {
   // la burbuja se mueve exactamente en el mismo instante y con la misma
   // curva que los botones (porque ambos son proporcionales al mismo
   // contenedor) — sin rebotes ni desincronía, y sin tener que re-medir nada.
-  const navIndex = (key) => Math.max(0, NAV_TABS.findIndex((n) => n.key === key));
+  const navIndex = (key) => Math.max(0, NAV_TABS.findIndex((n) => n.key === parentOfTab(key)));
   const navPct = 100 / NAV_TABS.length;
   // Arrastre en vivo sobre la barra (como Instagram/Meta): al deslizar el
   // dedo sin soltarlo por encima de los íconos, la burbuja sigue la posición
@@ -735,7 +748,7 @@ function LibroDiario() {
     const idx = Math.min(NAV_TABS.length - 1, Math.max(0, Math.round(x / r.btnWidth)));
     const key = NAV_TABS[idx].key;
     if (key !== dragTabKey) {
-      if (navDragStartKey.current === 'resumen') cancelResumenLongPress();
+      cancelLongPress();
       if (navigator.vibrate) navigator.vibrate(4);
       setDragTabKey(key);
     }
@@ -751,29 +764,30 @@ function LibroDiario() {
     setTab(t);
     setNavCompact(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
-    setGraficasPopoverOpen(false);
+    setHiddenPopoverFor(null);
   };
-  // Mantén presionada la pestaña "Resumen" para revelar el acceso a Gráficas
-  // (que ya no tiene su propio botón en la barra, para dejar más espacio a
-  // pestañas más grandes).
-  const [graficasPopoverOpen, setGraficasPopoverOpen] = useState(false);
-  const resumenLongPressTimer = useRef(null);
-  const resumenLongPressFired = useRef(false);
-  const startResumenLongPress = (e) => {
+  // Mantén presionada una pestaña con hijo escondido (ver HIDDEN_TABS) para
+  // revelar el acceso a esa vista extra, sin que ocupe su propio botón en
+  // la barra — así los íconos y el texto se quedan a buen tamaño y no se
+  // sienten apretados.
+  const [hiddenPopoverFor, setHiddenPopoverFor] = useState(null);
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
+  const startLongPress = (parentKey) => (e) => {
     if (e.cancelable) e.preventDefault();
-    resumenLongPressFired.current = false;
-    resumenLongPressTimer.current = setTimeout(() => {
-      resumenLongPressFired.current = true;
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
       if (navigator.vibrate) navigator.vibrate(8);
-      setGraficasPopoverOpen(true);
+      setHiddenPopoverFor(parentKey);
     }, 420);
   };
-  const cancelResumenLongPress = () => {
-    if (resumenLongPressTimer.current) { clearTimeout(resumenLongPressTimer.current); resumenLongPressTimer.current = null; }
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
-  const handleResumenTap = () => {
-    if (resumenLongPressFired.current) { resumenLongPressFired.current = false; return; }
-    goTab('resumen');
+  const handleParentTap = (parentKey) => () => {
+    if (longPressFired.current) { longPressFired.current = false; return; }
+    goTab(parentKey);
   };
   const [period, setPeriod] = useState('mes');
   const [sheet, setSheet] = useState(null); // {type, ...}
@@ -2145,6 +2159,12 @@ function LibroDiario() {
           --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'IBM Plex Sans', sans-serif;
           --shadow-card: 0 1px 1px rgba(0,0,0,0.03), 0 4px 14px rgba(0,0,0,0.055);
           --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.12);
+          /* Texto/fondo claro que va ENCIMA del verde (panel superior, botones,
+             chips activos, etc.): siempre debe leerse claro sobre ese verde,
+             sin importar si el resto de la app está en modo claro u oscuro —
+             por eso es una variable fija, no la misma que --paper (que sí
+             cambia de blanco a oscuro en modo oscuro). */
+          --on-accent: #FAFAFA;
           font-family: var(--sans); color: var(--ink); background: var(--paper-dim);
           width: 100%; max-width: 460px; margin: 0 auto; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
           position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.08); overflow: hidden;
@@ -2202,12 +2222,12 @@ function LibroDiario() {
           .family-name-line { font-size: 11px; margin-top: 2px; }
           .content { padding-bottom: 110px; }
         }
-        .masthead { background: var(--green); color: var(--paper); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 14px 20px; border-radius: 0 0 20px 20px; flex-shrink: 0; }
+        .masthead { background: var(--green); color: var(--on-accent); padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 14px 20px; border-radius: 0 0 20px 20px; flex-shrink: 0; }
         .masthead-top { display: flex; align-items: center; justify-content: space-between; }
         .family-name-line { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); margin-top: 4px; text-transform: uppercase; }
         .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 3px; font-weight: 600; text-transform: uppercase; opacity: 0.85; }
         .brand .dot { color: var(--gold); margin: 0 6px; }
-        .icon-btn { background: rgba(255,255,255,0.1); border: none; color: var(--paper); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .icon-btn { background: rgba(255,255,255,0.1); border: none; color: var(--on-accent); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .icon-btn:hover { background: rgba(255,255,255,0.18); }
         .balance-block { margin-top: 10px; }
         .balance-label { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1.5px; }
@@ -2216,7 +2236,7 @@ function LibroDiario() {
         .ahorro-line { font-size: 11px; opacity: 0.75; margin-top: 1px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
         .period-tabs { display: flex; gap: 6px; margin-top: 10px; }
         .period-chip { font-family: var(--sans); font-size: 11.5px; font-weight: 500; padding: 5px 11px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
-        .period-chip.active { background: var(--paper); color: var(--green); border-color: var(--paper); font-weight: 600; }
+        .period-chip.active { background: var(--on-accent); color: var(--green); border-color: var(--on-accent); font-weight: 600; }
         .stub-row { display: flex; gap: 8px; margin-top: 10px; padding-bottom: 12px; }
         .stub { flex: 1; min-width: 0; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 8px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
         .stub-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -2255,7 +2275,7 @@ function LibroDiario() {
         .search-clear { background: var(--line); border: none; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; }
         .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
         .filter-chip { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
-        .filter-chip.active { background: var(--green); border-color: var(--green); color: var(--paper); }
+        .filter-chip.active { background: var(--green); border-color: var(--green); color: var(--on-accent); }
         .date-group { margin-bottom: 18px; }
         .date-heading { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--ink-soft); margin-bottom: 8px; padding-left: 2px; }
         .tx-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--line); cursor: pointer; border-radius: 8px; transition: background 0.12s; }
@@ -2289,7 +2309,7 @@ function LibroDiario() {
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
-        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 2px; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
         .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
         .nav-highlight.dragging { transition: none; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
@@ -2321,7 +2341,7 @@ function LibroDiario() {
         .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
         .subcat-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
         .subcat-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-        .subcat-chip.selected { background: var(--green); color: var(--paper); border-color: var(--green); }
+        .subcat-chip.selected { background: var(--green); color: var(--on-accent); border-color: var(--green); }
         .account-info-box { background: var(--paper-dim); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 4px 0 12px; }
         .account-info-box .name { font-weight: 700; font-size: 13px; margin-bottom: 3px; }
         .account-info-box .meta { font-size: 11.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 10px 14px; }
@@ -2335,7 +2355,7 @@ function LibroDiario() {
         .text-input { width: 100%; border: none; border-radius: 12px; padding: 11px 12px; font-family: var(--sans); font-size: 14px; outline: none; background: var(--paper-dim); box-sizing: border-box; }
         .text-input:focus { border-color: var(--green); }
         .form-error { color: var(--expense); font-size: 12px; margin-top: 10px; font-weight: 500; }
-        .save-btn { width: 100%; background: var(--green); color: var(--paper); border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 14px; margin-top: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: 0.3px; }
+        .save-btn { width: 100%; background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 14px; margin-top: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: 0.3px; }
         .save-btn:disabled { background: var(--line); color: var(--ink-soft); cursor: not-allowed; }
         .save-btn:active { background: var(--green-soft); }
         .onboard-option { width: 100%; display: flex; align-items: center; gap: 14px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer; text-align: left; }
@@ -2350,7 +2370,7 @@ function LibroDiario() {
         .danger-btn { width: 100%; background: none; border: 1.5px solid var(--expense); color: var(--expense); border-radius: 999px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .danger-btn.neutral { border-color: var(--line); color: var(--green); }
         .bell-toggle-btn { width: 100%; background: var(--paper-dim); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 12px; font-weight: 600; font-size: 13px; margin-top: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .bell-toggle-btn.on { background: var(--green); color: var(--paper); border-color: var(--green); }
+        .bell-toggle-btn.on { background: var(--green); color: var(--on-accent); border-color: var(--green); }
         .compromiso-notify { font-size: 10.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; margin-top: -4px; margin-bottom: 10px; }
         .close-row { display: flex; justify-content: flex-end; margin-bottom: 6px; }
         .saving-dot { font-size: 10px; color: var(--gold); font-family: var(--mono); letter-spacing: 1px; }
@@ -2431,7 +2451,7 @@ function LibroDiario() {
         .compromiso-nums { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; margin-bottom: 10px; }
         .compromiso-nums .pend { color: var(--expense); font-weight: 700; }
         .compromiso-nums .pend.done { color: var(--income); }
-        .abonar-btn { width: 100%; background: var(--green); color: var(--paper); border: none; border-radius: 999px; padding: 10px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .abonar-btn { width: 100%; background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 10px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .abonar-btn:disabled { background: var(--line); color: var(--ink-soft); cursor: default; }
         .kind-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; }
         .kind-badge.deuda { background: rgba(30,61,50,0.1); color: var(--green); }
@@ -2447,7 +2467,7 @@ function LibroDiario() {
         .btn-retiro { background: var(--paper-dim); color: var(--ink); border: 1px solid var(--line) !important; }
         .person-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
         .person-row:last-child { border-bottom: none; }
-        .person-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--green); color: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+        .person-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--green); color: var(--on-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
         .person-mid { flex: 1; }
         .person-name { font-weight: 600; font-size: 13.5px; }
         .person-count { font-size: 11px; color: var(--ink-soft); }
@@ -2470,13 +2490,13 @@ function LibroDiario() {
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
         .mini-row-amount { font-family: var(--mono); font-size: 12.5px; color: var(--expense); font-weight: 600; }
-        .mini-abonar { background: var(--green); color: var(--paper); border: none; border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+        .mini-abonar { background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
         .mini-avatar { width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11.5px; flex-shrink: 0; font-family: var(--mono); }
         .autor-tag { font-weight: 700; }
         .family-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
         .family-row:last-of-type { border-bottom: none; }
         .family-row-name { font-size: 13.5px; font-weight: 600; flex: 1; }
-        .you-badge { font-size: 9px; background: var(--green); color: var(--paper); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
+        .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
       `}</style>
 
       <div className="masthead" ref={mastheadRef}>
@@ -3146,7 +3166,7 @@ function LibroDiario() {
       </div>
 
       <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
-        {graficasPopoverOpen && <div className="nav-popover-backdrop" onClick={() => setGraficasPopoverOpen(false)} />}
+        {hiddenPopoverFor && <div className="nav-popover-backdrop" onClick={() => setHiddenPopoverFor(null)} />}
         <div
           className="nav-tabs"
           ref={navTabsRef}
@@ -3159,37 +3179,37 @@ function LibroDiario() {
             className={`nav-highlight ${dragTabKey ? 'dragging' : ''}`}
             style={dragLeftPx != null
               ? { left: `${dragLeftPx}px`, width: navDragRect.current ? navDragRect.current.btnWidth : `${navPct}%` }
-              : { left: `${navIndex(tab === 'graficas' ? 'resumen' : tab) * navPct}%`, width: `${navPct}%` }}
+              : { left: `${navIndex(tab) * navPct}%`, width: `${navPct}%` }}
           />
           {NAV_TABS.map((n) => {
-            const isResumen = n.key === 'resumen';
+            const hidden = HIDDEN_TABS[n.key];
             const highlightKey = dragTabKey || tab;
-            const active = isResumen ? (highlightKey === 'resumen' || highlightKey === 'graficas') : highlightKey === n.key;
+            const active = hidden ? (highlightKey === n.key || highlightKey === hidden.key) : highlightKey === n.key;
             const btn = (
               <button
                 key={n.key}
                 data-navkey={n.key}
                 className={`nav-btn ${active ? 'active' : ''}`}
-                style={active ? { color: TAB_COLORS[isResumen ? 'resumen' : n.key] } : undefined}
-                onMouseDown={isResumen ? startResumenLongPress : undefined}
-                onMouseUp={isResumen ? cancelResumenLongPress : undefined}
-                onMouseLeave={isResumen ? cancelResumenLongPress : undefined}
-                onTouchStart={isResumen ? startResumenLongPress : undefined}
-                onTouchEnd={isResumen ? cancelResumenLongPress : undefined}
-                onContextMenu={isResumen ? (e) => e.preventDefault() : undefined}
-                onClick={isResumen ? handleResumenTap : () => goTab(n.key)}
+                style={active ? { color: TAB_COLORS[hidden && tab === hidden.key ? hidden.key : n.key] } : undefined}
+                onMouseDown={hidden ? startLongPress(n.key) : undefined}
+                onMouseUp={hidden ? cancelLongPress : undefined}
+                onMouseLeave={hidden ? cancelLongPress : undefined}
+                onTouchStart={hidden ? startLongPress(n.key) : undefined}
+                onTouchEnd={hidden ? cancelLongPress : undefined}
+                onContextMenu={hidden ? (e) => e.preventDefault() : undefined}
+                onClick={hidden ? handleParentTap(n.key) : () => goTab(n.key)}
               >
                 <Icon name={n.icon} size={20} />{n.label}
-                {isResumen && tab === 'graficas' && <span className="nav-btn-dot" style={{ background: TAB_COLORS.graficas }} />}
+                {hidden && tab === hidden.key && <span className="nav-btn-dot" style={{ background: TAB_COLORS[hidden.key] }} />}
               </button>
             );
-            if (!isResumen) return btn;
+            if (!hidden) return btn;
             return (
               <div className="nav-btn-wrap" key={n.key}>
                 {btn}
-                {graficasPopoverOpen && (
+                {hiddenPopoverFor === n.key && (
                   <div className="nav-popover">
-                    <button className="nav-popover-item" onClick={() => goTab('graficas')}><Icon name="BarChart3" size={15} /> Ver gráficas</button>
+                    <button className="nav-popover-item" onClick={() => goTab(hidden.key)}><Icon name={hidden.icon} size={15} /> {hidden.label}</button>
                   </div>
                 )}
               </div>
@@ -3563,18 +3583,7 @@ function LibroDiario() {
             {isBalanceKind(compForm.kind) && moneyLocations.length > 0 && (
               <>
                 <div className="field-label">{compForm.kind === 'deuda' ? '¿A qué cuenta entra el dinero? (opcional)' : '¿De qué cuenta sale el dinero? (opcional)'}</div>
-                <div className="cat-grid">
-                  {moneyLocations.map((l) => (
-                    <div
-                      key={l.id}
-                      className={`cat-choice ${compForm.locationId === l.id ? 'selected' : ''}`}
-                      onClick={() => setCompForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                    >
-                      <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                      <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Monedero'}</span>
-                    </div>
-                  ))}
-                </div>
+                <div>{renderLocationPicker(moneyLocations, compForm.locationId, (id) => setCompForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
                   {compForm.kind === 'deuda'
                     ? 'Si el dinero del préstamo ya te lo depositaron o ya lo tienes en efectivo, elige aquí a dónde entró. Si no, déjalo vacío.'
@@ -3684,18 +3693,7 @@ function LibroDiario() {
                 Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
               </div>
             ) : (
-              <div className="cat-grid">
-                {moneyLocations.map((l) => (
-                  <div
-                    key={l.id}
-                    className={`cat-choice ${abonoForm.locationId === l.id ? 'selected' : ''}`}
-                    onClick={() => setAbonoForm((f) => ({ ...f, locationId: f.locationId === l.id ? '' : l.id }))}
-                  >
-                    <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                    <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
-                  </div>
-                ))}
-              </div>
+              <div>{renderLocationPicker(moneyLocations, abonoForm.locationId, (id) => setAbonoForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
             )}
             <div className="field-label">Fecha</div>
             <input className="text-input" type="date" value={abonoForm.date} onChange={(e) => setAbonoForm((f) => ({ ...f, date: e.target.value }))} />
@@ -4218,31 +4216,9 @@ function LibroDiario() {
             <div className="field-label">Monto *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={traspasoForm.amount} onChange={(e) => setTraspasoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
             <div className="field-label">Sale de *</div>
-            <div className="cat-grid">
-              {moneyLocations.map((l) => (
-                <div
-                  key={l.id}
-                  className={`cat-choice ${traspasoForm.fromId === l.id ? 'selected' : ''}`}
-                  onClick={() => setTraspasoForm((f) => ({ ...f, fromId: f.fromId === l.id ? '' : l.id }))}
-                >
-                  <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                  <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Monedero'}</span>
-                </div>
-              ))}
-            </div>
+            <div>{renderLocationPicker(moneyLocations, traspasoForm.fromId, (id) => setTraspasoForm((f) => ({ ...f, fromId: f.fromId === id ? '' : id })))}</div>
             <div className="field-label">Entra a *</div>
-            <div className="cat-grid">
-              {moneyLocations.filter((l) => l.id !== traspasoForm.fromId).map((l) => (
-                <div
-                  key={l.id}
-                  className={`cat-choice ${traspasoForm.toId === l.id ? 'selected' : ''}`}
-                  onClick={() => setTraspasoForm((f) => ({ ...f, toId: f.toId === l.id ? '' : l.id }))}
-                >
-                  <div className="cat-choice-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={15} /></div>
-                  <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Monedero'}</span>
-                </div>
-              ))}
-            </div>
+            <div>{renderLocationPicker(moneyLocations.filter((l) => l.id !== traspasoForm.fromId), traspasoForm.toId, (id) => setTraspasoForm((f) => ({ ...f, toId: f.toId === id ? '' : id })))}</div>
             <div className="field-label">Nota (opcional)</div>
             <input className="text-input" type="text" placeholder="Ej. Retiro de cajero, depósito..." value={traspasoForm.note} onChange={(e) => setTraspasoForm((f) => ({ ...f, note: e.target.value }))} />
             <div className="field-label">Fecha *</div>
@@ -4284,7 +4260,7 @@ function LibroDiario() {
                 {moneyLocations.filter((l) => !moveForm.persona || l.persona === moveForm.persona).map((l) => (
                   <div key={l.id} className={`cat-choice ${moveForm.locationId === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, locationId: l.id }))}>
                     <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
-                    <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+                    <span className="cat-choice-label">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
                   </div>
                 ))}
               </div>
@@ -4295,14 +4271,7 @@ function LibroDiario() {
                 {moneyLocations.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Primero registra una tarjeta o monedero en la pestaña Tarjetas.</div>
                 ) : (
-                  <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                    {moneyLocations.filter((l) => l.id !== moveForm.locationId).map((l) => (
-                      <div key={l.id} className={`cat-choice ${moveForm.origen === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, origen: f.origen === l.id ? '' : l.id }))}>
-                        <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
-                        <span className="cat-choice-label">{l.persona} · {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <div>{renderLocationPicker(moneyLocations.filter((l) => l.id !== moveForm.locationId), moveForm.origen, (id) => setMoveForm((f) => ({ ...f, origen: f.origen === id ? '' : id })))}</div>
                 )}
               </>
             )}
