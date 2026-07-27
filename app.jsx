@@ -676,6 +676,7 @@ function LibroDiario() {
   // en Resumen. Se capturan a mano y se suman solos cuando registras un
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
+  const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
   const moneyLocationsByPerson = useMemo(() => {
     const map = {};
     moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
@@ -958,6 +959,7 @@ function LibroDiario() {
   const [abonoError, setAbonoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
+  const [budgetAmount, setBudgetAmount] = useState('');
   const [savError, setSavError] = useState('');
 
   const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', persona: '', locationId: '', origen: '' });
@@ -968,13 +970,14 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
         window.storage.get('familia', true),
         window.storage.get('familyName', true),
         window.storage.get('moneyLocations', true),
+        window.storage.get('budgets', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -993,6 +996,7 @@ function LibroDiario() {
       setCompromisos(migratedComp);
       setSavings(s.status === 'fulfilled' && s.value ? JSON.parse(s.value.value) : []);
       setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
+      setBudgets(bg.status === 'fulfilled' && bg.value ? JSON.parse(bg.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
       setFamilyName(fn.status === 'fulfilled' && fn.value ? JSON.parse(fn.value.value) : '');
       setLastSync(Date.now());
@@ -1062,10 +1066,12 @@ function LibroDiario() {
   const compromisosRef = useRef(compromisos);
   const savingsRef = useRef(savings);
   const moneyLocationsRef = useRef(moneyLocations);
+  const budgetsRef = useRef(budgets);
   useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
   useEffect(() => { compromisosRef.current = compromisos; }, [compromisos]);
   useEffect(() => { savingsRef.current = savings; }, [savings]);
   useEffect(() => { moneyLocationsRef.current = moneyLocations; }, [moneyLocations]);
+  useEffect(() => { budgetsRef.current = budgets; }, [budgets]);
 
   // Antes de guardar un arreglo compartido, revisa si el servidor ya tiene
   // algo que este celular no conocía (agregado por otro familiar mientras
@@ -1103,6 +1109,7 @@ function LibroDiario() {
     if (patch.compromisos) { setCompromisos(patch.compromisos); compromisosRef.current = patch.compromisos; }
     if (patch.savings) { setSavings(patch.savings); savingsRef.current = patch.savings; }
     if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
+    if (patch.budgets) { setBudgets(patch.budgets); budgetsRef.current = patch.budgets; }
     if (patch.familia) setFamilia(patch.familia);
     if (patch.familyName !== undefined) setFamilyName(patch.familyName);
     try {
@@ -1111,12 +1118,46 @@ function LibroDiario() {
       if (patch.compromisos) jobs.push(mergeAndWrite('compromisos', patch.compromisos, baseline.compromisos, setCompromisos, compromisosRef));
       if (patch.savings) jobs.push(mergeAndWrite('savings', patch.savings, baseline.savings, setSavings, savingsRef));
       if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
+      if (patch.budgets) jobs.push(window.storage.set('budgets', JSON.stringify(patch.budgets), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
       if (patch.familyName !== undefined) jobs.push(window.storage.set('familyName', JSON.stringify(patch.familyName), true));
       await Promise.all(jobs);
     } catch (e) { /* local state still holds it for this session */ }
     setSavingFlag(false);
   }, []);
+
+  // ---------- confirmación propia (reemplaza window.confirm) ----------
+  // Pide confirmación con un sheet del mismo estilo de la app en vez del
+  // cuadro nativo del navegador. onCancel es opcional (ej. para apagar un
+  // "cargando..." si el usuario cancela).
+  const askConfirm = (message, onConfirm, opts = {}) => {
+    setSheet({ type: 'confirm', message, onConfirm, onCancel: opts.onCancel, danger: opts.danger !== false, confirmLabel: opts.confirmLabel || 'Eliminar' });
+  };
+
+  // ---------- deshacer (reemplaza los "no se puede deshacer") ----------
+  // Guarda una foto de los 4 arreglos compartidos justo antes de que `fn` los
+  // modifique, y la deja lista por unos segundos por si el usuario se
+  // arrepiente. Deshacer = volver a guardar esa foto tal cual.
+  const [undoInfo, setUndoInfo] = useState(null); // { message, snapshot }
+  const undoTimeoutRef = useRef(null);
+  const withUndo = (message, fn) => {
+    const snapshot = {
+      transactions: transactionsRef.current,
+      moneyLocations: moneyLocationsRef.current,
+      compromisos: compromisosRef.current,
+      savings: savingsRef.current,
+    };
+    fn();
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    undoTimeoutRef.current = setTimeout(() => setUndoInfo(null), 6000);
+    setUndoInfo({ message, snapshot });
+  };
+  const performUndo = () => {
+    if (!undoInfo) return;
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    persist(undoInfo.snapshot);
+    setUndoInfo(null);
+  };
 
 
   const chooseProfile = async (name) => {
@@ -1278,6 +1319,17 @@ function LibroDiario() {
     return Object.entries(map).map(([id, value]) => ({ id, name: catById(id).label, value, color: catById(id).color }))
       .sort((a, b) => b.value - a.value);
   }, [filtered]);
+
+  // Gasto del MES EN CURSO por categoría, para comparar contra el presupuesto
+  // (siempre mensual, sin importar qué periodo esté elegido en Gráficas).
+  const gastoMesActualPorCategoria = useMemo(() => {
+    const key = periodKey(todayStr());
+    const map = {};
+    transactions.forEach((t) => {
+      if (t.type === 'gasto' && periodKey(t.date) === key) map[t.category] = (map[t.category] || 0) + t.amount;
+    });
+    return map;
+  }, [transactions]);
 
   const ingresosPorCategoria = useMemo(() => {
     const map = {};
@@ -1593,6 +1645,7 @@ function LibroDiario() {
     const locationId = txForm.locationId || null;
     const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
+    const finalizeTx = () => { persist(patch); setSheet(null); };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
       // Si este gasto deja el saldo por debajo de lo que tienes apartado
@@ -1603,23 +1656,26 @@ function LibroDiario() {
         const newMonto = (loc?.monto || 0) - amt;
         if (reserved > 0.01 && newMonto < reserved - 0.01) {
           const shortfall = Math.min(reserved, reserved - newMonto);
-          if (!window.confirm(`Este gasto usa ${fmt(shortfall)} de tu ahorro guardado en esta cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`)) return;
-          patch.savings = applySavingsWithdrawal(locationId, shortfall);
+          askConfirm(`Este gasto usa ${fmt(shortfall)} de tu ahorro guardado en esta cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`, () => {
+            patch.savings = applySavingsWithdrawal(locationId, shortfall);
+            finalizeTx();
+          }, { confirmLabel: 'Continuar', danger: false });
+          return;
         }
       }
     }
-    persist(patch);
-    setSheet(null);
+    finalizeTx();
   };
 
   const deleteTx = (id) => {
-    if (!window.confirm('¿Eliminar este movimiento? No se puede deshacer.')) return;
-    const orig = transactions.find((t) => t.id === id);
-    const patch = { transactions: transactions.filter((t) => t.id !== id) };
-    if (orig?.locationId) {
-      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
-    }
-    persist(patch);
+    askConfirm('¿Eliminar este movimiento?', () => withUndo('Movimiento eliminado', () => {
+      const orig = transactions.find((t) => t.id === id);
+      const patch = { transactions: transactions.filter((t) => t.id !== id) };
+      if (orig?.locationId) {
+        patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
+      }
+      persist(patch);
+    }));
   };
 
   // ---------- traspasos entre cuentas propias (ej. Banco -> Efectivo) ----------
@@ -1658,15 +1714,16 @@ function LibroDiario() {
   };
 
   const deleteTraspaso = (id) => {
-    if (!window.confirm('¿Eliminar este traspaso? Se revertirá el monto en ambas cuentas. No se puede deshacer.')) return;
-    const orig = transactions.find((t) => t.id === id);
-    if (!orig) return;
-    const nextLocations = moneyLocations.map((l) => {
-      if (l.id === orig.fromLocationId) return { ...l, monto: (l.monto || 0) + orig.amount };
-      if (l.id === orig.toLocationId) return { ...l, monto: (l.monto || 0) - orig.amount };
-      return l;
-    });
-    persist({ transactions: transactions.filter((t) => t.id !== id), moneyLocations: nextLocations });
+    askConfirm('¿Eliminar este traspaso? Se revertirá el monto en ambas cuentas.', () => withUndo('Traspaso eliminado', () => {
+      const orig = transactions.find((t) => t.id === id);
+      if (!orig) return;
+      const nextLocations = moneyLocations.map((l) => {
+        if (l.id === orig.fromLocationId) return { ...l, monto: (l.monto || 0) + orig.amount };
+        if (l.id === orig.toLocationId) return { ...l, monto: (l.monto || 0) - orig.amount };
+        return l;
+      });
+      persist({ transactions: transactions.filter((t) => t.id !== id), moneyLocations: nextLocations });
+    }));
   };
   // Nombre corto de una ubicación para mostrar en el detalle del traspaso.
   const locationLabel = (id) => {
@@ -1739,6 +1796,7 @@ function LibroDiario() {
       locationId: nextLocationId,
     } : t);
     const patch = { transactions: next, compromisos: nextCompromisos };
+    const finalizeEditTx = () => { persist(patch); setSheet(null); };
     // Revierte la ubicación anterior (si tenía) y aplica la nueva (si eligió una), por si cambió el monto, el tipo o la ubicación.
     if (orig?.locationId || nextLocationId) {
       let nextLocations = moneyLocations;
@@ -1753,47 +1811,49 @@ function LibroDiario() {
         const reserved = reservedForLocation(nextLocationId);
         if (reserved > 0.01 && (nuevaUbic?.monto || 0) < reserved - 0.01) {
           const shortfall = Math.min(reserved, reserved - (nuevaUbic?.monto || 0));
-          if (!window.confirm(`Este cambio deja ${fmt(shortfall)} de ahorro apartado sin cubrir en esa cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`)) return;
-          patch.savings = applySavingsWithdrawal(nextLocationId, shortfall);
+          askConfirm(`Este cambio deja ${fmt(shortfall)} de ahorro apartado sin cubrir en esa cuenta. Se registrará como retiro para que el ahorro y la cuenta cuadren. ¿Continuar?`, () => {
+            patch.savings = applySavingsWithdrawal(nextLocationId, shortfall);
+            finalizeEditTx();
+          }, { confirmLabel: 'Continuar', danger: false });
+          return;
         }
       }
     }
-    persist(patch);
-    setSheet(null);
+    finalizeEditTx();
   };
 
   const deleteTxFromEdit = () => {
-    if (!window.confirm('¿Eliminar este movimiento? No se puede deshacer.')) return;
-    const orig = transactions.find((t) => t.id === editTxForm.id);
-    let nextCompromisos = compromisos;
-    if (orig?.compromisoId) {
-      const c = compromisos.find((x) => x.id === orig.compromisoId);
-      const linkedPayment = findLinkedPayment(orig, c);
-      if (c && linkedPayment) {
+    askConfirm('¿Eliminar este movimiento?', () => withUndo('Movimiento eliminado', () => {
+      const orig = transactions.find((t) => t.id === editTxForm.id);
+      let nextCompromisos = compromisos;
+      if (orig?.compromisoId) {
+        const c = compromisos.find((x) => x.id === orig.compromisoId);
+        const linkedPayment = findLinkedPayment(orig, c);
+        if (c && linkedPayment) {
+          nextCompromisos = compromisos.map((x) => {
+            if (x.id !== c.id) return x;
+            const nextPayments = x.payments.filter((p) => p.id !== linkedPayment.id);
+            if (isBalanceKind(x.kind)) {
+              const currentBalance = x.balance != null ? x.balance : x.amount;
+              return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance + linkedPayment.amount) };
+            }
+            return { ...x, payments: nextPayments };
+          });
+        }
+      } else if (orig?.compromisoIds?.length) {
+        // Movimiento "pago junto": revierte el abono correspondiente en cada gasto/ingreso fijo vinculado.
         nextCompromisos = compromisos.map((x) => {
-          if (x.id !== c.id) return x;
-          const nextPayments = x.payments.filter((p) => p.id !== linkedPayment.id);
-          if (isBalanceKind(x.kind)) {
-            const currentBalance = x.balance != null ? x.balance : x.amount;
-            return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance + linkedPayment.amount) };
-          }
-          return { ...x, payments: nextPayments };
+          const paymentId = orig.paymentIds && orig.paymentIds[x.id];
+          if (!paymentId) return x;
+          return { ...x, payments: x.payments.filter((p) => p.id !== paymentId) };
         });
       }
-    } else if (orig?.compromisoIds?.length) {
-      // Movimiento "pago junto": revierte el abono correspondiente en cada gasto/ingreso fijo vinculado.
-      nextCompromisos = compromisos.map((x) => {
-        const paymentId = orig.paymentIds && orig.paymentIds[x.id];
-        if (!paymentId) return x;
-        return { ...x, payments: x.payments.filter((p) => p.id !== paymentId) };
-      });
-    }
-    const patch = { transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos };
-    if (orig?.locationId) {
-      patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
-    }
-    persist(patch);
-    setSheet(null);
+      const patch = { transactions: transactions.filter((t) => t.id !== editTxForm.id), compromisos: nextCompromisos };
+      if (orig?.locationId) {
+        patch.moneyLocations = moneyLocations.map((l) => l.id === orig.locationId ? { ...l, monto: (l.monto || 0) - locationDelta(orig.type, orig.amount) } : l);
+      }
+      persist(patch);
+    }));
   };
 
   const openNewCompromiso = (prefill) => {
@@ -1911,8 +1971,9 @@ function LibroDiario() {
   const deleteCompromiso = (id) => {
     const c = compromisos.find((x) => x.id === id);
     const label = c?.kind === 'deuda' ? 'este préstamo' : c?.kind === 'cxc' ? 'esta cuenta por cobrar' : c?.kind === 'ingreso_fijo' ? 'este ingreso fijo' : 'este gasto fijo';
-    if (!window.confirm(`¿Eliminar ${label}${c ? ` "${c.name}"` : ''}? Se perderá su historial de pagos.`)) return;
-    persist({ compromisos: compromisos.filter((c) => c.id !== id) });
+    askConfirm(`¿Eliminar ${label}${c ? ` "${c.name}"` : ''}? Se perderá su historial de pagos.`, () => withUndo('Eliminado', () => {
+      persist({ compromisos: compromisos.filter((c) => c.id !== id) });
+    }));
   };
 
   const openEditAmount = (compromiso) => {
@@ -1995,8 +2056,9 @@ function LibroDiario() {
 
   const deleteSavings = (id) => {
     const acc = savings.find((a) => a.id === id);
-    if (!window.confirm(`¿Eliminar esta cuenta de ahorro${acc ? ` "${acc.name}"` : ''}? Se perderá su historial de movimientos.`)) return;
-    persist({ savings: savings.filter((a) => a.id !== id) });
+    askConfirm(`¿Eliminar esta cuenta de ahorro${acc ? ` "${acc.name}"` : ''}? Se perderá su historial de movimientos.`, () => withUndo('Cuenta de ahorro eliminada', () => {
+      persist({ savings: savings.filter((a) => a.id !== id) });
+    }));
   };
 
   const openMove = (account, kind) => {
@@ -2116,8 +2178,23 @@ function LibroDiario() {
 
   const deleteLocation = (id) => {
     const loc = moneyLocations.find((l) => l.id === id);
-    if (!window.confirm(`¿Eliminar esta ubicación${loc ? ` (${loc.persona} · ${loc.tipo === 'tarjeta' ? loc.nombre : 'Monedero'})` : ''}?`)) return;
-    persist({ moneyLocations: moneyLocations.filter((l) => l.id !== id) });
+    askConfirm(`¿Eliminar esta ubicación${loc ? ` (${loc.persona} · ${loc.tipo === 'tarjeta' ? loc.nombre : 'Monedero'})` : ''}?`, () => withUndo('Ubicación eliminada', () => {
+      persist({ moneyLocations: moneyLocations.filter((l) => l.id !== id) });
+    }));
+  };
+
+  // ---------- presupuestos por categoría (mensual) ----------
+  const openBudgetEdit = (catId) => {
+    setBudgetAmount(budgets[catId] ? String(budgets[catId]) : '');
+    setSheet({ type: 'budget-cat', catId });
+  };
+  const submitBudget = () => {
+    const catId = sheet.catId;
+    const amt = toNumber(budgetAmount);
+    const next = { ...budgets };
+    if (!amt || amt <= 0) delete next[catId]; else next[catId] = amt;
+    persist({ budgets: next });
+    setSheet(null);
   };
 
   const markPersonPaid = (name) => {
@@ -2144,10 +2221,11 @@ function LibroDiario() {
   // familia) y recarga la app para volver a la pantalla de bienvenida, donde
   // se puede entrar a otro código o crear una familia nueva.
   const leaveFamily = async () => {
-    if (!window.confirm('¿Salir de esta familia en este celular? Dejarás de ver y compartir estos movimientos. Podrás volver a entrar con el mismo código cuando quieras.')) return;
-    try { await window.storage.delete('miPerfil', false); } catch (e) { /* sigue igual */ }
-    window.libroDiario.clearFamilyCode();
-    window.location.reload();
+    askConfirm('¿Salir de esta familia en este celular? Dejarás de ver y compartir estos movimientos. Podrás volver a entrar con el mismo código cuando quieras.', async () => {
+      try { await window.storage.delete('miPerfil', false); } catch (e) { /* sigue igual */ }
+      window.libroDiario.clearFamilyCode();
+      window.location.reload();
+    }, { confirmLabel: 'Salir' });
   };
 
   // Respaldo manual: descarga todo lo compartido de la familia como un
@@ -2175,23 +2253,24 @@ function LibroDiario() {
       const text = await file.text();
       const data = JSON.parse(text);
       if (!data || typeof data !== 'object') throw new Error('Archivo inválido');
-      if (!window.confirm('¿Reemplazar los datos compartidos de la familia con lo que hay en este respaldo? Esto afecta a todos los que usan el mismo código.')) {
+      askConfirm('¿Reemplazar los datos compartidos de la familia con lo que hay en este respaldo? Esto afecta a todos los que usan el mismo código.', () => {
+        withUndo('Respaldo restaurado', () => {
+          persist({
+            transactions: Array.isArray(data.transactions) ? data.transactions : [],
+            compromisos: Array.isArray(data.compromisos) ? data.compromisos : [],
+            savings: Array.isArray(data.savings) ? data.savings : [],
+            moneyLocations: Array.isArray(data.moneyLocations) ? data.moneyLocations : [],
+            familia: Array.isArray(data.familia) ? data.familia : familia,
+            familyName: typeof data.familyName === 'string' ? data.familyName : familyName,
+          });
+        });
+        setBackupMsg('Respaldo restaurado.');
         setBackupBusy(false);
-        return;
-      }
-      await persist({
-        transactions: Array.isArray(data.transactions) ? data.transactions : [],
-        compromisos: Array.isArray(data.compromisos) ? data.compromisos : [],
-        savings: Array.isArray(data.savings) ? data.savings : [],
-        moneyLocations: Array.isArray(data.moneyLocations) ? data.moneyLocations : [],
-        familia: Array.isArray(data.familia) ? data.familia : familia,
-        familyName: typeof data.familyName === 'string' ? data.familyName : familyName,
-      });
-      setBackupMsg('Respaldo restaurado.');
+      }, { confirmLabel: 'Reemplazar', onCancel: () => setBackupBusy(false) });
     } catch (e) {
       setBackupMsg('No se pudo leer ese archivo de respaldo.');
+      setBackupBusy(false);
     }
-    setBackupBusy(false);
   };
 
   const requestNotifPermission = async () => {
@@ -2549,6 +2628,9 @@ function LibroDiario() {
         .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px; cursor: pointer; }
         .nav-popover-item:active { background: var(--paper-dim); }
         .nav-fab-btn { width: 42px; height: 42px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; margin-left: 4px; transition: width 0.25s, height 0.25s, transform 0.15s; -webkit-tap-highlight-color: transparent; }
+        .undo-toast { position: absolute; left: 50%; bottom: calc(78px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--green); color: #fff; padding: 10px 8px 10px 16px; border-radius: 14px; display: flex; align-items: center; gap: 14px; font-size: 13px; box-shadow: 0 8px 22px rgba(0,0,0,0.28); z-index: 40; max-width: calc(100% - 32px); animation: undoIn 0.18s ease-out; }
+        .undo-toast button { background: none; border: none; color: var(--gold); font-weight: 700; font-size: 13px; padding: 8px 10px; cursor: pointer; flex-shrink: 0; }
+        @keyframes undoIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
         .nav-fab-btn:active { transform: scale(0.92); }
         .bottom-nav.nav-compact .nav-fab-btn { width: 34px; height: 34px; }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
@@ -2825,6 +2907,26 @@ function LibroDiario() {
                 ))}
               </div>
             )}
+            <div className="card">
+              <div className="card-title">Presupuestos · {new Date().toLocaleDateString('es-MX', { month: 'long' })}</div>
+              {GASTO_CATS.map((c) => {
+                const spent = gastoMesActualPorCategoria[c.id] || 0;
+                const budget = budgets[c.id] || 0;
+                const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
+                const over = budget > 0 && spent > budget;
+                const barColor = !budget ? 'var(--line)' : over ? 'var(--expense)' : pct >= 85 ? 'var(--gold)' : c.color;
+                return (
+                  <div key={c.id} className="cat-row" style={{ cursor: 'pointer' }} onClick={() => openBudgetEdit(c.id)}>
+                    <span className="cat-dot" style={{ background: c.color }} />
+                    <span className="cat-row-label">{c.label}</span>
+                    <div className="cat-bar-track"><div className="cat-bar-fill" style={{ width: `${budget ? pct : 0}%`, background: barColor }} /></div>
+                    <span className="cat-row-amount" style={{ width: 'auto', minWidth: 60, fontSize: 12, whiteSpace: 'nowrap', ...(over ? { color: 'var(--expense)' } : {}) }}>
+                      {budget ? `${fmt(spent)} / ${fmt(budget)}` : 'Fijar'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
             <div className="card">
               <div className="card-title">Principales gastos · {PERIOD_LABEL[period]}</div>
               {topCats.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos registrados todavía.</div> :
@@ -3424,6 +3526,13 @@ function LibroDiario() {
         )}
       </div>
 
+      {undoInfo && (
+        <div className="undo-toast">
+          <span>{undoInfo.message}</span>
+          <button onClick={performUndo}>Deshacer</button>
+        </div>
+      )}
+
       <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
         {hiddenPopoverFor && <div className="nav-popover-backdrop" onClick={() => setHiddenPopoverFor(null)} />}
         <div
@@ -3988,6 +4097,25 @@ function LibroDiario() {
         </div>
       )}
 
+      {sheet?.type === 'budget-cat' && (() => {
+        const c = catById(sheet.catId);
+        const spent = gastoMesActualPorCategoria[c.id] || 0;
+        return (
+          <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+              <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+              <div className="sheet-header"><span className="sheet-title">Presupuesto · {c.label}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
+                Llevas gastado {fmt(spent)} este mes en esta categoría. Deja en blanco o en 0 para quitar el presupuesto.
+              </div>
+              <div className="field-label">Presupuesto mensual</div>
+              <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={budgetAmount} onChange={(e) => setBudgetAmount(formatAmountTyping(e.target.value))} autoFocus /></div>
+              <button className="save-btn" onClick={submitBudget}><Icon name="Check" size={16} /> Guardar presupuesto</button>
+            </div>
+          </div>
+        );
+      })()}
+
       {sheet?.type === 'compromiso-shared-detail' && (() => {
         const c = compromisosView.find((x) => x.id === sheet.compromiso.id) || sheet.compromiso;
         const totalParts = (c.shared?.participants || []).reduce((s, p) => s + p.amount, 0);
@@ -4219,6 +4347,26 @@ function LibroDiario() {
           </div>
         );
       })()}
+
+      {sheet?.type === 'confirm' && (
+        <div className="sheet-backdrop" onClick={() => { const cancel = sheet.onCancel; setSheet(null); cancel && cancel(); }}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={{ ...sheetDragStyle, paddingTop: 26 }}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--ink)', marginBottom: 20 }}>{sheet.message}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                className={sheet.danger ? 'danger-btn' : 'save-btn'}
+                onClick={() => { const fn = sheet.onConfirm; setSheet(null); fn && fn(); }}
+              >{sheet.confirmLabel}</button>
+              <button
+                className="save-btn"
+                style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+                onClick={() => { const cancel = sheet.onCancel; setSheet(null); cancel && cancel(); }}
+              >Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {sheet?.type === 'wallet-menu' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
@@ -4758,7 +4906,7 @@ function LibroDiario() {
               <Icon name="RefreshCw" size={14} /> {backupBusy ? 'Restaurando…' : 'Importar respaldo'}
             </button>
             {backupMsg && <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{backupMsg}</div>}
-            <button className="danger-btn" onClick={() => { if (window.confirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)? Esta acción no se puede deshacer.')) clearAll(); }}>
+            <button className="danger-btn" onClick={() => askConfirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)?', () => withUndo('Historial borrado', clearAll), { confirmLabel: 'Borrar todo' })}>
               <Icon name="Trash2" size={14} /> Borrar todo el historial
             </button>
           </div>
