@@ -16,7 +16,11 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 
 <style>
-  html, body { margin: 0; padding: 0; background: #F0EDE4; }
+  html, body {
+    margin: 0; padding: 0; background: #EFEFF2;
+    position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh;
+    overflow: hidden; overscroll-behavior: none;
+  }
   #root:empty::before {
     content: 'Cargando…';
     display: flex; align-items: center; justify-content: center;
