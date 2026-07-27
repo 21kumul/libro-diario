@@ -831,11 +831,13 @@ function LibroDiario() {
   // curva que los botones (porque ambos son proporcionales al mismo
   // contenedor) — sin rebotes ni desincronía, y sin tener que re-medir nada.
   const navIndex = (key) => Math.max(0, NAV_TABS.findIndex((n) => n.key === parentOfTab(key)));
-  const navPct = 100 / NAV_TABS.length;
+  const NAV_COUNT = NAV_TABS.length + 1; // los 4 tabs + el "+" al final, todos deslizables como una sola barra
+  const navPct = 100 / NAV_COUNT;
   // Arrastre en vivo sobre la barra (como Instagram/Meta): al deslizar el
   // dedo sin soltarlo por encima de los íconos, la burbuja sigue la posición
   // exacta del dedo (en píxeles, de forma continua) para que se vea como una
-  // sola pieza deslizándose, no como saltos entre pestañas.
+  // sola pieza deslizándose, no como saltos entre pestañas. El "+" cuenta
+  // como un quinto destino más dentro de este mismo arrastre.
   const [dragTabKey, setDragTabKey] = useState(null);
   const [dragLeftPx, setDragLeftPx] = useState(null);
   const navDragStartKey = useRef(null);
@@ -844,13 +846,14 @@ function LibroDiario() {
     const wrap = navTabsRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
-    const btnWidth = rect.width / NAV_TABS.length;
+    const btnWidth = rect.width / NAV_COUNT;
     navDragRect.current = { left: rect.left, width: rect.width, btnWidth };
     const t = e.touches[0];
     const x = Math.max(0, Math.min(rect.width - btnWidth, t.clientX - rect.left - btnWidth / 2));
-    const idx = Math.min(NAV_TABS.length - 1, Math.max(0, Math.round(x / btnWidth)));
-    navDragStartKey.current = NAV_TABS[idx].key;
-    setDragTabKey(NAV_TABS[idx].key);
+    const idx = Math.min(NAV_COUNT - 1, Math.max(0, Math.round(x / btnWidth)));
+    const key = idx < NAV_TABS.length ? NAV_TABS[idx].key : '__fab__';
+    navDragStartKey.current = key;
+    setDragTabKey(key);
     setDragLeftPx(x);
   };
   const handleNavTouchMove = (e) => {
@@ -859,8 +862,8 @@ function LibroDiario() {
     const t = e.touches[0];
     const x = Math.max(0, Math.min(r.width - r.btnWidth, t.clientX - r.left - r.btnWidth / 2));
     setDragLeftPx(x);
-    const idx = Math.min(NAV_TABS.length - 1, Math.max(0, Math.round(x / r.btnWidth)));
-    const key = NAV_TABS[idx].key;
+    const idx = Math.min(NAV_COUNT - 1, Math.max(0, Math.round(x / r.btnWidth)));
+    const key = idx < NAV_TABS.length ? NAV_TABS[idx].key : '__fab__';
     if (key !== dragTabKey) {
       cancelLongPress();
       if (navigator.vibrate) navigator.vibrate(4);
@@ -868,7 +871,9 @@ function LibroDiario() {
     }
   };
   const handleNavTouchEnd = () => {
-    if (dragTabKey && dragTabKey !== navDragStartKey.current) goTab(dragTabKey);
+    if (dragTabKey && dragTabKey !== navDragStartKey.current) {
+      if (dragTabKey === '__fab__') fabAction(); else goTab(dragTabKey);
+    }
     navDragStartKey.current = null;
     navDragRect.current = null;
     setDragTabKey(null);
@@ -2524,7 +2529,7 @@ function LibroDiario() {
         .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
         .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
         .appearance-opt.active .appearance-label { color: var(--gold); }
-        .ledger-app.dark .bottom-nav { background: var(--paper); border-top-color: var(--line); }
+        .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
         .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
         /* El verde de marca (var(--green)) se queda fijo a propósito (es el
@@ -2643,19 +2648,22 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav {
-          position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
-          background: var(--paper);
-          border: none; border-top: 1px solid var(--line);
-          border-radius: 0;
+          position: absolute; left: 12px; right: 12px; bottom: max(env(safe-area-inset-bottom, 0px), 10px); z-index: 6;
+          background: rgba(250,250,250,0.72);
+          -webkit-backdrop-filter: blur(22px) saturate(180%);
+          backdrop-filter: blur(22px) saturate(180%);
+          border: 1px solid rgba(255,255,255,0.55);
+          border-radius: 999px;
           display: flex; align-items: center;
-          padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)) 4px;
+          padding: 6px 6px;
+          box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
         }
         .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
-        .nav-tabs { position: relative; display: flex; flex: 4 1 0; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        .nav-tabs { position: relative; display: flex; width: 100%; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
         .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
         .nav-highlight.dragging { transition: none; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
@@ -2664,8 +2672,8 @@ function LibroDiario() {
         @keyframes navPopIn { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
         .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px; cursor: pointer; }
         .nav-popover-item:active { background: var(--paper-dim); }
-        .nav-fab-btn { flex: 1 1 0; background: none; color: var(--ink-soft); border: none; display: flex; align-items: center; justify-content: center; align-self: flex-start; padding: 8px 4px; margin-top: 4px; cursor: pointer; transition: transform 0.15s; -webkit-tap-highlight-color: transparent; }
-        .undo-toast { position: absolute; left: 50%; bottom: calc(78px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--green); color: #fff; padding: 10px 8px 10px 16px; border-radius: 14px; display: flex; align-items: center; gap: 14px; font-size: 13px; box-shadow: 0 8px 22px rgba(0,0,0,0.28); z-index: 40; max-width: calc(100% - 32px); animation: undoIn 0.18s ease-out; }
+        .nav-fab-btn { position: relative; z-index: 1; flex: 1; min-width: 0; background: none; color: var(--ink-soft); border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 4px; cursor: pointer; transition: transform 0.15s, color 0.2s; -webkit-tap-highlight-color: transparent; }
+        .undo-toast { position: absolute; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--green); color: #fff; padding: 10px 8px 10px 16px; border-radius: 14px; display: flex; align-items: center; gap: 14px; font-size: 13px; box-shadow: 0 8px 22px rgba(0,0,0,0.28); z-index: 40; max-width: calc(100% - 32px); animation: undoIn 0.18s ease-out; }
         .undo-toast button { background: none; border: none; color: var(--gold); font-weight: 700; font-size: 13px; padding: 8px 10px; cursor: pointer; flex-shrink: 0; }
         @keyframes undoIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
         .nav-fab-btn:active { transform: scale(0.9); }
@@ -3629,8 +3637,14 @@ function LibroDiario() {
               </div>
             );
           })}
+          <button
+            className={`nav-fab-btn ${dragTabKey === '__fab__' ? 'active' : ''}`}
+            data-navkey="__fab__"
+            style={dragTabKey === '__fab__' ? { color: 'var(--gold)' } : undefined}
+            onClick={fabAction}
+            aria-label="Agregar movimiento"
+          ><Icon name="Plus" size={20} /></button>
         </div>
-        <button className="nav-fab-btn" onClick={fabAction} aria-label="Agregar movimiento"><Icon name="Plus" size={20} /></button>
       </div>
 
       {sheet?.type === 'add-tx' && (
