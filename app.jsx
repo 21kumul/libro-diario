@@ -42,6 +42,7 @@ const GASTO_CATS = [
   { id: 'transporte', label: 'Transporte', icon: 'Motorbike', color: '#8C6239' },
   { id: 'comida', label: 'Comida', icon: 'Utensils', color: '#D17A4A' },
   { id: 'despensa', label: 'Despensa', icon: 'ShoppingBag', color: '#5F8A4C' },
+  { id: 'salud', label: 'Salud', icon: 'HeartPulse', color: '#C15B72' },
   { id: 'banco', label: 'Banco', icon: 'Landmark', color: '#3E6EA5' },
   { id: 'deudas', label: 'Préstamos', icon: 'CreditCard', color: '#7A4E3A' },
   { id: 'otros_gas', label: 'Otros', icon: 'MoreHorizontal', color: '#9C8672' },
@@ -740,6 +741,11 @@ function LibroDiario() {
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', darkMode ? '#121412' : '#1E3D32');
+    // El fondo de <body> vive fuera de .ledger-app (no puede leer sus
+    // variables de CSS), así que si no se actualiza aquí a mano, cuando el
+    // celular hace "overscroll" se asoma un color equivocado (franja clara
+    // en modo oscuro) en vez del fondo real de la app.
+    document.body.style.background = darkMode ? '#121412' : '#F0EDE4';
   }, [darkMode]);
   const [tab, setTab] = useState('resumen');
   const NAV_TABS = [
@@ -2480,7 +2486,7 @@ function LibroDiario() {
         .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
         .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
         .appearance-opt.active .appearance-label { color: var(--gold); }
-        .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
+        .ledger-app.dark .bottom-nav { background: rgba(18,20,18,0.88); border-top-color: rgba(255,255,255,0.08); box-shadow: 0 -6px 20px rgba(0,0,0,0.35); }
         .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
         /* El verde de marca (var(--green)) se queda fijo a propósito (es el
@@ -2599,19 +2605,19 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav {
-          position: absolute; left: 12px; right: 12px; bottom: max(env(safe-area-inset-bottom, 0px), 6px); z-index: 6;
-          background: rgba(250,250,250,0.62);
+          position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+          background: rgba(250,250,250,0.82);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
-          border: 1px solid rgba(255,255,255,0.55);
-          border-radius: 999px;
+          border: none; border-top: 1px solid rgba(0,0,0,0.06);
+          border-radius: 24px 24px 0 0;
           display: flex; align-items: center;
-          padding: 8px 10px;
-          box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
+          padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px;
+          box-shadow: 0 -6px 20px rgba(0,0,0,0.08);
           transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
         }
-        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: 5px; }
+        .bottom-nav.nav-compact { left: 0; right: 0; padding-left: 34px; padding-right: 34px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
         .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
         .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
@@ -2665,7 +2671,7 @@ function LibroDiario() {
         .cat-choice.selected { background: rgba(30,61,50,0.09); box-shadow: inset 0 0 0 1.5px var(--green); }
         .cat-choice-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; }
         .cat-choice-label { font-size: 11px; font-weight: 500; text-align: center; }
-        .text-input { width: 100%; border: none; border-radius: 12px; padding: 11px 12px; font-family: var(--sans); font-size: 14px; outline: none; background: var(--paper-dim); box-sizing: border-box; }
+        .text-input { width: 100%; border: none; border-radius: 12px; padding: 11px 12px; font-family: var(--sans); font-size: 14px; outline: none; background: var(--paper-dim); color: var(--ink); box-sizing: border-box; }
         .text-input:focus { border-color: var(--green); }
         .form-error { color: var(--expense); font-size: 12px; margin-top: 10px; font-weight: 500; }
         .save-btn { width: 100%; background: var(--green); color: var(--on-accent); border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 14px; margin-top: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: 0.3px; }
@@ -3616,7 +3622,9 @@ function LibroDiario() {
                 ) : (
                   <div>
                     {renderLocationPicker(
-                      (moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations),
+                      txForm.type === 'ingreso'
+                        ? moneyLocations
+                        : (moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations),
                       txForm.locationId,
                       (id) => setTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
                     )}
@@ -3808,10 +3816,12 @@ function LibroDiario() {
             ) : (
               <div>
                 {renderLocationPicker(
-                  (() => {
-                    const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
-                    return funded.length ? funded : moneyLocations;
-                  })(),
+                  editTxForm.type === 'ingreso'
+                    ? moneyLocations
+                    : (() => {
+                        const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
+                        return funded.length ? funded : moneyLocations;
+                      })(),
                   editTxForm.locationId,
                   (id) => setEditTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
                 )}
@@ -5067,3 +5077,4 @@ function LibroDiario() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
+
