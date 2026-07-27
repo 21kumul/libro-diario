@@ -555,6 +555,13 @@ const getBankInfo = (loc) => {
 const cardBg = (loc) => (loc.tipo === 'tarjeta' ? (getBankInfo(loc)?.gradient || CARD_GRADIENTS[hashStr(loc.id) % CARD_GRADIENTS.length]) : '#5F8A4C');
 const periodKey = (dateStr) => dateStr.slice(0, 7);
 const currentPeriodKey = periodKey(todayStr());
+// Dado un periodo "YYYY-MM", regresa el siguiente. Sirve para recorrer, mes
+// por mes, los periodos que un gasto/ingreso fijo pudo haberse saltado.
+const nextPeriodKey = (pk) => {
+  const [y, m] = pk.split('-').map(Number);
+  const d = new Date(y, m, 1); // m ya viene en 1-índice, así que esto cae en el mes siguiente
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 const uid = () => Date.now() + Math.random();
 
 const startOfPeriod = (period) => {
@@ -1394,9 +1401,41 @@ function LibroDiario() {
     }
     const pagadoMes = c.payments.filter((p) => p.period === currentPeriodKey).reduce((s, p) => s + p.amount, 0);
     const baseAmount = c.balance != null ? c.balance : c.amount;
-    const pendiente = Math.max(0, baseAmount - pagadoMes);
-    return { ...c, pagado: pagadoMes, pendiente, pct: baseAmount ? Math.min(100, (pagadoMes / baseAmount) * 100) : 0, liquidada: false };
+    const carryOver = c.carryOver || 0;
+    const pendiente = Math.max(0, carryOver + baseAmount - pagadoMes);
+    return { ...c, pagado: pagadoMes, pendiente, carryOver, pct: baseAmount ? Math.min(100, (pagadoMes / baseAmount) * 100) : 0, liquidada: false };
   }), [compromisos]);
+
+  // Si un gasto/ingreso fijo se quedó sin pagar el mes en que le tocaba, este
+  // efecto (se revisa cada vez que abres la app) mete ese faltante a
+  // carryOver, para que se sume al monto de este mes en vez de "perderse" al
+  // pasar la página del mes. Solo cuenta desde que se activó esta función en
+  // adelante (compromisos ya existentes empiezan su conteo desde hoy, no
+  // desde que se crearon).
+  useEffect(() => {
+    if (!compromisos.length) return;
+    let changed = false;
+    const next = compromisos.map((c) => {
+      if (c.kind !== 'fijo' && c.kind !== 'ingreso_fijo') return c;
+      const hadStoredBaseline = !!c.lastCheckedPeriod;
+      let checked = c.lastCheckedPeriod || currentPeriodKey;
+      let carry = c.carryOver || 0;
+      const baseAmount = c.balance != null ? c.balance : c.amount;
+      let advanced = false;
+      while (checked < currentPeriodKey) {
+        const pagadoEnPeriodo = c.payments.filter((p) => p.period === checked).reduce((s, p) => s + p.amount, 0);
+        carry += Math.max(0, baseAmount - pagadoEnPeriodo);
+        checked = nextPeriodKey(checked);
+        advanced = true;
+      }
+      // Si ya tenía una fecha de referencia guardada y ningún mes se cruzó, no hay nada que actualizar.
+      if (hadStoredBaseline && !advanced) return c;
+      changed = true;
+      return { ...c, carryOver: carry, lastCheckedPeriod: checked };
+    });
+    if (changed) persist({ compromisos: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compromisos.length]);
 
   const deudas = compromisosView.filter((c) => c.kind === 'deuda');
   const cxc = compromisosView.filter((c) => c.kind === 'cxc');
@@ -1942,7 +1981,7 @@ function LibroDiario() {
       if (sumParts > amt + 0.01) return setCompError('La suma de las partes no puede ser mayor al monto mensual.');
       if (parts.length) shared = { participants: parts };
     }
-    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, recurFreq, anchorDate, shared };
+    const compromiso = { id: uid(), kind: compForm.kind, name: compForm.name.trim(), category: compForm.category, amount: amt, balance: amt, payments: [], adjustments: [], notifyDay, recurFreq, anchorDate, shared, carryOver: 0, lastCheckedPeriod: currentPeriodKey };
     const next = [...compromisos, compromiso];
     const patch = { compromisos: next };
     // Si al dar de alta un préstamo o una cuenta por cobrar se eligió una
@@ -2470,7 +2509,6 @@ function LibroDiario() {
           --shadow-sheet: 0 -4px 30px rgba(0,0,0,0.55);
           box-shadow: 0 0 40px rgba(0,0,0,0.4);
         }
-        .ledger-app.dark .nav-fab-btn { box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
         .appearance-row { display: flex; gap: 10px; margin-top: 10px; }
         .appearance-opt { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; background: none; border: none; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; }
         .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; border: 2.5px solid var(--paper-dim); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: border-color 0.15s; }
@@ -2486,8 +2524,8 @@ function LibroDiario() {
         .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
         .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
         .appearance-opt.active .appearance-label { color: var(--gold); }
-        .ledger-app.dark .bottom-nav { background: rgba(18,20,18,0.88); border-top-color: rgba(255,255,255,0.08); box-shadow: 0 -6px 20px rgba(0,0,0,0.35); }
-        .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3); }
+        .ledger-app.dark .bottom-nav { background: var(--paper); border-top-color: var(--line); }
+        .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
         /* El verde de marca (var(--green)) se queda fijo a propósito (es el
            mismo verde del panel superior en ambos temas), pero por eso el
@@ -2606,26 +2644,19 @@ function LibroDiario() {
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav {
           position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
-          background: rgba(250,250,250,0.82);
-          -webkit-backdrop-filter: blur(22px) saturate(180%);
-          backdrop-filter: blur(22px) saturate(180%);
-          border: none; border-top: 1px solid rgba(0,0,0,0.06);
-          border-radius: 24px 24px 0 0;
+          background: var(--paper);
+          border: none; border-top: 1px solid var(--line);
+          border-radius: 0;
           display: flex; align-items: center;
-          padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px;
-          box-shadow: 0 -6px 20px rgba(0,0,0,0.08);
-          transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
+          padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)) 4px;
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
         }
-        .bottom-nav.nav-compact { left: 0; right: 0; padding-left: 34px; padding-right: 34px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
-        .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
-        .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
-        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s, font-size 0.25s, padding 0.25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
+        .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
-        .nav-tabs { position: relative; display: flex; flex: 1; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
-        .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
+        .nav-tabs { position: relative; display: flex; flex: 4 1 0; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
         .nav-highlight.dragging { transition: none; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
@@ -2633,12 +2664,11 @@ function LibroDiario() {
         @keyframes navPopIn { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
         .nav-popover-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px; cursor: pointer; }
         .nav-popover-item:active { background: var(--paper-dim); }
-        .nav-fab-btn { width: 42px; height: 42px; border-radius: 50%; background: var(--gold); color: var(--green); border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(194,155,62,0.5); cursor: pointer; flex-shrink: 0; margin-left: 4px; transition: width 0.25s, height 0.25s, transform 0.15s; -webkit-tap-highlight-color: transparent; }
+        .nav-fab-btn { flex: 1 1 0; background: none; color: var(--ink-soft); border: none; display: flex; align-items: center; justify-content: center; align-self: flex-start; padding: 8px 4px; margin-top: 4px; cursor: pointer; transition: transform 0.15s; -webkit-tap-highlight-color: transparent; }
         .undo-toast { position: absolute; left: 50%; bottom: calc(78px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--green); color: #fff; padding: 10px 8px 10px 16px; border-radius: 14px; display: flex; align-items: center; gap: 14px; font-size: 13px; box-shadow: 0 8px 22px rgba(0,0,0,0.28); z-index: 40; max-width: calc(100% - 32px); animation: undoIn 0.18s ease-out; }
         .undo-toast button { background: none; border: none; color: var(--gold); font-weight: 700; font-size: 13px; padding: 8px 10px; cursor: pointer; flex-shrink: 0; }
         @keyframes undoIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-        .nav-fab-btn:active { transform: scale(0.92); }
-        .bottom-nav.nav-compact .nav-fab-btn { width: 34px; height: 34px; }
+        .nav-fab-btn:active { transform: scale(0.9); }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; overflow-x: hidden; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); pointer-events: none; }
@@ -3199,6 +3229,11 @@ function LibroDiario() {
                           <span>Pagado: {fmt(c.pagado)}</span>
                           <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Al día ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
                         </div>
+                        {c.carryOver > 0.01 && (
+                          <div className="compromiso-notify" style={{ color: 'var(--expense)' }}>
+                            <Icon name="AlertTriangle" size={11} /> Incluye {fmt(c.carryOver)} sin pagar de meses anteriores
+                          </div>
+                        )}
                         {((c.recurFreq && c.recurFreq !== 'mensual') || c.notifyDay) && (
                           <div className="compromiso-notify">
                             <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
@@ -3238,6 +3273,11 @@ function LibroDiario() {
                           <span>Recibido: {fmt(c.pagado)}</span>
                           <span className={`pend ${c.pendiente <= 0.01 ? 'done' : ''}`}>{c.pendiente <= 0.01 ? 'Recibido ✓' : `Faltan ${fmt(c.pendiente)}`}</span>
                         </div>
+                        {c.carryOver > 0.01 && (
+                          <div className="compromiso-notify" style={{ color: 'var(--expense)' }}>
+                            <Icon name="AlertTriangle" size={11} /> Incluye {fmt(c.carryOver)} sin recibir de meses anteriores
+                          </div>
+                        )}
                         {((c.recurFreq && c.recurFreq !== 'mensual') || c.notifyDay) && (
                           <div className="compromiso-notify">
                             <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={11} />
