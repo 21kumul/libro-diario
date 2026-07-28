@@ -2647,6 +2647,7 @@ function LibroDiario() {
         .tx-amount.in { color: var(--income); } .tx-amount.out { color: var(--expense); }
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
+        .bottom-safe-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(64px + env(safe-area-inset-bottom, 0px)); background: var(--paper); z-index: 5; pointer-events: none; }
         .bottom-nav {
           position: absolute; left: 12px; right: 12px; bottom: max(env(safe-area-inset-bottom, 0px), 6px); z-index: 6;
           background: rgba(250,250,250,0.72);
@@ -3592,6 +3593,8 @@ function LibroDiario() {
           <button onClick={performUndo}>Deshacer</button>
         </div>
       )}
+
+      <div className="bottom-safe-fill" />
 
       <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
         {hiddenPopoverFor && <div className="nav-popover-backdrop" onClick={() => setHiddenPopoverFor(null)} />}
