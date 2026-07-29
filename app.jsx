@@ -359,6 +359,50 @@ const interpretarTextoBanco = (textoCompleto) => {
   return porCaptura.leidas >= porLinea.leidas ? porCaptura : porLinea;
 };
 
+// Adivina la categoría de un ticket de compra según palabras que suelen
+// aparecer en el nombre del negocio (impreso arriba del ticket). Cubre las
+// variantes más comunes: súper/tienda, gasolinera, comida, farmacia,
+// servicios y renta. Si no reconoce nada, cae en "Otros" para que el usuario
+// lo ajuste a mano.
+const TICKET_CAT_KEYWORDS = [
+  { cat: 'despensa', words: ['OXXO', 'SORIANA', 'WALMART', 'WAL-MART', 'WAL MART', 'COSTCO', 'CHEDRAUI', 'LA COMER', 'HEB', 'H-E-B', 'BODEGA AURRERA', 'AURRERA', 'SUPERAMA', 'MERCADO', '7-ELEVEN', 'SEVEN', 'CALIMAX', 'ABARROTES', 'MINISUPER', 'MINI SUPER'] },
+  { cat: 'transporte', words: ['PEMEX', 'GASOLINERA', 'GASOLINA', 'ESTACION DE SERVICIO', 'SHELL', 'MOBIL', 'UBER', 'DIDI', 'CABIFY', 'ESTACIONAMIENTO', 'AUTOPISTA', 'CASETA', 'TAXI'] },
+  { cat: 'comida', words: ['RESTAURANT', 'RESTAURANTE', 'CAFETERIA', 'CAFETERÍA', 'STARBUCKS', 'MCDONALD', 'MC DONALD', 'BURGER', 'DOMINOS', "DOMINO'S", 'PIZZA', 'TACOS', 'TORTAS', 'SUSHI', 'ANTOJITOS', 'COCINA ECONOMICA', 'FONDA'] },
+  { cat: 'salud', words: ['FARMACIA', 'GUADALAJARA', 'SIMILARES', 'BENAVIDES', 'DEL AHORRO', 'HOSPITAL', 'CLINICA', 'CLÍNICA', 'CONSULTORIO', 'LABORATORIO', 'ANALISIS CLINICOS', 'DENTAL', 'OPTICA', 'ÓPTICA'] },
+  { cat: 'servicios', words: ['CFE', 'TELMEX', 'TOTALPLAY', 'IZZI', 'NETFLIX', 'SPOTIFY', 'MEGACABLE', 'AT&T', 'TELCEL', 'MOVISTAR', 'AGUA POTABLE', 'GAS NATURAL', 'GAS LP'] },
+  { cat: 'renta', words: ['RENTA MENSUAL', 'ARRENDAMIENTO', 'INMOBILIARIA'] },
+];
+const parseTicket = (text) => {
+  const upper = text.toUpperCase();
+  let category = 'otros_gas';
+  for (const group of TICKET_CAT_KEYWORDS) {
+    if (group.words.some((w) => upper.includes(w))) { category = group.cat; break; }
+  }
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const note = (lines.find((l) => /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}/.test(l)) || '').slice(0, 40);
+  const numRegex = /\$?\s?(\d{1,3}(?:[,.]\d{3})*(?:\.\d{2})?)/g;
+  const parseNum = (s) => parseFloat(s.replace(/,/g, ''));
+  let amount = 0;
+  const totalLine = lines.find((l) => /TOTAL/i.test(l) && !/SUBTOTAL/i.test(l));
+  if (totalLine) {
+    const found = [...totalLine.matchAll(numRegex)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0);
+    if (found.length) amount = Math.max(...found);
+  }
+  if (!amount) {
+    const found = [...text.matchAll(numRegex)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0 && n < 999999);
+    if (found.length) amount = Math.max(...found);
+  }
+  let date = todayStr();
+  const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dateMatch) {
+    let [, d, m, y] = dateMatch;
+    if (y.length === 2) y = '20' + y;
+    const dd = String(d).padStart(2, '0'), mm = String(m).padStart(2, '0');
+    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) date = `${y}-${mm}-${dd}`;
+  }
+  return { amount, category, note, date };
+};
+
 
 // directo con OCR. A diferencia del PDF, una imagen no necesita pdf.js para
 // "convertirse" en imagen — ya lo es — así que se le pasa a Tesseract.js tal
@@ -722,6 +766,9 @@ function LibroDiario() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState('');
   const [pdfError, setPdfError] = useState('');
+  const [ticketBusy, setTicketBusy] = useState(false);
+  const [ticketProgress, setTicketProgress] = useState('');
+  const [ticketError, setTicketError] = useState('');
   const pdfInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   // Aspecto: preferencia de este celular (no se comparte con la familia).
@@ -780,6 +827,7 @@ function LibroDiario() {
   // y regresa a su tamaño completo al subir o al llegar al inicio.
   const [navCompact, setNavCompact] = useState(false);
   const contentRef = useRef(null);
+  const ticketInputRef = useRef(null);
   // El panel verde se encoge de forma continua y proporcional a lo que
   // llevas scrolleado (no en un salto de golpe): se actualiza escribiendo
   // directo una variable CSS en el DOM (sin pasar por setState de React)
@@ -1301,6 +1349,38 @@ function LibroDiario() {
     const type = row.amount < 0 ? 'gasto' : 'ingreso';
     setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setSheet({ type: 'add-tx' });
+  };
+
+  // Escanea la foto de un ticket de compra: reconoce el negocio (para
+  // adivinar la categoría — súper, gasolinera, comida, farmacia, etc.), el
+  // total, y la fecha si la encuentra. Deja todo precargado en el formulario
+  // de "Nuevo movimiento" para que el usuario revise, ajuste si hace falta,
+  // y elija con qué cuenta pagó antes de guardar — nunca se guarda solo.
+  const handleTicketFile = async (file) => {
+    setTicketBusy(true);
+    setTicketError('');
+    setTicketProgress('Leyendo ticket…');
+    try {
+      const texto = await leerImagenConOcr(file, setTicketProgress);
+      const { amount, category, note, date } = parseTicket(texto);
+      if (!amount) {
+        setTicketError('No logré reconocer el total de este ticket. Puedes intentar de nuevo (con más luz o menos recorte) o llenar el monto a mano abajo.');
+      }
+      setTxForm((f) => ({
+        ...f,
+        type: 'gasto',
+        amount: amount ? formatAmountTyping(String(amount)) : f.amount,
+        category: category || f.category,
+        subcategory: '',
+        note: note || f.note,
+        date,
+      }));
+    } catch (e) {
+      setTicketError('No se pudo leer la foto: ' + (e.message || e) + '. Revisa tu conexión a internet (la primera vez necesita descargar el lector de OCR).');
+    } finally {
+      setTicketBusy(false);
+      setTicketProgress('');
+    }
   };
 
   // Lee un PDF de estado de cuenta o una imagen (captura de pantalla de la
@@ -2647,30 +2727,36 @@ function LibroDiario() {
         .tx-amount.in { color: var(--income); } .tx-amount.out { color: var(--expense); }
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
-        .bottom-nav {
+        .bottom-nav-shell {
           position: absolute; left: 10px; right: 10px; bottom: 0; z-index: 6;
+          padding-bottom: env(safe-area-inset-bottom, 0px);
+          transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        .bottom-nav-shell.nav-compact-shell { left: 44px; right: 44px; }
+        .bottom-nav {
           background: rgba(250,250,250,0.82);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
           border-radius: 999px;
           display: flex; align-items: center;
-          padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px)) 4px;
+          padding: 4px;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
-          transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
+          transition: padding 0.3s ease;
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
         }
-        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
+        .bottom-nav.nav-compact { padding-top: 5px; padding-bottom: 5px; }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
         .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
         .bottom-nav.nav-compact .nav-fab-btn { padding: 5px 3px; }
         .bottom-nav.nav-compact .nav-fab-btn svg { transform: scale(0.8); }
+        .bottom-nav.nav-compact .nav-highlight { height: 36px; }
         .nav-btn { position: relative; z-index: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 4px; color: var(--ink-soft); font-size: 10px; font-weight: 600; padding: 8px 4px; border-radius: 999px; cursor: pointer; letter-spacing: 0.2px; text-transform: uppercase; transition: color 0.2s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; touch-action: manipulation; }
         .nav-btn svg { transition: transform 0.25s; }
         .nav-btn.active { font-weight: 700; }
         .nav-btn-dot { position: absolute; top: 4px; right: calc(50% - 15px); width: 6px; height: 6px; border-radius: 50%; }
         .nav-tabs { position: relative; display: flex; width: 100%; min-width: 0; align-items: stretch; gap: 0; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
-        .nav-highlight { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: rgba(255,255,255,0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
+        .nav-highlight { position: absolute; top: 50%; left: 0; transform: translateY(-50%); height: 52px; border-radius: 999px; background: rgba(255,255,255,0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.08); transition: left 0.32s cubic-bezier(0.32, 0.72, 0, 1), width 0.32s cubic-bezier(0.32, 0.72, 0, 1); pointer-events: none; z-index: 0; }
         .nav-highlight.dragging { transition: none; }
         .nav-btn-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
         .nav-popover-backdrop { position: fixed; inset: 0; z-index: 6; }
@@ -3593,8 +3679,9 @@ function LibroDiario() {
         </div>
       )}
 
-      <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
-        {hiddenPopoverFor && <div className="nav-popover-backdrop" onClick={() => setHiddenPopoverFor(null)} />}
+      <div className={`bottom-nav-shell ${navCompact ? 'nav-compact-shell' : ''}`}>
+        <div className={`bottom-nav ${navCompact ? 'nav-compact' : ''}`}>
+          {hiddenPopoverFor && <div className="nav-popover-backdrop" onClick={() => setHiddenPopoverFor(null)} />}
         <div
           className="nav-tabs"
           ref={navTabsRef}
@@ -3651,6 +3738,7 @@ function LibroDiario() {
             aria-label="Agregar movimiento"
           ><Icon name="Plus" size={20} /></button>
         </div>
+        </div>
       </div>
 
       {sheet?.type === 'add-tx' && (
@@ -3658,6 +3746,19 @@ function LibroDiario() {
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Nuevo movimiento</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <input
+              type="file" accept="image/*" capture="environment" ref={ticketInputRef} style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) handleTicketFile(f); }}
+            />
+            <button
+              className="save-btn"
+              style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', marginBottom: 14 }}
+              disabled={ticketBusy}
+              onClick={() => ticketInputRef.current && ticketInputRef.current.click()}
+            >
+              <Icon name={ticketBusy ? 'RefreshCw' : 'Search'} size={16} /> {ticketBusy ? (ticketProgress || 'Leyendo…') : 'Escanear ticket de compra'}
+            </button>
+            {ticketError && <div style={{ fontSize: 12, color: 'var(--expense)', marginTop: -8, marginBottom: 12 }}>{ticketError}</div>}
             <div className="type-toggle">
               <button className={txForm.type === 'ingreso' ? 'active ingreso' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'ingreso', category: '', shared: false }))}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
               <button className={txForm.type === 'gasto' ? 'active gasto' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'gasto', category: '' }))}><Icon name="ArrowDownRight" size={14} /> Gasto</button>
