@@ -2648,19 +2648,19 @@ function LibroDiario() {
         .tx-edit-hint { color: var(--ink-soft); opacity: 0.35; flex-shrink: 0; display: flex; }
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav {
-          position: absolute; left: 10px; right: 10px; bottom: max(env(safe-area-inset-bottom, 0px), 8px); z-index: 6;
+          position: absolute; left: 10px; right: 10px; bottom: 0; z-index: 6;
           background: rgba(250,250,250,0.82);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
           border: 1px solid rgba(255,255,255,0.55);
           border-radius: 999px;
           display: flex; align-items: center;
-          padding: 4px;
+          padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px)) 4px;
           box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
           transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1), padding 0.3s ease;
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
         }
-        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: 5px; }
+        .bottom-nav.nav-compact { left: 44px; right: 44px; padding-top: 5px; padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
         .bottom-nav.nav-compact .nav-btn svg { transform: scale(0.8); }
         .bottom-nav.nav-compact .nav-fab-btn { padding: 5px 3px; }
