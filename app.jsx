@@ -601,9 +601,9 @@ const periodKey = (dateStr) => dateStr.slice(0, 7);
 const currentPeriodKey = periodKey(todayStr());
 // Dado un periodo "YYYY-MM", regresa el siguiente. Sirve para recorrer, mes
 // por mes, los periodos que un gasto/ingreso fijo pudo haberse saltado.
-const nextPeriodKey = (pk) => {
+const nextPeriodKey = (pk, dir = 1) => {
   const [y, m] = pk.split('-').map(Number);
-  const d = new Date(y, m, 1); // m ya viene en 1-índice, así que esto cae en el mes siguiente
+  const d = new Date(y, m - 1 + dir, 1); // m es 1-índice; -1 lo vuelve 0-índice antes de sumar la dirección
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 const uid = () => Date.now() + Math.random();
@@ -729,6 +729,7 @@ function LibroDiario() {
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
   const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
+  const [profilePhotos, setProfilePhotos] = useState({}); // { [nombreDeFamilia]: dataURL de la foto }
   const moneyLocationsByPerson = useMemo(() => {
     const map = {};
     moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
@@ -762,6 +763,7 @@ function LibroDiario() {
   const [memberError, setMemberError] = useState('');
   const [filterAutor, setFilterAutor] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMonth, setSearchMonth] = useState(''); // 'YYYY-MM'; si está lleno, manda sobre el filtro Hoy/Semana/Mes/Todo de arriba
   const [conciliaRaw, setConciliaRaw] = useState('');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState('');
@@ -828,6 +830,7 @@ function LibroDiario() {
   const [navCompact, setNavCompact] = useState(false);
   const contentRef = useRef(null);
   const ticketInputRef = useRef(null);
+  const photoInputRef = useRef(null);
   // El panel verde se encoge de forma continua y proporcional a lo que
   // llevas scrolleado (no en un salto de golpe): se actualiza escribiendo
   // directo una variable CSS en el DOM (sin pasar por setState de React)
@@ -1036,7 +1039,7 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml, bg] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg, pp] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
@@ -1044,6 +1047,7 @@ function LibroDiario() {
         window.storage.get('familyName', true),
         window.storage.get('moneyLocations', true),
         window.storage.get('budgets', true),
+        window.storage.get('profilePhotos', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -1063,6 +1067,7 @@ function LibroDiario() {
       setSavings(s.status === 'fulfilled' && s.value ? JSON.parse(s.value.value) : []);
       setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
       setBudgets(bg.status === 'fulfilled' && bg.value ? JSON.parse(bg.value.value) : {});
+      setProfilePhotos(pp.status === 'fulfilled' && pp.value ? JSON.parse(pp.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
       setFamilyName(fn.status === 'fulfilled' && fn.value ? JSON.parse(fn.value.value) : '');
       setLastSync(Date.now());
@@ -1176,6 +1181,7 @@ function LibroDiario() {
     if (patch.savings) { setSavings(patch.savings); savingsRef.current = patch.savings; }
     if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
     if (patch.budgets) { setBudgets(patch.budgets); budgetsRef.current = patch.budgets; }
+    if (patch.profilePhotos) setProfilePhotos(patch.profilePhotos);
     if (patch.familia) setFamilia(patch.familia);
     if (patch.familyName !== undefined) setFamilyName(patch.familyName);
     try {
@@ -1185,6 +1191,7 @@ function LibroDiario() {
       if (patch.savings) jobs.push(mergeAndWrite('savings', patch.savings, baseline.savings, setSavings, savingsRef));
       if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
       if (patch.budgets) jobs.push(window.storage.set('budgets', JSON.stringify(patch.budgets), true));
+      if (patch.profilePhotos) jobs.push(window.storage.set('profilePhotos', JSON.stringify(patch.profilePhotos), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
       if (patch.familyName !== undefined) jobs.push(window.storage.set('familyName', JSON.stringify(patch.familyName), true));
       await Promise.all(jobs);
@@ -1321,7 +1328,8 @@ function LibroDiario() {
 
   const grouped = useMemo(() => {
     const groups = {};
-    let list = filterCat === 'todas' ? filtered : filtered.filter((t) => t.category === filterCat);
+    const base = searchMonth ? transactions.filter((t) => periodKey(t.date) === searchMonth) : filtered;
+    let list = filterCat === 'todas' ? base : base.filter((t) => t.category === filterCat);
     if (filterAutor !== 'todos') list = list.filter((t) => (t.autor || 'Familia') === filterAutor);
     const q = searchQuery.trim().toLowerCase();
     if (q) {
@@ -1334,7 +1342,7 @@ function LibroDiario() {
     list.slice().sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
       .forEach((t) => { (groups[t.date] = groups[t.date] || []).push(t); });
     return Object.entries(groups);
-  }, [filtered, filterCat, filterAutor, searchQuery]);
+  }, [filtered, filterCat, filterAutor, searchQuery, searchMonth, transactions]);
 
   const conciliacionRows = useMemo(() => {
     return conciliaRaw.split('\n').map(parseConciliaLine).filter(Boolean).map((row) => {
@@ -1526,6 +1534,39 @@ function LibroDiario() {
   const cxc = compromisosView.filter((c) => c.kind === 'cxc');
   const fijos = compromisosView.filter((c) => c.kind === 'fijo');
   const ingresosFijos = compromisosView.filter((c) => c.kind === 'ingreso_fijo');
+
+  // "Disponible HOY" y proyección a fin de mes: a diferencia de "Disponible
+  // · Mes" (que respeta el filtro Hoy/Semana/Mes/Todo de arriba), esto SIEMPRE
+  // mira el mes calendario actual completo, sin importar qué filtro esté
+  // activo — porque la pregunta que responde ("¿cuánto me queda / puedo
+  // gastar hoy?") solo tiene sentido a nivel mes.
+  const flowProjection = useMemo(() => {
+    const key = currentPeriodKey;
+    let ingresosMes = 0, gastosMes = 0;
+    transactions.forEach((t) => {
+      if (periodKey(t.date) !== key) return;
+      if (t.type === 'ingreso') ingresosMes += t.amount;
+      else if (t.type === 'gasto') gastosMes += t.amount;
+    });
+    let savingsMesNet = 0;
+    savings.forEach((acc) => acc.movements.forEach((m) => {
+      if (periodKey(m.date) === key) savingsMesNet += m.kind === 'deposito' ? m.amount : -m.amount;
+    }));
+    const disponibleMes = ingresosMes - gastosMes - savingsMesNet;
+
+    const pendienteGastosFijos = fijos.reduce((s, c) => s + c.pendiente, 0);
+    const pendienteIngresosFijos = ingresosFijos.reduce((s, c) => s + c.pendiente, 0);
+
+    const hoy = new Date();
+    const finDeMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+    const diasRestantes = Math.max(1, Math.round((finDeMes - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 86400000) + 1);
+
+    const restanteSeguro = disponibleMes - pendienteGastosFijos; // conservador: no suma ingresos fijos que aún no llegan
+    const disponibleHoy = Math.max(0, restanteSeguro / diasRestantes);
+    const proyectadoFinMes = disponibleMes - pendienteGastosFijos + pendienteIngresosFijos;
+
+    return { disponibleHoy, diasRestantes, proyectadoFinMes, pendienteGastosFijos, pendienteIngresosFijos, disponibleMes };
+  }, [transactions, savings, fijos, ingresosFijos]);
 
   // Nombre a mostrar para una subcategoría: primero busca si es un gasto fijo
   // o deuda ya capturado (lo normal ahora), y si no, cae al listado viejo de
@@ -2327,6 +2368,39 @@ function LibroDiario() {
     setSheet(null);
   };
 
+  // ---------- foto de perfil ----------
+  // Se guarda como dataURL (base64) compartido, así todos en la familia ven
+  // la foto de los demás. Se reduce a 160x160 antes de guardarla para que no
+  // pese — una foto de cámara completa sería demasiado para guardar así.
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const uploadProfilePhoto = (name, file) => {
+    if (!file) return;
+    setPhotoUploading(true);
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const size = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        persist({ profilePhotos: { ...profilePhotos, [name]: dataUrl } });
+        setPhotoUploading(false);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  const removeProfilePhoto = (name) => {
+    const next = { ...profilePhotos };
+    delete next[name];
+    persist({ profilePhotos: next });
+  };
+
   const markPersonPaid = (name) => {
     let collected = 0;
     const nextTx = transactions.map((t) => {
@@ -2536,6 +2610,12 @@ function LibroDiario() {
   // Selector de "¿de dónde sale / a dónde cae el dinero?" agrupado por
   // familiar (igual que en la pestaña Tarjetas), para no repetir el nombre
   // de la persona en cada tarjeta/monedero cuando tiene varias cuentas.
+  // Muestra la foto de perfil de esa persona si ya subió una; si no, cae en
+  // el circulito de siempre con su inicial y color.
+  const avatarNode = (name, size = 26, fontSize) => profilePhotos[name]
+    ? <img src={profilePhotos[name]} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    : <div className="mini-avatar" style={{ width: size, height: size, fontSize: fontSize || Math.round(size * 0.46), background: colorForName(name) }}>{name.charAt(0).toUpperCase()}</div>;
+
   const renderLocationPicker = (list, selectedId, onSelect) => {
     const order = [];
     const grouped = {};
@@ -2663,6 +2743,8 @@ function LibroDiario() {
         .balance-amount { font-family: var(--mono); font-weight: 700; font-size: calc(clamp(24px, 7vw, 30px) - 8px * var(--collapse)); margin-top: 2px; letter-spacing: -0.5px; overflow-wrap: break-word; }
         .balance-amount.pos { color: #8FD9B6; } .balance-amount.neg { color: #F0A98F; }
         .ahorro-line { font-size: 11px; opacity: 0.75; margin-top: 1px; display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
+        .hoy-chip { margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.16); color: var(--on-accent); font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .hoy-chip-sub { font-weight: 400; opacity: 0.75; font-size: 10.5px; }
         .period-tabs { display: flex; gap: 6px; margin-top: 10px; }
         .period-chip { font-family: var(--sans); font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: rgba(255,255,255,0.75); cursor: pointer; }
         .period-chip.active { background: var(--on-accent); color: var(--green); border-color: var(--on-accent); font-weight: 600; }
@@ -2678,6 +2760,7 @@ function LibroDiario() {
            DESPUÉS de que ya es invisible se reduce el espacio que ocupaba. */
         .masthead { --collapse: 0; }
         .ahorro-line { opacity: calc(1 - min(1, var(--collapse) * 2)); max-height: calc(20px * (1 - max(0, (var(--collapse) - 0.5) * 2))); overflow: hidden; transition: none; }
+        .hoy-chip { opacity: calc(1 - min(1, var(--collapse) * 2)); max-height: calc(34px * (1 - max(0, (var(--collapse) - 0.5) * 2))); overflow: hidden; transition: none; }
         .stub-row { opacity: calc(1 - min(1, var(--collapse) * 2)); max-height: calc(90px * (1 - max(0, (var(--collapse) - 0.5) * 2))); margin-top: calc(10px * (1 - max(0, (var(--collapse) - 0.5) * 2))); padding-bottom: calc(12px * (1 - max(0, (var(--collapse) - 0.5) * 2))); overflow: hidden; transition: none; }
         .period-tabs { margin-top: calc(10px - 2px * var(--collapse)); }
         .stub-icon.in { background: rgba(143,217,182,0.2); color: #8FD9B6; }
@@ -2712,6 +2795,8 @@ function LibroDiario() {
         .search-input::placeholder { color: var(--ink-soft); }
         .search-clear { background: var(--line); border: none; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--ink-soft); cursor: pointer; flex-shrink: 0; }
         .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+        .month-nav-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+        .month-input { flex: 1; text-align: center; font-family: var(--mono); font-weight: 700; cursor: pointer; }
         .filter-chip { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
         .filter-chip.active { background: var(--green); border-color: var(--green); color: var(--on-accent); }
         .date-group { margin-bottom: 18px; }
@@ -2945,6 +3030,8 @@ function LibroDiario() {
         .family-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
         .family-row:last-of-type { border-bottom: none; }
         .family-row-name { font-size: 14px; font-weight: 600; flex: 1; }
+        .avatar-upload-btn { position: relative; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
+        .avatar-upload-badge { position: absolute; bottom: -2px; right: -2px; width: 15px; height: 15px; border-radius: 50%; background: var(--gold); color: var(--green); display: flex; align-items: center; justify-content: center; border: 2px solid var(--paper); }
         .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
       `}</style>
 
@@ -2952,7 +3039,7 @@ function LibroDiario() {
         <div className="masthead-top">
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {profile && <div className="mini-avatar" style={{ background: colorForName(profile.name) }} title={profile.name}>{profile.name.charAt(0).toUpperCase()}</div>}
+            {profile && <div title={profile.name}>{avatarNode(profile.name, 26)}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => setSettingsOpen(true)}><Icon name="Settings" size={16} /></button>
           </div>
@@ -2962,6 +3049,9 @@ function LibroDiario() {
           <span className="balance-label">Disponible · {PERIOD_LABEL[period]}</span>
           <div className={`balance-amount ${totals.disponible >= 0 ? 'pos' : 'neg'}`}>{fmt(totals.disponible)}</div>
           <div className="ahorro-line"><Icon name="PiggyBank" size={12} /> Ahorrado: {fmt(ahorradoTotal)}{porCobrarTotal > 0 && <> · Por cobrar: {fmt(porCobrarTotal)}</>}</div>
+          <button className="hoy-chip" onClick={() => setSheet({ type: 'flow-projection' })}>
+            <Icon name="Sparkles" size={12} /> Hoy puedes gastar {fmt(flowProjection.disponibleHoy)} <span className="hoy-chip-sub">· {flowProjection.diasRestantes} días para fin de mes</span>
+          </button>
         </div>
         <div className="period-tabs">
           {['hoy', 'semana', 'mes', 'todo'].map((p) => (
@@ -3143,6 +3233,17 @@ function LibroDiario() {
                 {searchQuery && (
                   <button className="search-clear" onClick={() => setSearchQuery('')}><Icon name="X" size={13} /></button>
                 )}
+              </div>
+              <div className="month-nav-row">
+                <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSearchMonth(nextPeriodKey(searchMonth || currentPeriodKey, -1))}><Icon name="ChevronLeft" size={15} /></button>
+                <input
+                  className="text-input month-input"
+                  type="month"
+                  value={searchMonth || currentPeriodKey}
+                  onChange={(e) => setSearchMonth(e.target.value)}
+                />
+                <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSearchMonth(nextPeriodKey(searchMonth || currentPeriodKey))}><Icon name="ChevronRight" size={15} /></button>
+                {searchMonth && <button className="filter-chip" onClick={() => setSearchMonth('')}>Volver a "{PERIOD_LABEL[period]}"</button>}
               </div>
               <div className="filter-row">
                 <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
@@ -4519,6 +4620,39 @@ function LibroDiario() {
         );
       })()}
 
+      {sheet?.type === 'flow-projection' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Flujo del mes</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+
+            <div className="card" style={{ background: 'var(--green)', color: 'var(--on-accent)' }}>
+              <div style={{ fontSize: 11, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Puedes gastar hoy, sin comprometer lo que ya viene</div>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 32, fontWeight: 700, marginTop: 4 }}>{fmt(flowProjection.disponibleHoy)}</div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>Repartido entre los {flowProjection.diasRestantes} días que faltan para fin de mes</div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">Cómo se calculó</div>
+              <div className="compromiso-nums" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Disponible de este mes</span><span style={{ fontFamily: 'var(--mono)' }}>{fmt(flowProjection.disponibleMes)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--expense)' }}><span>− Gastos fijos que aún faltan</span><span style={{ fontFamily: 'var(--mono)' }}>{fmt(flowProjection.pendienteGastosFijos)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--line)', paddingTop: 8, fontWeight: 700 }}><span>÷ {flowProjection.diasRestantes} días restantes</span><span style={{ fontFamily: 'var(--mono)' }}>{fmt(flowProjection.disponibleHoy)}/día</span></div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">Proyección a fin de mes</div>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 700, color: flowProjection.proyectadoFinMes >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(flowProjection.proyectadoFinMes)}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+                Si de aquí a fin de mes solo pasa lo que ya sabes que viene: te faltan {fmt(flowProjection.pendienteGastosFijos)} en gastos fijos
+                {flowProjection.pendienteIngresosFijos > 0 && <> y esperas {fmt(flowProjection.pendienteIngresosFijos)} en ingresos fijos</>}.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {sheet?.type === 'confirm' && (
         <div className="sheet-backdrop" onClick={() => { const cancel = sheet.onCancel; setSheet(null); cancel && cancel(); }}>
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={{ ...sheetDragStyle, paddingTop: 26 }}>
@@ -4966,9 +5100,23 @@ function LibroDiario() {
                 <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
               </div>
             </div>
+            <input
+              type="file" accept="image/*" ref={photoInputRef} style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f && profile) uploadProfilePhoto(profile.name, f); }}
+            />
             {familia.map((m) => (
               <div className="family-row" key={m}>
-                <div className="mini-avatar" style={{ background: colorForName(m) }}>{m.charAt(0).toUpperCase()}</div>
+                {profile?.name === m ? (
+                  <button
+                    className="avatar-upload-btn"
+                    title="Cambiar foto de perfil"
+                    disabled={photoUploading}
+                    onClick={() => photoInputRef.current && photoInputRef.current.click()}
+                  >
+                    {avatarNode(m, 30)}
+                    <span className="avatar-upload-badge"><Icon name={photoUploading ? 'RefreshCw' : 'Pencil'} size={9} /></span>
+                  </button>
+                ) : avatarNode(m, 26)}
                 {profile?.name === m && nicknameEdit ? (
                   <>
                     <input
@@ -4985,10 +5133,20 @@ function LibroDiario() {
                   <>
                     <span className="family-row-name">{m}</span>
                     {profile?.name === m && <span className="you-badge">Tú</span>}
-                    {profile?.name === m && (
+                    {profile?.name === m && profilePhotos[m] && (
                       <button
                         className="icon-btn"
                         style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: 'auto' }}
+                        title="Quitar foto de perfil"
+                        onClick={() => removeProfilePhoto(m)}
+                      >
+                        <Icon name="Trash2" size={13} />
+                      </button>
+                    )}
+                    {profile?.name === m && (
+                      <button
+                        className="icon-btn"
+                        style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: profilePhotos[m] ? 0 : 'auto' }}
                         title="Editar apodo"
                         onClick={() => { setNicknameInput(m); setNicknameError(''); setNicknameEdit(true); }}
                       >
@@ -5238,3 +5396,4 @@ function LibroDiario() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
+
