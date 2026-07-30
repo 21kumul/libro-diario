@@ -730,12 +730,15 @@ function LibroDiario() {
   const [moneyLocations, setMoneyLocations] = useState([]);
   const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
   const [profilePhotos, setProfilePhotos] = useState({}); // { [nombreDeFamilia]: dataURL de la foto }
+  const [personPins, setPersonPins] = useState({}); // { [nombreDeFamilia]: PIN de 4 dígitos (opcional) }
   const moneyLocationsByPerson = useMemo(() => {
     const map = {};
     moneyLocations.forEach((l) => { (map[l.persona] = map[l.persona] || []).push(l); });
     return Object.entries(map);
   }, [moneyLocations]);
   const moneyLocationsTotal = moneyLocations.reduce((s, l) => s + (l.monto || 0), 0);
+  const moneyLocationsDisponible = moneyLocations.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
+  const moneyLocationsDeuda = moneyLocations.filter((l) => l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
   const [familia, setFamilia] = useState([]);
   const [familyName, setFamilyName] = useState('');
   const [familyNameInput, setFamilyNameInput] = useState('');
@@ -984,6 +987,7 @@ function LibroDiario() {
     ? { transform: `translateY(${sheetDragY}px)`, transition: 'none' }
     : { transition: 'transform 0.2s ease' };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState(null); // null = menú principal | 'familia' | 'perfil' | 'datos'
   const [settingsDragY, setSettingsDragY] = useState(0);
   const settingsDragging = useRef(false);
   const settingsDragStartY = useRef(0);
@@ -1039,7 +1043,7 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml, bg, pp] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg, pp, pn] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
@@ -1048,6 +1052,7 @@ function LibroDiario() {
         window.storage.get('moneyLocations', true),
         window.storage.get('budgets', true),
         window.storage.get('profilePhotos', true),
+        window.storage.get('personPins', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -1068,6 +1073,7 @@ function LibroDiario() {
       setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
       setBudgets(bg.status === 'fulfilled' && bg.value ? JSON.parse(bg.value.value) : {});
       setProfilePhotos(pp.status === 'fulfilled' && pp.value ? JSON.parse(pp.value.value) : {});
+      setPersonPins(pn.status === 'fulfilled' && pn.value ? JSON.parse(pn.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
       setFamilyName(fn.status === 'fulfilled' && fn.value ? JSON.parse(fn.value.value) : '');
       setLastSync(Date.now());
@@ -1182,6 +1188,7 @@ function LibroDiario() {
     if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
     if (patch.budgets) { setBudgets(patch.budgets); budgetsRef.current = patch.budgets; }
     if (patch.profilePhotos) setProfilePhotos(patch.profilePhotos);
+    if (patch.personPins) setPersonPins(patch.personPins);
     if (patch.familia) setFamilia(patch.familia);
     if (patch.familyName !== undefined) setFamilyName(patch.familyName);
     try {
@@ -1192,6 +1199,7 @@ function LibroDiario() {
       if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
       if (patch.budgets) jobs.push(window.storage.set('budgets', JSON.stringify(patch.budgets), true));
       if (patch.profilePhotos) jobs.push(window.storage.set('profilePhotos', JSON.stringify(patch.profilePhotos), true));
+      if (patch.personPins) jobs.push(window.storage.set('personPins', JSON.stringify(patch.personPins), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
       if (patch.familyName !== undefined) jobs.push(window.storage.set('familyName', JSON.stringify(patch.familyName), true));
       await Promise.all(jobs);
@@ -1238,6 +1246,48 @@ function LibroDiario() {
     setProfile(p);
     setOnboarding(false);
     try { await window.storage.set('miPerfil', JSON.stringify(p), false); } catch (e) { /* stays local this session */ }
+  };
+
+  // Si esa persona ya configuró un PIN, hay que pedirlo antes de dejar
+  // entrar como ella — así cualquiera no puede simplemente tocar su nombre
+  // y ya. No es seguridad bancaria (el PIN vive en el mismo lugar que el
+  // resto de los datos compartidos), pero sí evita que alguien entre "sin
+  // querer" o de broma a la cuenta de otro.
+  const [pinPrompt, setPinPrompt] = useState(null); // { name, input, error }
+  const requestChooseProfile = (name) => {
+    if (personPins[name]) setPinPrompt({ name, input: '', error: '' });
+    else chooseProfile(name);
+  };
+  const submitPinPrompt = () => {
+    if (!pinPrompt) return;
+    if (pinPrompt.input === personPins[pinPrompt.name]) {
+      chooseProfile(pinPrompt.name);
+      setPinPrompt(null);
+    } else {
+      setPinPrompt((p) => ({ ...p, error: 'PIN incorrecto.', input: '' }));
+    }
+  };
+
+  const [pinSetup, setPinSetup] = useState(null); // { step: 'new'|'confirm', first: '', input: '', error: '' }
+  const openPinSetup = () => setPinSetup({ step: 'new', first: '', input: '', error: '' });
+  const submitPinSetupDigit = () => {
+    if (!pinSetup) return;
+    if (pinSetup.step === 'new') {
+      if (pinSetup.input.length !== 4) return;
+      setPinSetup({ step: 'confirm', first: pinSetup.input, input: '', error: '' });
+    } else {
+      if (pinSetup.input !== pinSetup.first) {
+        setPinSetup({ step: 'new', first: '', input: '', error: 'No coincidió. Intenta de nuevo.' });
+        return;
+      }
+      persist({ personPins: { ...personPins, [profile.name]: pinSetup.input } });
+      setPinSetup(null);
+    }
+  };
+  const removePin = () => {
+    const next = { ...personPins };
+    delete next[profile.name];
+    persist({ personPins: next });
   };
 
   const [nicknameEdit, setNicknameEdit] = useState(false);
@@ -2797,6 +2847,7 @@ function LibroDiario() {
         .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
         .month-nav-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
         .month-input { flex: 1; text-align: center; font-family: var(--mono); font-weight: 700; cursor: pointer; }
+        .pin-input { text-align: center; font-size: 26px; letter-spacing: 12px; font-family: var(--mono); font-weight: 700; margin-bottom: 12px; }
         .filter-chip { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
         .filter-chip.active { background: var(--green); border-color: var(--green); color: var(--on-accent); }
         .date-group { margin-bottom: 18px; }
@@ -3028,6 +3079,12 @@ function LibroDiario() {
         .mini-avatar { width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0; font-family: var(--mono); }
         .autor-tag { font-weight: 700; }
         .family-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+        .settings-menu-row { display: flex; align-items: center; gap: 12px; width: 100%; background: var(--paper-dim); border: none; border-radius: 14px; padding: 12px; margin-bottom: 10px; cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
+        .settings-menu-icon { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+        .settings-menu-mid { flex: 1; min-width: 0; }
+        .settings-menu-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+        .settings-menu-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .settings-back-row { display: flex; align-items: center; gap: 2px; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 16px; font-weight: 700; padding: 0; margin-bottom: 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
         .family-row:last-of-type { border-bottom: none; }
         .family-row-name { font-size: 14px; font-weight: 600; flex: 1; }
         .avatar-upload-btn { position: relative; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
@@ -3041,7 +3098,7 @@ function LibroDiario() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {profile && <div title={profile.name}>{avatarNode(profile.name, 26)}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
-            <button className="icon-btn" onClick={() => setSettingsOpen(true)}><Icon name="Settings" size={16} /></button>
+            <button className="icon-btn" onClick={() => { setSettingsSection(null); setSettingsOpen(true); }}><Icon name="Settings" size={16} /></button>
           </div>
         </div>
         {familyName && <div className="family-name-line">{familyName}</div>}
@@ -3092,17 +3149,27 @@ function LibroDiario() {
                           <div className="mini-row-mid">
                             <div className="mini-row-name">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</div>
                           </div>
-                          <div className="mini-row-amount" style={{ color: 'var(--ink)' }}>{fmt(l.monto)}</div>
+                          <div className="mini-row-amount" style={{ color: l.esCredito ? 'var(--expense)' : 'var(--ink)' }}>
+                            {l.esCredito ? `Debes ${fmt(l.monto)}` : fmt(l.monto)}
+                          </div>
                         </div>
                       ))}
                     </div>
                   ))}
                   <div className="cxp-total-row" style={{ paddingTop: 10, borderTop: '1px dashed var(--line)', marginTop: 4 }}>
                     <div>
-                      <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
-                      <div className="cxp-total-label">Total entre efectivo y tarjetas</div>
+                      <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsDisponible)}</div>
+                      <div className="cxp-total-label">Disponible real (efectivo y débito)</div>
                     </div>
                   </div>
+                  {moneyLocationsDeuda > 0.01 && (
+                    <div className="cxp-total-row" style={{ paddingTop: 6 }}>
+                      <div>
+                        <div className="cxp-total-amount" style={{ fontSize: 15, color: 'var(--expense)' }}>{fmt(moneyLocationsDeuda)}</div>
+                        <div className="cxp-total-label">Debes en tarjetas de crédito</div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -3616,10 +3683,18 @@ function LibroDiario() {
                 ))}
                 <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
                   <div>
-                    <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsTotal)}</div>
-                    <div className="cxp-total-label">Total entre efectivo y tarjetas</div>
+                    <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsDisponible)}</div>
+                    <div className="cxp-total-label">Disponible real (efectivo y débito)</div>
                   </div>
                 </div>
+                {moneyLocationsDeuda > 0.01 && (
+                  <div className="cxp-total-row" style={{ paddingTop: 6 }}>
+                    <div>
+                      <div className="cxp-total-amount" style={{ fontSize: 15, color: 'var(--expense)' }}>{fmt(moneyLocationsDeuda)}</div>
+                      <div className="cxp-total-label">Debes en tarjetas de crédito</div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>
@@ -4653,6 +4728,28 @@ function LibroDiario() {
         </div>
       )}
 
+      {pinSetup && (
+        <div className="sheet-backdrop" onClick={() => setPinSetup(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">{pinSetup.step === 'new' ? 'Crea tu PIN' : 'Confírmalo'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setPinSetup(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 14 }}>
+              {pinSetup.step === 'new' ? '4 dígitos. Solo tú deberías saberlo.' : 'Escríbelo otra vez para confirmar.'}
+            </div>
+            <input
+              className="text-input pin-input"
+              type="password" inputMode="numeric" maxLength={4} autoFocus
+              value={pinSetup.input}
+              onChange={(e) => setPinSetup((p) => ({ ...p, input: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && pinSetup.input.length === 4) submitPinSetupDigit(); }}
+            />
+            {pinSetup.error && <div className="form-error">{pinSetup.error}</div>}
+            <button className="save-btn" disabled={pinSetup.input.length !== 4} onClick={submitPinSetupDigit}>
+              <Icon name="Check" size={16} /> {pinSetup.step === 'new' ? 'Siguiente' : 'Guardar PIN'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {sheet?.type === 'confirm' && (
         <div className="sheet-backdrop" onClick={() => { const cancel = sheet.onCancel; setSheet(null); cancel && cancel(); }}>
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={{ ...sheetDragStyle, paddingTop: 26 }}>
@@ -5063,181 +5160,239 @@ function LibroDiario() {
           <div className="settings-card" onClick={(e) => e.stopPropagation()} style={settingsDragStyle}>
             <div className="sheet-handle" onTouchStart={handleSettingsTouchStart} onTouchMove={handleSettingsTouchMove} onTouchEnd={handleSettingsTouchEnd} />
             <div className="close-row"><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSettingsOpen(false)}><Icon name="X" size={16} /></button></div>
-            {familyNameEdit ? (
-              <div className="participant-row" style={{ marginBottom: 12 }}>
-                <input
-                  className="text-input"
-                  style={{ padding: '6px 10px', fontSize: 13, fontWeight: 700 }}
-                  placeholder="Nombre de la familia"
-                  value={familyNameEditInput}
-                  onChange={(e) => setFamilyNameEditInput(e.target.value)}
-                  autoFocus
-                />
-                <button className="icon-btn" style={{ background: 'var(--green)' }} onClick={() => renameFamily(familyNameEditInput)}><Icon name="Check" size={14} /></button>
-                <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setFamilyNameEdit(false)}><Icon name="X" size={14} /></button>
-              </div>
-            ) : (
-              <div className="card-title">
-                <span>{familyName || 'Familia'}</span>
-                <button
-                  className="icon-btn"
-                  style={{ background: 'var(--paper-dim)', color: 'var(--ink)', width: 26, height: 26 }}
-                  title="Editar nombre de la familia"
-                  onClick={() => { setFamilyNameEditInput(familyName || ''); setFamilyNameEdit(true); }}
-                >
-                  <Icon name="Pencil" size={12} />
-                </button>
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--paper-dim)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-soft)' }}>Código de familia</div>
-                <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700 }}>{familyCode}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {codeCopied && <span style={{ fontSize: 11, color: 'var(--income)', fontWeight: 600 }}>¡Copiado!</span>}
-                <button className="icon-btn" style={{ background: codeCopied ? 'var(--income)' : 'var(--paper)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }} title="Copiar código" onClick={() => copyFamilyCode()}><Icon name={codeCopied ? 'Check' : 'Copy'} size={14} /></button>
-                <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
-              </div>
-            </div>
-            <input
-              type="file" accept="image/*" ref={photoInputRef} style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f && profile) uploadProfilePhoto(profile.name, f); }}
-            />
-            {familia.map((m) => (
-              <div className="family-row" key={m}>
-                {profile?.name === m ? (
-                  <button
-                    className="avatar-upload-btn"
-                    title="Cambiar foto de perfil"
-                    disabled={photoUploading}
-                    onClick={() => photoInputRef.current && photoInputRef.current.click()}
-                  >
-                    {avatarNode(m, 30)}
-                    <span className="avatar-upload-badge"><Icon name={photoUploading ? 'RefreshCw' : 'Pencil'} size={9} /></span>
-                  </button>
-                ) : avatarNode(m, 26)}
-                {profile?.name === m && nicknameEdit ? (
-                  <>
-                    <input
-                      className="text-input"
-                      style={{ padding: '6px 10px', fontSize: 13 }}
-                      value={nicknameInput}
-                      onChange={(e) => setNicknameInput(e.target.value)}
-                      autoFocus
-                    />
-                    <button className="icon-btn" style={{ background: 'var(--green)' }} onClick={() => renameProfile(nicknameInput)}><Icon name="Check" size={14} /></button>
-                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setNicknameEdit(false)}><Icon name="X" size={14} /></button>
-                  </>
-                ) : (
-                  <>
-                    <span className="family-row-name">{m}</span>
-                    {profile?.name === m && <span className="you-badge">Tú</span>}
-                    {profile?.name === m && profilePhotos[m] && (
-                      <button
-                        className="icon-btn"
-                        style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: 'auto' }}
-                        title="Quitar foto de perfil"
-                        onClick={() => removeProfilePhoto(m)}
-                      >
-                        <Icon name="Trash2" size={13} />
-                      </button>
-                    )}
-                    {profile?.name === m && (
-                      <button
-                        className="icon-btn"
-                        style={{ background: 'var(--paper-dim)', color: 'var(--ink)', marginLeft: profilePhotos[m] ? 0 : 'auto' }}
-                        title="Editar apodo"
-                        onClick={() => { setNicknameInput(m); setNicknameError(''); setNicknameEdit(true); }}
-                      >
-                        <Icon name="Pencil" size={13} />
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-            {nicknameError && <div className="form-error">{nicknameError}</div>}
-            <div className="participant-row" style={{ marginTop: 10 }}>
-              <input className="text-input" placeholder="Nombre de un integrante" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} />
-              <button className="add-participant-btn" style={{ width: 'auto', marginTop: 0 }} onClick={() => addFamilyMember(newMemberName, false)}><Icon name="UserPlus" size={14} /></button>
-            </div>
-            {memberError && <div className="form-error">{memberError}</div>}
-            <div className="card-title" style={{ marginTop: 20 }}>Aspecto</div>
-            <div className="appearance-row">
-              {[
-                { key: 'light', label: 'Claro' },
-                { key: 'dark', label: 'Oscuro' },
-                { key: 'system', label: 'Sistema' },
-              ].map((opt) => (
-                <button key={opt.key} className={`appearance-opt ${appearance === opt.key ? 'active' : ''}`} onClick={() => chooseAppearance(opt.key)}>
-                  <span className={`appearance-preview ${opt.key}`}>
-                    <span className="appearance-lines">
-                      <span className="appearance-line" style={{ width: '85%' }} />
-                      <span className="appearance-line" style={{ width: '60%' }} />
-                    </span>
-                    <span className="appearance-dot" />
-                  </span>
-                  <span className="appearance-label">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-            <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setOnboarding(true); }}>
-              <Icon name="LogOut" size={14} /> Cambiar de persona
-            </button>
-            <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setSheet({ type: 'catalogo-cuentas' }); }}>
-              <Icon name="List" size={14} /> Catálogo de cuentas contables
-            </button>
-            <button className="danger-btn" onClick={leaveFamily}>
-              <Icon name="LogOut" size={14} /> Salir de la familia
-            </button>
 
-            {notifPermission !== 'unsupported' && (
+            {settingsSection === null && (
               <>
-                <button
-                  className={`bell-toggle-btn ${notifPermission === 'granted' ? 'on' : ''}`}
-                  onClick={requestNotifPermission}
-                  disabled={notifPermission === 'denied'}
-                >
-                  <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={14} />
-                  {notifPermission === 'granted' ? 'Notificaciones activadas' : notifPermission === 'denied' ? 'Notificaciones bloqueadas por el celular' : 'Activar notificaciones de gastos fijos'}
-                </button>
-                {notifPermission === 'denied' && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 6 }}>
-                    Las bloqueaste antes. Actívalas desde los ajustes del navegador o del celular para esta app.
+                <div className="card-title">{familyName || 'Familia'}</div>
+                <button className="settings-menu-row" onClick={() => setSettingsSection('familia')}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--green)' }}><Icon name="Users" size={17} color="#fff" /></div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Familia</div>
+                    <div className="settings-menu-sub">Nombre, código de invitación, integrantes</div>
                   </div>
-                )}
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
+                <button className="settings-menu-row" onClick={() => setSettingsSection('perfil')}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--gold)' }}>{profile ? avatarNode(profile.name, 34) : <Icon name="Users" size={17} color="var(--green)" />}</div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Mi perfil</div>
+                    <div className="settings-menu-sub">{profile?.name || 'Tú'} · foto, aspecto, notificaciones</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
+                <button className="settings-menu-row" onClick={() => setSettingsSection('datos')}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--ink-soft)' }}><Icon name="List" size={17} color="#fff" /></div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Datos</div>
+                    <div className="settings-menu-sub">Catálogo, respaldo, borrar historial</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
               </>
             )}
 
-            <div className="card-title" style={{ marginTop: 20 }}>Datos</div>
-            <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-              {transactions.length} movimiento{transactions.length !== 1 ? 's' : ''} · {compromisos.length} compromiso{compromisos.length !== 1 ? 's' : ''} · {savings.length} cuenta{savings.length !== 1 ? 's' : ''} de ahorro. Visibles para toda la familia.
-              {saving && <span className="saving-dot"> · guardando…</span>}
-            </div>
-            {lastSync && (
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Icon name="RefreshCw" size={11} /> Sincronizado {new Date(lastSync).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                <button onClick={loadShared} style={{ background: 'none', border: 'none', color: 'var(--green)', fontWeight: 600, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>actualizar</button>
-              </div>
+            {settingsSection === 'familia' && (
+              <>
+                <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Familia</button>
+                {familyNameEdit ? (
+                  <div className="participant-row" style={{ marginBottom: 12 }}>
+                    <input
+                      className="text-input"
+                      style={{ padding: '6px 10px', fontSize: 13, fontWeight: 700 }}
+                      placeholder="Nombre de la familia"
+                      value={familyNameEditInput}
+                      onChange={(e) => setFamilyNameEditInput(e.target.value)}
+                      autoFocus
+                    />
+                    <button className="icon-btn" style={{ background: 'var(--green)' }} onClick={() => renameFamily(familyNameEditInput)}><Icon name="Check" size={14} /></button>
+                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setFamilyNameEdit(false)}><Icon name="X" size={14} /></button>
+                  </div>
+                ) : (
+                  <div className="card-title">
+                    <span>{familyName || 'Familia'}</span>
+                    <button
+                      className="icon-btn"
+                      style={{ background: 'var(--paper-dim)', color: 'var(--ink)', width: 26, height: 26 }}
+                      title="Editar nombre de la familia"
+                      onClick={() => { setFamilyNameEditInput(familyName || ''); setFamilyNameEdit(true); }}
+                    >
+                      <Icon name="Pencil" size={12} />
+                    </button>
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--paper-dim)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-soft)' }}>Código de familia</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700 }}>{familyCode}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {codeCopied && <span style={{ fontSize: 11, color: 'var(--income)', fontWeight: 600 }}>¡Copiado!</span>}
+                    <button className="icon-btn" style={{ background: codeCopied ? 'var(--income)' : 'var(--paper)', color: codeCopied ? 'var(--on-accent)' : 'var(--ink)', border: '1px solid var(--line)' }} title="Copiar código" onClick={() => copyFamilyCode()}><Icon name={codeCopied ? 'Check' : 'Copy'} size={14} /></button>
+                    <button className="icon-btn" style={{ background: '#25D366' }} title="Compartir por WhatsApp" onClick={shareInvite}><Icon name="Share2" size={14} /></button>
+                  </div>
+                </div>
+                {familia.map((m) => (
+                  <div className="family-row" key={m}>
+                    {avatarNode(m, 26)}
+                    <span className="family-row-name">{m}</span>
+                    {profile?.name === m && <span className="you-badge">Tú</span>}
+                  </div>
+                ))}
+                <div className="participant-row" style={{ marginTop: 10 }}>
+                  <input className="text-input" placeholder="Nombre de un integrante" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} />
+                  <button className="add-participant-btn" style={{ width: 'auto', marginTop: 0 }} onClick={() => addFamilyMember(newMemberName, false)}><Icon name="UserPlus" size={14} /></button>
+                </div>
+                {memberError && <div className="form-error">{memberError}</div>}
+              </>
             )}
-            <button className="danger-btn neutral" onClick={exportBackup}>
-              <Icon name="List" size={14} /> Exportar respaldo (.json)
-            </button>
-            <input
-              type="file"
-              accept="application/json"
-              ref={backupInputRef}
-              style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) importBackup(f); e.target.value = ''; }}
-            />
-            <button className="danger-btn neutral" disabled={backupBusy} onClick={() => backupInputRef.current?.click()}>
-              <Icon name="RefreshCw" size={14} /> {backupBusy ? 'Restaurando…' : 'Importar respaldo'}
-            </button>
-            {backupMsg && <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{backupMsg}</div>}
-            <button className="danger-btn" onClick={() => askConfirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)?', () => withUndo('Historial borrado', clearAll), { confirmLabel: 'Borrar todo' })}>
-              <Icon name="Trash2" size={14} /> Borrar todo el historial
-            </button>
+
+            {settingsSection === 'perfil' && (
+              <>
+                <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Mi perfil</button>
+                <input
+                  type="file" accept="image/*" ref={photoInputRef} style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f && profile) uploadProfilePhoto(profile.name, f); }}
+                />
+                {profile && (
+                  <div className="family-row" style={{ marginBottom: 4 }}>
+                    <button
+                      className="avatar-upload-btn"
+                      title="Cambiar foto de perfil"
+                      disabled={photoUploading}
+                      onClick={() => photoInputRef.current && photoInputRef.current.click()}
+                    >
+                      {avatarNode(profile.name, 34)}
+                      <span className="avatar-upload-badge"><Icon name={photoUploading ? 'RefreshCw' : 'Pencil'} size={9} /></span>
+                    </button>
+                    {nicknameEdit ? (
+                      <>
+                        <input
+                          className="text-input"
+                          style={{ padding: '6px 10px', fontSize: 13 }}
+                          value={nicknameInput}
+                          onChange={(e) => setNicknameInput(e.target.value)}
+                          autoFocus
+                        />
+                        <button className="icon-btn" style={{ background: 'var(--green)' }} onClick={() => renameProfile(nicknameInput)}><Icon name="Check" size={14} /></button>
+                        <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setNicknameEdit(false)}><Icon name="X" size={14} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="family-row-name">{profile.name}</span>
+                        {profilePhotos[profile.name] && (
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} title="Quitar foto de perfil" onClick={() => removeProfilePhoto(profile.name)}>
+                            <Icon name="Trash2" size={13} />
+                          </button>
+                        )}
+                        <button
+                          className="icon-btn"
+                          style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }}
+                          title="Editar apodo"
+                          onClick={() => { setNicknameInput(profile.name); setNicknameError(''); setNicknameEdit(true); }}
+                        >
+                          <Icon name="Pencil" size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+                {nicknameError && <div className="form-error">{nicknameError}</div>}
+
+                <div className="card-title" style={{ marginTop: 18 }}>PIN de acceso</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10 }}>
+                  {personPins[profile?.name] ? 'Ya tienes un PIN. Se pedirá cada vez que alguien intente entrar como tú.' : 'Opcional. Evita que alguien más entre como tú por accidente o de broma.'}
+                </div>
+                <button className="danger-btn neutral" onClick={openPinSetup}>
+                  <Icon name="Lock" size={14} /> {personPins[profile?.name] ? 'Cambiar PIN' : 'Crear PIN'}
+                </button>
+                {personPins[profile?.name] && (
+                  <button className="danger-btn neutral" onClick={removePin}>
+                    <Icon name="X" size={14} /> Quitar PIN
+                  </button>
+                )}
+
+                <div className="card-title" style={{ marginTop: 18 }}>Aspecto</div>
+                <div className="appearance-row">
+                  {[
+                    { key: 'light', label: 'Claro' },
+                    { key: 'dark', label: 'Oscuro' },
+                    { key: 'system', label: 'Sistema' },
+                  ].map((opt) => (
+                    <button key={opt.key} className={`appearance-opt ${appearance === opt.key ? 'active' : ''}`} onClick={() => chooseAppearance(opt.key)}>
+                      <span className={`appearance-preview ${opt.key}`}>
+                        <span className="appearance-lines">
+                          <span className="appearance-line" style={{ width: '85%' }} />
+                          <span className="appearance-line" style={{ width: '60%' }} />
+                        </span>
+                        <span className="appearance-dot" />
+                      </span>
+                      <span className="appearance-label">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {notifPermission !== 'unsupported' && (
+                  <>
+                    <button
+                      className={`bell-toggle-btn ${notifPermission === 'granted' ? 'on' : ''}`}
+                      onClick={requestNotifPermission}
+                      disabled={notifPermission === 'denied'}
+                    >
+                      <Icon name={notifPermission === 'granted' ? 'Bell' : 'BellOff'} size={14} />
+                      {notifPermission === 'granted' ? 'Notificaciones activadas' : notifPermission === 'denied' ? 'Notificaciones bloqueadas por el celular' : 'Activar notificaciones de gastos fijos'}
+                    </button>
+                    {notifPermission === 'denied' && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 6 }}>
+                        Las bloqueaste antes. Actívalas desde los ajustes del navegador o del celular para esta app.
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <button className="danger-btn neutral" style={{ marginTop: 16 }} onClick={() => { setSettingsOpen(false); setOnboarding(true); }}>
+                  <Icon name="LogOut" size={14} /> Cambiar de persona
+                </button>
+                <button className="danger-btn" onClick={leaveFamily}>
+                  <Icon name="LogOut" size={14} /> Salir de la familia
+                </button>
+              </>
+            )}
+
+            {settingsSection === 'datos' && (
+              <>
+                <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Datos</button>
+                <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setSheet({ type: 'catalogo-cuentas' }); }}>
+                  <Icon name="List" size={14} /> Catálogo de cuentas contables
+                </button>
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 14 }}>
+                  {transactions.length} movimiento{transactions.length !== 1 ? 's' : ''} · {compromisos.length} compromiso{compromisos.length !== 1 ? 's' : ''} · {savings.length} cuenta{savings.length !== 1 ? 's' : ''} de ahorro. Visibles para toda la familia.
+                  {saving && <span className="saving-dot"> · guardando…</span>}
+                </div>
+                {lastSync && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="RefreshCw" size={11} /> Sincronizado {new Date(lastSync).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                    <button onClick={loadShared} style={{ background: 'none', border: 'none', color: 'var(--green)', fontWeight: 600, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>actualizar</button>
+                  </div>
+                )}
+                <button className="danger-btn neutral" style={{ marginTop: 12 }} onClick={exportBackup}>
+                  <Icon name="List" size={14} /> Exportar respaldo (.json)
+                </button>
+                <input
+                  type="file"
+                  accept="application/json"
+                  ref={backupInputRef}
+                  style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) importBackup(f); e.target.value = ''; }}
+                />
+                <button className="danger-btn neutral" disabled={backupBusy} onClick={() => backupInputRef.current?.click()}>
+                  <Icon name="RefreshCw" size={14} /> {backupBusy ? 'Restaurando…' : 'Importar respaldo'}
+                </button>
+                {backupMsg && <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{backupMsg}</div>}
+                <button className="danger-btn" onClick={() => askConfirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)?', () => withUndo('Historial borrado', clearAll), { confirmLabel: 'Borrar todo' })}>
+                  <Icon name="Trash2" size={14} /> Borrar todo el historial
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -5349,7 +5504,24 @@ function LibroDiario() {
           </div>
         </div>
       )}
-      {onboarding && familyCode && (
+      {onboarding && familyCode && pinPrompt && (
+        <div className="sheet-backdrop" onClick={() => setPinPrompt(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-header"><span className="sheet-title">PIN de {pinPrompt.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setPinPrompt(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 14 }}>{pinPrompt.name} le puso un PIN a su cuenta. Pídeselo si no eres tú.</div>
+            <input
+              className="text-input pin-input"
+              type="password" inputMode="numeric" maxLength={4} autoFocus
+              value={pinPrompt.input}
+              onChange={(e) => setPinPrompt((p) => ({ ...p, input: e.target.value.replace(/\D/g, '').slice(0, 4), error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && pinPrompt.input.length === 4) submitPinPrompt(); }}
+            />
+            {pinPrompt.error && <div className="form-error">{pinPrompt.error}</div>}
+            <button className="save-btn" disabled={pinPrompt.input.length !== 4} onClick={submitPinPrompt}><Icon name="Check" size={16} /> Entrar</button>
+          </div>
+        </div>
+      )}
+      {onboarding && familyCode && !pinPrompt && (
         <div className="sheet-backdrop">
           <div className="sheet">
             <div className="sheet-header"><span className="sheet-title">¿Quién eres tú?</span>{profile && <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setOnboarding(false)}><Icon name="X" size={16} /></button>}</div>
@@ -5358,9 +5530,10 @@ function LibroDiario() {
               <>
                 <div className="field-label">Elige tu nombre</div>
                 {familia.map((m) => (
-                  <div key={m} className="cat-choice" style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 10, padding: '10px 12px', marginBottom: 8, width: '100%', boxSizing: 'border-box' }} onClick={() => chooseProfile(m)}>
+                  <div key={m} className="cat-choice" style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 10, padding: '10px 12px', marginBottom: 8, width: '100%', boxSizing: 'border-box' }} onClick={() => requestChooseProfile(m)}>
                     <div className="mini-avatar" style={{ background: colorForName(m) }}>{m.charAt(0).toUpperCase()}</div>
                     <span style={{ fontSize: 13.5, fontWeight: 600 }}>{m}</span>
+                    {personPins[m] && <Icon name="Lock" size={13} color="var(--ink-soft)" style={{ marginLeft: 'auto' }} />}
                   </div>
                 ))}
               </>
