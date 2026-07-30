@@ -2907,6 +2907,7 @@ function LibroDiario() {
         .nav-fab-btn:active { transform: scale(0.9); }
         .sheet-backdrop, .settings-panel { position: absolute; inset: 0; background: rgba(20,24,20,0.5); display: flex; align-items: flex-end; z-index: 10; padding-top: max(env(safe-area-inset-top, 0px), 14px); box-sizing: border-box; }
         .sheet, .settings-card { background: var(--paper); width: 100%; border-radius: 24px 24px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px; max-height: min(82dvh, 82vh); overflow-y: auto; overflow-x: hidden; box-shadow: var(--shadow-sheet); position: relative; box-sizing: border-box; }
+        .settings-card { min-height: min(64dvh, 64vh); display: flex; flex-direction: column; }
         .sheet::before, .settings-card::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; border-radius: 3px; background: var(--line); pointer-events: none; }
         .sheet-handle { position: absolute; top: 0; left: 0; right: 0; height: 30px; touch-action: none; z-index: 5; }
         .sheet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
