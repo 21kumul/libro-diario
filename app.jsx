@@ -5176,7 +5176,15 @@ function LibroDiario() {
                   <div className="settings-menu-icon" style={{ background: 'var(--gold)' }}>{profile ? avatarNode(profile.name, 34) : <Icon name="Users" size={17} color="var(--green)" />}</div>
                   <div className="settings-menu-mid">
                     <div className="settings-menu-title">Mi perfil</div>
-                    <div className="settings-menu-sub">{profile?.name || 'Tú'} · foto, aspecto, notificaciones</div>
+                    <div className="settings-menu-sub">{profile?.name || 'Tú'} · foto, PIN, notificaciones</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
+                <button className="settings-menu-row" onClick={() => setSettingsSection('aspecto')}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--ink)' }}><Icon name="Moon" size={17} color="#fff" /></div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Aspecto</div>
+                    <div className="settings-menu-sub">{{ light: 'Claro', dark: 'Oscuro', system: 'Sistema' }[appearance] || 'Sistema'}</div>
                   </div>
                   <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
                 </button>
@@ -5311,26 +5319,6 @@ function LibroDiario() {
                   </button>
                 )}
 
-                <div className="card-title" style={{ marginTop: 18 }}>Aspecto</div>
-                <div className="appearance-row">
-                  {[
-                    { key: 'light', label: 'Claro' },
-                    { key: 'dark', label: 'Oscuro' },
-                    { key: 'system', label: 'Sistema' },
-                  ].map((opt) => (
-                    <button key={opt.key} className={`appearance-opt ${appearance === opt.key ? 'active' : ''}`} onClick={() => chooseAppearance(opt.key)}>
-                      <span className={`appearance-preview ${opt.key}`}>
-                        <span className="appearance-lines">
-                          <span className="appearance-line" style={{ width: '85%' }} />
-                          <span className="appearance-line" style={{ width: '60%' }} />
-                        </span>
-                        <span className="appearance-dot" />
-                      </span>
-                      <span className="appearance-label">{opt.label}</span>
-                    </button>
-                  ))}
-                </div>
-
                 {notifPermission !== 'unsupported' && (
                   <>
                     <button
@@ -5355,6 +5343,30 @@ function LibroDiario() {
                 <button className="danger-btn" onClick={leaveFamily}>
                   <Icon name="LogOut" size={14} /> Salir de la familia
                 </button>
+              </>
+            )}
+
+            {settingsSection === 'aspecto' && (
+              <>
+                <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Aspecto</button>
+                <div className="appearance-row">
+                  {[
+                    { key: 'light', label: 'Claro' },
+                    { key: 'dark', label: 'Oscuro' },
+                    { key: 'system', label: 'Sistema' },
+                  ].map((opt) => (
+                    <button key={opt.key} className={`appearance-opt ${appearance === opt.key ? 'active' : ''}`} onClick={() => chooseAppearance(opt.key)}>
+                      <span className={`appearance-preview ${opt.key}`}>
+                        <span className="appearance-lines">
+                          <span className="appearance-line" style={{ width: '85%' }} />
+                          <span className="appearance-line" style={{ width: '60%' }} />
+                        </span>
+                        <span className="appearance-dot" />
+                      </span>
+                      <span className="appearance-label">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
               </>
             )}
 
