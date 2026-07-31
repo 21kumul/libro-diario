@@ -25,5 +25,5 @@
 // servidor y esta app no tiene uno.
 
 var googleCalendarConfig = {
-  clientId: "", // Ej. "123456789012-abcabcabcabcabcabcabcabcabcabc1.apps.googleusercontent.com"
+  clientId: "947443307740-91ob8fa1trgf7mauu17mos32h2jgktgq.apps.googleusercontent.com", // Ej. "123456789012-abcabcabcabcabcabcabcabcabcabc1.apps.googleusercontent.com"
 };
