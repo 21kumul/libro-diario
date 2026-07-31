@@ -608,6 +608,12 @@ const nextPeriodKey = (pk, dir = 1) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 const uid = () => Date.now() + Math.random();
+// "YYYY-MM" -> "julio 2026", para mostrar a qué mes corresponde cada pago
+// cuando se adelantan varios meses de un gasto fijo.
+const periodLabel = (pk) => {
+  const [y, m] = pk.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+};
 
 const startOfPeriod = (period) => {
   const now = new Date();
