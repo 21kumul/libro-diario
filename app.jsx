@@ -1054,6 +1054,9 @@ function LibroDiario() {
 
   const [pagoLoteForm, setPagoLoteForm] = useState({ selectedIds: [], locationId: '', date: todayStr() });
   const [pagoLoteError, setPagoLoteError] = useState('');
+  const [pagoLoteTab, setPagoLoteTab] = useState('varios');
+  const [adelantoForm, setAdelantoForm] = useState({ compromisoId: '', meses: 3, locationId: '', date: todayStr() });
+  const [adelantoError, setAdelantoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
   const [budgetAmount, setBudgetAmount] = useState('');
@@ -1618,6 +1621,192 @@ function LibroDiario() {
   // <= 0, considerando también el carryOver de meses anteriores) desaparece
   // de la lista; si no, se sigue mostrando con el total pendiente acumulado.
   const ingresosFijosPendientes = ingresosFijos.filter((c) => c.pendiente > 0.01);
+
+  // Calendario (Ajustes › Calendario): para un mes "YYYY-MM" dado, arma la
+  // lista de ocurrencias de gastos/ingresos fijos pendientes que caen en ese
+  // mes, con su fecha exacta. Los mensuales usan notifyDay (día del mes); los
+  // semanales/quincenales cuentan de 7 o 14 días a partir de anchorDate hacia
+  // ambos lados hasta cubrir el mes completo. Los diarios no se marcan (caen
+  // todos los días, no aporta verlos en el calendario).
+  const eventsForCalMonth = useCallback((monthKey) => {
+    const [y, m] = monthKey.split('-').map(Number);
+    const diasEnMes = new Date(y, m, 0).getDate();
+    const out = [];
+    [...fijosPendientes, ...ingresosFijosPendientes].forEach((c) => {
+      const freq = c.recurFreq || 'mensual';
+      if (freq === 'mensual') {
+        if (!c.notifyDay || c.notifyDay > diasEnMes) return;
+        out.push({ date: `${monthKey}-${String(c.notifyDay).padStart(2, '0')}`, compromiso: c });
+      } else if ((freq === 'semanal' || freq === 'quincenal') && c.anchorDate) {
+        const every = freq === 'semanal' ? 7 : 14;
+        const [ay, am, ad] = c.anchorDate.split('-').map(Number);
+        const anchor = new Date(ay, am - 1, ad);
+        const monthStart = new Date(y, m - 1, 1);
+        const monthEnd = new Date(y, m - 1, diasEnMes);
+        const diffInicio = Math.round((monthStart - anchor) / 86400000);
+        let n = Math.floor(diffInicio / every) - 1;
+        for (let guard = 0; guard < diasEnMes + every * 2; guard++) {
+          const d = new Date(anchor); d.setDate(d.getDate() + n * every);
+          if (d > monthEnd) break;
+          if (d >= monthStart) out.push({ date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, compromiso: c });
+          n++;
+        }
+      }
+    });
+    return out.sort((a, b) => a.date < b.date ? -1 : 1);
+  }, [fijosPendientes, ingresosFijosPendientes]);
+  const [calMonth, setCalMonth] = useState(currentPeriodKey);
+  const [calSelectedDate, setCalSelectedDate] = useState(null);
+
+  // --- Vinculación real con Google Calendar (OAuth, sin backend) ---
+  // Usa Google Identity Services (accounts.google.com/gsi/client, cargado en
+  // index.html) para pedir un access token directo desde el navegador, con
+  // el Client ID que cada quien configura en google-calendar-config.js. Si
+  // ese archivo no trae Client ID, esta parte simplemente no se ofrece y la
+  // app sigue funcionando con los links "Agregar a Google Calendar" y el
+  // .ics de siempre.
+  const gcalConfigured = typeof window !== 'undefined' && !!(window.googleCalendarConfig && window.googleCalendarConfig.clientId);
+  const [gcalToken, setGcalToken] = useState(() => {
+    try {
+      const raw = localStorage.getItem('libroDiario:gcalToken');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.expiresAt > Date.now() ? parsed : null;
+    } catch (e) { return null; }
+  });
+  const [gcalSyncedIds, setGcalSyncedIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('libroDiario:gcalSynced') || '{}'); } catch (e) { return {}; }
+  });
+  const [gcalBusy, setGcalBusy] = useState(false);
+  const [gcalEventBusy, setGcalEventBusy] = useState(null);
+  const [gcalMsg, setGcalMsg] = useState('');
+  const gcalTokenClientRef = useRef(null);
+  const gcalPendingRef = useRef([]);
+  const gcalTokenRef = useRef(gcalToken);
+  useEffect(() => { gcalTokenRef.current = gcalToken; }, [gcalToken]);
+
+  const getGcalTokenClient = useCallback(() => {
+    if (gcalTokenClientRef.current) return gcalTokenClientRef.current;
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2 || !gcalConfigured) return null;
+    gcalTokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+      client_id: window.googleCalendarConfig.clientId,
+      scope: 'https://www.googleapis.com/auth/calendar.events',
+      callback: (resp) => {
+        const waiters = gcalPendingRef.current;
+        gcalPendingRef.current = [];
+        if (resp.error) {
+          setGcalMsg('No se pudo conectar con Google: ' + resp.error);
+          waiters.forEach(({ reject }) => reject(new Error(resp.error)));
+          return;
+        }
+        const tok = { access_token: resp.access_token, expiresAt: Date.now() + (resp.expires_in - 60) * 1000 };
+        setGcalToken(tok);
+        try { localStorage.setItem('libroDiario:gcalToken', JSON.stringify(tok)); } catch (e) { /* nada que hacer si no hay storage */ }
+        setGcalMsg('');
+        waiters.forEach(({ resolve }) => resolve(tok.access_token));
+      },
+    });
+    return gcalTokenClientRef.current;
+  }, [gcalConfigured]);
+
+  // Devuelve un access token vigente, pidiendo uno nuevo si hace falta.
+  // `interactive` fuerza la pantalla de consentimiento de Google (primera
+  // vez); si ya se había conectado antes, casi siempre renueva en silencio.
+  const ensureGcalToken = useCallback((interactive) => {
+    if (gcalTokenRef.current && gcalTokenRef.current.expiresAt > Date.now()) return Promise.resolve(gcalTokenRef.current.access_token);
+    const client = getGcalTokenClient();
+    if (!client) return Promise.reject(new Error('Google todavía no está listo; espera un segundo e intenta de nuevo.'));
+    return new Promise((resolve, reject) => {
+      gcalPendingRef.current.push({ resolve, reject });
+      client.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+    });
+  }, [getGcalTokenClient]);
+
+  const connectGoogleCalendar = () => {
+    setGcalMsg('');
+    ensureGcalToken(true).catch((e) => setGcalMsg('No se pudo conectar: ' + e.message));
+  };
+
+  const disconnectGoogleCalendar = () => {
+    if (gcalToken?.access_token && window.google?.accounts?.oauth2) {
+      window.google.accounts.oauth2.revoke(gcalToken.access_token, () => {});
+    }
+    setGcalToken(null);
+    try { localStorage.removeItem('libroDiario:gcalToken'); } catch (e) { /* nada que limpiar */ }
+    setGcalMsg('Se desconectó Google Calendar.');
+  };
+
+  const markGcalSynced = (key, eventId) => {
+    setGcalSyncedIds((prev) => {
+      const next = { ...prev, [key]: eventId };
+      try { localStorage.setItem('libroDiario:gcalSynced', JSON.stringify(next)); } catch (e) { /* nada que hacer */ }
+      return next;
+    });
+  };
+
+  // Crea (o reutiliza si ya existe) el evento de un día en el Google
+  // Calendar principal de la cuenta conectada.
+  const gcalCreateEvent = async (ev) => {
+    const key = `${ev.compromiso.id}:${ev.date}`;
+    if (gcalSyncedIds[key]) return gcalSyncedIds[key];
+    const token = await ensureGcalToken(false);
+    const isIngreso = ev.compromiso.kind === 'ingreso_fijo';
+    const [y, m, d] = ev.date.split('-').map(Number);
+    const next = new Date(y, m - 1, d + 1);
+    const endDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        summary: `${isIngreso ? 'Ingreso' : 'Pago'} · ${ev.compromiso.name} (${fmt(ev.compromiso.amount)})`,
+        description: 'Creado desde Libro·Diario.',
+        start: { date: ev.date },
+        end: { date: endDate },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Error ${res.status} al crear el evento`);
+    }
+    const data = await res.json();
+    markGcalSynced(key, data.id);
+    return data.id;
+  };
+
+  const syncOneToGoogle = async (ev) => {
+    const key = `${ev.compromiso.id}:${ev.date}`;
+    setGcalEventBusy(key);
+    setGcalMsg('');
+    try {
+      await gcalCreateEvent(ev);
+    } catch (e) {
+      setGcalMsg('No se pudo agregar ese evento: ' + e.message);
+    } finally {
+      setGcalEventBusy(null);
+    }
+  };
+
+  const syncMonthToGoogle = async (monthKey) => {
+    setGcalBusy(true);
+    setGcalMsg('');
+    try {
+      const events = eventsForCalMonth(monthKey);
+      let creados = 0, yaEstaban = 0;
+      for (const ev of events) {
+        const key = `${ev.compromiso.id}:${ev.date}`;
+        if (gcalSyncedIds[key]) { yaEstaban++; continue; }
+        await gcalCreateEvent(ev);
+        creados++;
+      }
+      setGcalMsg(creados > 0
+        ? `Se agregaron ${creados} evento${creados !== 1 ? 's' : ''} a tu Google Calendar.${yaEstaban ? ` (${yaEstaban} ya estaban.)` : ''}`
+        : (events.length ? 'Ya estaba todo sincronizado con Google Calendar.' : 'No hay eventos que sincronizar este mes.'));
+    } catch (e) {
+      setGcalMsg('Se sincronizó parcialmente; se detuvo por: ' + e.message);
+    } finally {
+      setGcalBusy(false);
+    }
+  };
 
   // "Disponible HOY" y proyección a fin de mes: a diferencia de "Disponible
   // · Mes" (que respeta el filtro Hoy/Semana/Mes/Todo de arriba), esto SIEMPRE
@@ -2306,6 +2495,9 @@ function LibroDiario() {
     const atrasados = pendientes.filter((c) => c.carryOver > 0.01).map((c) => c.id);
     setPagoLoteForm({ selectedIds: atrasados, locationId: '', date: todayStr() });
     setPagoLoteError('');
+    setPagoLoteTab('varios');
+    setAdelantoForm({ compromisoId: fijos[0]?.id || '', meses: 3, locationId: '', date: todayStr() });
+    setAdelantoError('');
     setSheet({ type: 'pagar-lote' });
   };
 
@@ -2342,6 +2534,52 @@ function LibroDiario() {
     });
     const patch = { compromisos: nextCompromisos, transactions: [...transactions, ...newTx] };
     patch.moneyLocations = moneyLocations.map((l) => l.id === pagoLoteForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta('gasto', totalAmt) } : l);
+    persist(patch);
+    setSheet(null);
+  };
+
+  // --- Adelantar pagos de varios meses (un solo gasto fijo) ---
+  // Paga hoy, de una sola vez, el mes en curso (si sigue pendiente, lo que
+  // ya incluye cualquier atraso vía carryOver) más N meses futuros elegidos
+  // por el usuario. Por cada mes cubierto se guarda un "payment" con su
+  // propio `period` (que no coincide con la fecha real del pago) para que
+  // esos meses futuros ya aparezcan liquidados cuando les toque, y un
+  // movimiento en Movimientos por cada uno, todos con la fecha real en que
+  // salió el dinero.
+  const submitAdelanto = () => {
+    const c = fijos.find((x) => x.id === adelantoForm.compromisoId);
+    if (!c) return setAdelantoError('Elige el gasto fijo que quieres adelantar.');
+    const meses = Math.round(toNumber(adelantoForm.meses));
+    if (!(meses > 0)) return setAdelantoError('Indica cuántos meses quieres adelantar.');
+    if (!adelantoForm.locationId) return setAdelantoError('Elige de dónde sale el dinero.');
+    const date = adelantoForm.date;
+    const autor = profile?.name || 'Familia';
+    const periods = [];
+    if (c.pendiente > 0.01) periods.push({ period: currentPeriodKey, amount: c.pendiente, note: 'Adelanto · mes en curso' });
+    let p = currentPeriodKey;
+    for (let i = 0; i < meses; i++) {
+      p = nextPeriodKey(p);
+      periods.push({ period: p, amount: c.amount, note: 'Adelanto' });
+    }
+    const totalAmt = periods.reduce((s, x) => s + x.amount, 0);
+    const newTx = [];
+    const nextCompromisos = compromisos.map((x) => {
+      if (x.id !== c.id) return x;
+      const newPayments = periods.map((pr) => {
+        const paymentId = uid();
+        let shared = null;
+        if (x.shared && x.amount) {
+          const ratio = pr.amount / x.amount;
+          const parts = x.shared.participants.filter((part) => part.amount > 0).map((part) => ({ id: uid(), name: part.name, amount: Math.round(part.amount * ratio * 100) / 100, paid: false }));
+          if (parts.length) shared = { participants: parts };
+        }
+        newTx.push({ id: uid(), type: 'gasto', category: x.category, amount: pr.amount, note: `Adelanto · ${x.name} · ${periodLabel(pr.period)}`, date, shared, compromisoId: x.id, paymentId, locationId: adelantoForm.locationId, autor });
+        return { id: paymentId, amount: pr.amount, date, period: pr.period, note: pr.note, autor };
+      });
+      return { ...x, payments: [...x.payments, ...newPayments] };
+    });
+    const patch = { compromisos: nextCompromisos, transactions: [...transactions, ...newTx] };
+    patch.moneyLocations = moneyLocations.map((l) => l.id === adelantoForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta('gasto', totalAmt) } : l);
     persist(patch);
     setSheet(null);
   };
@@ -2591,6 +2829,52 @@ function LibroDiario() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `libro-diario-respaldo-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  // Arma el link "Agregar a Google Calendar" para un evento de un solo día
+  // (sin necesitar cuenta de API ni OAuth: es el mismo truco que usan los
+  // botones "Add to Calendar" de cualquier página de eventos).
+  const gcalUrl = (title, dateStr, details) => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const start = `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+    const next = new Date(y, m - 1, d + 1);
+    const end = `${next.getFullYear()}${String(next.getMonth() + 1).padStart(2, '0')}${String(next.getDate()).padStart(2, '0')}`;
+    const params = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: `${start}/${end}`, details: details || '' });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+  // Exporta todos los eventos (pagos/ingresos fijos pendientes) de un mes
+  // como un .ics estándar, para importarlo de un jalón a Google Calendar (o
+  // cualquier otro calendario): Google Calendar › Ajustes › Importar.
+  const downloadCalMonthIcs = (monthKey) => {
+    const events = eventsForCalMonth(monthKey);
+    const pad = (n) => String(n).padStart(2, '0');
+    const esc = (s) => String(s).replace(/[\\,;]/g, (m) => '\\' + m).replace(/\n/g, '\\n');
+    const now = new Date();
+    const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Libro Diario//ES\r\nCALSCALE:GREGORIAN\r\n';
+    events.forEach((ev) => {
+      const [y, m, d] = ev.date.split('-').map(Number);
+      const startNum = `${y}${pad(m)}${pad(d)}`;
+      const next = new Date(y, m - 1, d + 1);
+      const endNum = `${next.getFullYear()}${pad(next.getMonth() + 1)}${pad(next.getDate())}`;
+      const isIngreso = ev.compromiso.kind === 'ingreso_fijo';
+      ics += 'BEGIN:VEVENT\r\n';
+      ics += `UID:${ev.compromiso.id}-${startNum}@libro-diario\r\n`;
+      ics += `DTSTAMP:${dtstamp}\r\n`;
+      ics += `DTSTART;VALUE=DATE:${startNum}\r\n`;
+      ics += `DTEND;VALUE=DATE:${endNum}\r\n`;
+      ics += `SUMMARY:${esc(`${isIngreso ? 'Ingreso' : 'Pago'} · ${ev.compromiso.name} (${fmt(ev.compromiso.amount)})`)}\r\n`;
+      ics += 'END:VEVENT\r\n';
+    });
+    ics += 'END:VCALENDAR\r\n';
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `libro-diario-calendario-${monthKey}.ics`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3180,6 +3464,25 @@ function LibroDiario() {
         .lote-row-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
         .lote-row-amount { font-family: var(--mono); font-size: 13.5px; font-weight: 700; }
         .lote-total-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin: 4px 0 12px; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+        .stepper-row { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+        .stepper-row .text-input { flex: 1; text-align: center; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-grid-heading { margin-bottom: 4px; }
+        .cal-dow { text-align: center; font-size: 10.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; padding: 4px 0; }
+        .cal-cell { aspect-ratio: 1; border: none; background: var(--paper-dim); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; font-family: inherit; color: var(--ink); -webkit-tap-highlight-color: transparent; padding: 0; }
+        .cal-cell.empty { background: none; cursor: default; }
+        .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--green-soft); }
+        .cal-cell.selected { background: var(--green-soft); color: var(--on-accent); }
+        .cal-daynum { font-size: 12.5px; font-weight: 600; }
+        .cal-dots { display: flex; gap: 3px; height: 5px; }
+        .cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-soft); }
+        .cal-dot.gasto { background: var(--expense); }
+        .cal-dot.ingreso { background: var(--income); }
+        .cal-cell.selected .cal-dot { background: var(--on-accent); }
+        .gcal-card { background: var(--paper-dim); border-radius: 14px; padding: 12px; margin-bottom: 4px; }
+        .gcal-card-row { display: flex; align-items: center; gap: 10px; }
+        .gcal-card-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .gcal-synced-tag { display: flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--income); white-space: nowrap; }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
@@ -4549,54 +4852,123 @@ function LibroDiario() {
       {sheet?.type === 'pagar-lote' && (() => {
         const pendientes = fijos.filter((c) => c.pendiente > 0.01);
         const totalSeleccionado = pendientes.filter((c) => pagoLoteForm.selectedIds.includes(c.id)).reduce((s, c) => s + c.pendiente, 0);
+        const adelantoC = fijos.find((c) => c.id === adelantoForm.compromisoId);
+        const adelantoMeses = Math.max(0, Math.round(toNumber(adelantoForm.meses)) || 0);
+        const adelantoPendienteActual = adelantoC && adelantoC.pendiente > 0.01 ? adelantoC.pendiente : 0;
+        const adelantoTotal = adelantoC ? adelantoPendienteActual + adelantoMeses * adelantoC.amount : 0;
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
               <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
-              <div className="sheet-header"><span className="sheet-title">Pagar varios gastos fijos</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
-                Marca los que quieras pagar juntos. Los atrasados (con saldo de meses anteriores) ya vienen marcados.
+              <div className="sheet-header"><span className="sheet-title">{pagoLoteTab === 'varios' ? 'Pagar varios gastos fijos' : 'Adelantar meses'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div className="type-toggle">
+                <button className={pagoLoteTab === 'varios' ? 'active fijo' : ''} onClick={() => setPagoLoteTab('varios')}><Icon name="List" size={14} /> Pagar varios</button>
+                <button className={pagoLoteTab === 'adelanto' ? 'active fijo' : ''} onClick={() => setPagoLoteTab('adelanto')}><Icon name="Zap" size={14} /> Adelantar meses</button>
               </div>
-              {pendientes.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>No tienes gastos fijos pendientes por pagar ahorita.</div>
-              ) : (
-                <div style={{ marginBottom: 8 }}>
-                  {pendientes.map((c) => {
-                    const selected = pagoLoteForm.selectedIds.includes(c.id);
-                    const atrasado = c.carryOver > 0.01;
-                    return (
-                      <div key={c.id} className={`lote-row ${selected ? 'selected' : ''}`} onClick={() => togglePagoLoteId(c.id)}>
-                        <div className="lote-checkbox">{selected && <Icon name="Check" size={13} />}</div>
-                        <div className="lote-row-body">
-                          <div className="lote-row-name">{c.name}</div>
-                          <div className="lote-row-sub">
-                            {atrasado ? `Atrasado · incluye ${fmt(c.carryOver)} de antes` : catById(c.category).label}
+              {pagoLoteTab === 'varios' ? (
+                <>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+                    Marca los que quieras pagar juntos. Los atrasados (con saldo de meses anteriores) ya vienen marcados.
+                  </div>
+                  {pendientes.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>No tienes gastos fijos pendientes por pagar ahorita.</div>
+                  ) : (
+                    <div style={{ marginBottom: 8 }}>
+                      {pendientes.map((c) => {
+                        const selected = pagoLoteForm.selectedIds.includes(c.id);
+                        const atrasado = c.carryOver > 0.01;
+                        return (
+                          <div key={c.id} className={`lote-row ${selected ? 'selected' : ''}`} onClick={() => togglePagoLoteId(c.id)}>
+                            <div className="lote-checkbox">{selected && <Icon name="Check" size={13} />}</div>
+                            <div className="lote-row-body">
+                              <div className="lote-row-name">{c.name}</div>
+                              <div className="lote-row-sub">
+                                {atrasado ? `Atrasado · incluye ${fmt(c.carryOver)} de antes` : catById(c.category).label}
+                              </div>
+                            </div>
+                            <div className="lote-row-amount">{fmt(c.pendiente)}</div>
                           </div>
-                        </div>
-                        <div className="lote-row-amount">{fmt(c.pendiente)}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {pagoLoteForm.selectedIds.length > 0 && (
-                <div className="lote-total-row">
-                  <span className="totals-subhead" style={{ margin: 0 }}>Total a pagar</span>
-                  <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(totalSeleccionado)}</span>
-                </div>
-              )}
-              <div className="field-label">¿De dónde sale este dinero? *</div>
-              {moneyLocations.length === 0 ? (
-                <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                  Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
-                </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {pagoLoteForm.selectedIds.length > 0 && (
+                    <div className="lote-total-row">
+                      <span className="totals-subhead" style={{ margin: 0 }}>Total a pagar</span>
+                      <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(totalSeleccionado)}</span>
+                    </div>
+                  )}
+                  <div className="field-label">¿De dónde sale este dinero? *</div>
+                  {moneyLocations.length === 0 ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                      Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
+                    </div>
+                  ) : (
+                    <div>{renderLocationPicker(moneyLocationsForGasto(), pagoLoteForm.locationId, (id) => setPagoLoteForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
+                  )}
+                  <div className="field-label">Fecha</div>
+                  <input className="text-input" type="date" value={pagoLoteForm.date} onChange={(e) => setPagoLoteForm((f) => ({ ...f, date: e.target.value }))} />
+                  {pagoLoteError && <div className="form-error">{pagoLoteError}</div>}
+                  <button className="save-btn" disabled={!(pagoLoteForm.selectedIds.length > 0 && pagoLoteForm.locationId)} onClick={submitPagoLote}><Icon name="Check" size={16} /> Pagar {pagoLoteForm.selectedIds.length > 0 ? `${pagoLoteForm.selectedIds.length} gasto${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''} fijo${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''}` : 'seleccionados'}</button>
+                </>
               ) : (
-                <div>{renderLocationPicker(moneyLocationsForGasto(), pagoLoteForm.locationId, (id) => setPagoLoteForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
+                <>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+                    Elige un gasto fijo y paga hoy varios meses de una vez. Si trae algo pendiente del mes en curso (o atrasado), primero se liquida eso y luego se suman los meses futuros que elijas.
+                  </div>
+                  {fijos.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>Todavía no tienes gastos fijos creados.</div>
+                  ) : (
+                    <div style={{ marginBottom: 8 }}>
+                      {fijos.map((c) => {
+                        const selected = adelantoForm.compromisoId === c.id;
+                        return (
+                          <div key={c.id} className={`lote-row ${selected ? 'selected' : ''}`} onClick={() => setAdelantoForm((f) => ({ ...f, compromisoId: c.id }))}>
+                            <div className="lote-checkbox">{selected && <Icon name="Check" size={13} />}</div>
+                            <div className="lote-row-body">
+                              <div className="lote-row-name">{c.name}</div>
+                              <div className="lote-row-sub">
+                                {c.pendiente > 0.01 ? `Pendiente este mes: ${fmt(c.pendiente)}` : 'Al día este mes'} · {fmt(c.amount)}/mes
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="field-label">¿Cuántos meses quieres adelantar?</div>
+                  <div className="stepper-row">
+                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setAdelantoForm((f) => ({ ...f, meses: Math.max(1, (Math.round(toNumber(f.meses)) || 1) - 1) }))}><Icon name="Minus" size={14} /></button>
+                    <input className="text-input" type="number" min="1" max="24" value={adelantoForm.meses} onChange={(e) => setAdelantoForm((f) => ({ ...f, meses: e.target.value }))} />
+                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setAdelantoForm((f) => ({ ...f, meses: Math.min(24, (Math.round(toNumber(f.meses)) || 0) + 1) }))}><Icon name="Plus" size={14} /></button>
+                  </div>
+                  {adelantoC && adelantoMeses > 0 && (
+                    <div className="lote-total-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                      {adelantoPendienteActual > 0.01 && (
+                        <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Pendiente actual: {fmt(adelantoPendienteActual)}</div>
+                      )}
+                      <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{adelantoMeses} mes{adelantoMeses !== 1 ? 'es' : ''} × {fmt(adelantoC.amount)} = {fmt(adelantoMeses * adelantoC.amount)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Cubre hasta {periodLabel(nextPeriodKey(currentPeriodKey, adelantoMeses - 1))}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginTop: 4 }}>
+                        <span className="totals-subhead" style={{ margin: 0 }}>Total a pagar</span>
+                        <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(adelantoTotal)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="field-label">¿De dónde sale este dinero? *</div>
+                  {moneyLocations.length === 0 ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                      Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
+                    </div>
+                  ) : (
+                    <div>{renderLocationPicker(moneyLocationsForGasto(), adelantoForm.locationId, (id) => setAdelantoForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
+                  )}
+                  <div className="field-label">Fecha</div>
+                  <input className="text-input" type="date" value={adelantoForm.date} onChange={(e) => setAdelantoForm((f) => ({ ...f, date: e.target.value }))} />
+                  {adelantoError && <div className="form-error">{adelantoError}</div>}
+                  <button className="save-btn" disabled={!(adelantoC && adelantoMeses > 0 && adelantoForm.locationId)} onClick={submitAdelanto}><Icon name="Check" size={16} /> Adelantar {adelantoMeses > 0 ? `${adelantoMeses} mes${adelantoMeses !== 1 ? 'es' : ''}` : ''}</button>
+                </>
               )}
-              <div className="field-label">Fecha</div>
-              <input className="text-input" type="date" value={pagoLoteForm.date} onChange={(e) => setPagoLoteForm((f) => ({ ...f, date: e.target.value }))} />
-              {pagoLoteError && <div className="form-error">{pagoLoteError}</div>}
-              <button className="save-btn" disabled={!(pagoLoteForm.selectedIds.length > 0 && pagoLoteForm.locationId)} onClick={submitPagoLote}><Icon name="Check" size={16} /> Pagar {pagoLoteForm.selectedIds.length > 0 ? `${pagoLoteForm.selectedIds.length} gasto${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''} fijo${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''}` : 'seleccionados'}</button>
             </div>
           </div>
         );
@@ -5364,6 +5736,14 @@ function LibroDiario() {
                   </div>
                   <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
                 </button>
+                <button className="settings-menu-row" onClick={() => { setCalMonth(currentPeriodKey); setCalSelectedDate(null); setSettingsSection('calendario'); }}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--gold)' }}><Icon name="CalendarCheck" size={17} color="var(--green)" /></div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Calendario</div>
+                    <div className="settings-menu-sub">Días de pagos e ingresos pendientes, vinculado a Google Calendar</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
                 <button className="settings-menu-row" onClick={() => setSettingsSection('datos')}>
                   <div className="settings-menu-icon" style={{ background: 'var(--ink-soft)' }}><Icon name="List" size={17} color="#fff" /></div>
                   <div className="settings-menu-mid">
@@ -5545,6 +5925,128 @@ function LibroDiario() {
                 </div>
               </>
             )}
+
+            {settingsSection === 'calendario' && (() => {
+              const [y, m] = calMonth.split('-').map(Number);
+              const first = new Date(y, m - 1, 1);
+              const startDow = first.getDay();
+              const daysInMonth = new Date(y, m, 0).getDate();
+              const monthEvents = eventsForCalMonth(calMonth);
+              const eventsByDate = {};
+              monthEvents.forEach((ev) => { (eventsByDate[ev.date] = eventsByDate[ev.date] || []).push(ev); });
+              const cells = [];
+              for (let i = 0; i < startDow; i++) cells.push(null);
+              for (let d = 1; d <= daysInMonth; d++) cells.push(`${calMonth}-${String(d).padStart(2, '0')}`);
+              const selectedEvents = calSelectedDate ? (eventsByDate[calSelectedDate] || []) : [];
+              const monthLabel = first.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+              return (
+                <>
+                  <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Calendario</button>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
+                    Días en que caen tus gastos e ingresos fijos pendientes (mensuales, semanales o quincenales).
+                  </div>
+
+                  {gcalConfigured ? (
+                    <div className="gcal-card">
+                      <div className="gcal-card-row">
+                        <div className="gcal-card-icon" style={{ background: gcalToken ? 'var(--income)' : 'var(--paper-dim)', color: gcalToken ? '#fff' : 'var(--ink-soft)' }}>
+                          <Icon name="CalendarCheck" size={16} color={gcalToken ? '#fff' : undefined} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13 }}>{gcalToken ? 'Conectado a Google Calendar' : 'Google Calendar no está conectado'}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{gcalToken ? 'Puedes sincronizar tus pagos e ingresos con un toque.' : 'Vincula tu cuenta para crear los eventos directo, sin descargar nada.'}</div>
+                        </div>
+                        {gcalToken ? (
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={disconnectGoogleCalendar} title="Desconectar"><Icon name="X" size={15} /></button>
+                        ) : (
+                          <button className="save-btn" style={{ width: 'auto', padding: '10px 14px', margin: 0 }} onClick={connectGoogleCalendar}>Conectar</button>
+                        )}
+                      </div>
+                      {gcalToken && (
+                        <button className="danger-btn neutral" style={{ marginTop: 10 }} disabled={gcalBusy || monthEvents.length === 0} onClick={() => syncMonthToGoogle(calMonth)}>
+                          <Icon name={gcalBusy ? 'RefreshCw' : 'CalendarCheck'} size={14} /> {gcalBusy ? 'Sincronizando…' : `Sincronizar ${monthLabel} con Google Calendar`}
+                        </button>
+                      )}
+                      {gcalMsg && <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 8 }}>{gcalMsg}</div>}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', background: 'var(--paper-dim)', borderRadius: 12, padding: 12, marginBottom: 4 }}>
+                      La sincronización directa con Google Calendar todavía no está configurada (falta el Client ID en <code>google-calendar-config.js</code>, ver <code>GOOGLE-CALENDAR.md</code>). Mientras tanto puedes usar los links "Agregar a Google Calendar" de cada día o descargar el mes en .ics.
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '14px 0 10px' }}>
+                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => { setCalMonth(nextPeriodKey(calMonth, -1)); setCalSelectedDate(null); }}><Icon name="ChevronLeft" size={15} /></button>
+                    <div style={{ fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{monthLabel}</div>
+                    <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => { setCalMonth(nextPeriodKey(calMonth)); setCalSelectedDate(null); }}><Icon name="ChevronRight" size={15} /></button>
+                  </div>
+                  <div className="cal-grid cal-grid-heading">
+                    {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((d, i) => <div key={i} className="cal-dow">{d}</div>)}
+                  </div>
+                  <div className="cal-grid">
+                    {cells.map((date, i) => {
+                      if (!date) return <div key={`e${i}`} className="cal-cell empty" />;
+                      const evs = eventsByDate[date] || [];
+                      const dayNum = Number(date.slice(-2));
+                      const isToday = date === todayStr();
+                      const hasIngreso = evs.some((e) => e.compromiso.kind === 'ingreso_fijo');
+                      const hasGasto = evs.some((e) => e.compromiso.kind === 'fijo');
+                      return (
+                        <button key={date} className={`cal-cell ${isToday ? 'today' : ''} ${calSelectedDate === date ? 'selected' : ''}`} onClick={() => evs.length > 0 && setCalSelectedDate(date === calSelectedDate ? null : date)}>
+                          <span className="cal-daynum">{dayNum}</span>
+                          {evs.length > 0 && (
+                            <span className="cal-dots">
+                              {hasGasto && <span className="cal-dot gasto" />}
+                              {hasIngreso && <span className="cal-dot ingreso" />}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {monthEvents.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 14 }}>No hay gastos o ingresos fijos pendientes con fecha programada este mes.</div>
+                  ) : (
+                    <button className="danger-btn neutral" style={{ marginTop: 14 }} onClick={() => downloadCalMonthIcs(calMonth)}>
+                      <Icon name="CalendarCheck" size={14} /> Descargar mes completo (.ics)
+                    </button>
+                  )}
+                  {calSelectedDate && (
+                    <div style={{ marginTop: 14 }}>
+                      <div className="field-label" style={{ margin: '0 0 8px' }}>{new Date(calSelectedDate + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+                      {selectedEvents.map((ev) => {
+                        const isIngreso = ev.compromiso.kind === 'ingreso_fijo';
+                        const title = `${isIngreso ? 'Ingreso' : 'Pago'} · ${ev.compromiso.name}`;
+                        const key = `${ev.compromiso.id}:${ev.date}`;
+                        const synced = !!gcalSyncedIds[key];
+                        const busy = gcalEventBusy === key;
+                        return (
+                          <div key={key} className="lote-row" style={{ cursor: 'default' }}>
+                            <div className="lote-row-body">
+                              <div className="lote-row-name">{ev.compromiso.name}</div>
+                              <div className="lote-row-sub" style={{ color: isIngreso ? 'var(--income)' : 'var(--expense)' }}>{isIngreso ? 'Ingreso fijo' : 'Gasto fijo'} · {fmt(ev.compromiso.amount)}</div>
+                            </div>
+                            {gcalConfigured && gcalToken ? (
+                              synced ? (
+                                <span className="gcal-synced-tag"><Icon name="CheckCircle2" size={13} /> En Google</span>
+                              ) : (
+                                <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} disabled={busy} onClick={() => syncOneToGoogle(ev)} title="Agregar a Google Calendar">
+                                  <Icon name={busy ? 'RefreshCw' : 'CalendarCheck'} size={15} />
+                                </button>
+                              )
+                            ) : (
+                              <a className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} href={gcalUrl(title, ev.date, 'Registrado en Libro·Diario')} target="_blank" rel="noopener noreferrer" title="Agregar a Google Calendar">
+                                <Icon name="CalendarCheck" size={15} />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {settingsSection === 'datos' && (
               <>
