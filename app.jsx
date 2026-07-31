@@ -2865,7 +2865,6 @@ function LibroDiario() {
         .shared-badge { font-size: 9px; background: var(--gold); color: var(--green); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.5px; }
         .bottom-nav-shell {
           position: absolute; left: 10px; right: 10px; bottom: 0; z-index: 6;
-          padding-bottom: env(safe-area-inset-bottom, 0px);
           transition: left 0.3s cubic-bezier(0.32, 0.72, 0, 1), right 0.3s cubic-bezier(0.32, 0.72, 0, 1);
         }
         .bottom-nav-shell.nav-compact-shell { left: 44px; right: 44px; }
@@ -5582,3 +5581,4 @@ function LibroDiario() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
+
