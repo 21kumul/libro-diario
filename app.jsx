@@ -740,6 +740,20 @@ function LibroDiario() {
   const moneyLocationsTotal = moneyLocations.reduce((s, l) => s + (l.monto || 0), 0);
   const moneyLocationsDisponible = moneyLocations.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
   const moneyLocationsDeuda = moneyLocations.filter((l) => l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
+  // Para elegir "¿de dónde sale este dinero?" en un gasto: solo cuentas con
+  // dinero disponible. En débito/efectivo/monedero eso es monto > 0; en
+  // tarjeta de crédito no aplica el mismo criterio (ahí lo que importa es no
+  // estar sobregirada, es decir no haber superado el límite). Si se pasa
+  // keepId, esa ubicación se conserva siempre (para no "perder" la cuenta ya
+  // elegida al editar un movimiento aunque ya no tenga fondos).
+  const moneyLocationsForGasto = (keepId) => {
+    const withFunds = moneyLocations.filter((l) => {
+      if (keepId && l.id === keepId) return true;
+      if (l.esCredito) return !(l.limite && l.monto > l.limite + 0.01); // excluye sobregiradas
+      return (l.monto || 0) > 0;
+    });
+    return withFunds.length ? withFunds : moneyLocations;
+  };
   const [familia, setFamilia] = useState([]);
   const [familyName, setFamilyName] = useState('');
   const [familyNameInput, setFamilyNameInput] = useState('');
@@ -1585,6 +1599,12 @@ function LibroDiario() {
   const cxc = compromisosView.filter((c) => c.kind === 'cxc');
   const fijos = compromisosView.filter((c) => c.kind === 'fijo');
   const ingresosFijos = compromisosView.filter((c) => c.kind === 'ingreso_fijo');
+  // Para la lista visible en Cuentas: un gasto fijo ya liquidado este mes
+  // (pendiente <= 0, incluyendo lo que traiga de carryOver de meses
+  // anteriores) desaparece de la lista, porque ya no hay nada pendiente que
+  // atender. Si no está liquidado, sigue apareciendo con el total pendiente
+  // (mes en curso + lo que se deba de meses anteriores, vía carryOver).
+  const fijosPendientes = fijos.filter((c) => c.pendiente > 0.01);
 
   // "Disponible HOY" y proyección a fin de mes: a diferencia de "Disponible
   // · Mes" (que respeta el filtro Hoy/Semana/Mes/Todo de arriba), esto SIEMPRE
@@ -3489,10 +3509,10 @@ function LibroDiario() {
                     ))}
                   </>
                 )}
-                {fijos.length > 0 && (
+                {fijosPendientes.length > 0 && (
                   <>
                     <div className="totals-subhead">Gastos fijos</div>
-                    {fijos.map((c) => (
+                    {fijosPendientes.map((c) => (
                       <div
                         className={`compromiso-card ${c.shared ? 'clickable' : ''}`}
                         key={c.id}
@@ -3973,7 +3993,7 @@ function LibroDiario() {
                     {renderLocationPicker(
                       txForm.type === 'ingreso'
                         ? moneyLocations
-                        : (moneyLocations.filter((l) => l.monto > 0).length ? moneyLocations.filter((l) => l.monto > 0) : moneyLocations),
+                        : moneyLocationsForGasto(),
                       txForm.locationId,
                       (id) => setTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
                     )}
@@ -4167,10 +4187,7 @@ function LibroDiario() {
                 {renderLocationPicker(
                   editTxForm.type === 'ingreso'
                     ? moneyLocations
-                    : (() => {
-                        const funded = moneyLocations.filter((l) => l.monto > 0 || l.id === editTxForm.locationId);
-                        return funded.length ? funded : moneyLocations;
-                      })(),
+                    : moneyLocationsForGasto(editTxForm.locationId),
                   editTxForm.locationId,
                   (id) => setEditTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
                 )}
