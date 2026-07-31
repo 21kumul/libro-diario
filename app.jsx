@@ -1605,6 +1605,10 @@ function LibroDiario() {
   // atender. Si no está liquidado, sigue apareciendo con el total pendiente
   // (mes en curso + lo que se deba de meses anteriores, vía carryOver).
   const fijosPendientes = fijos.filter((c) => c.pendiente > 0.01);
+  // Mismo criterio para ingresos fijos: uno ya recibido este mes (pendiente
+  // <= 0, considerando también el carryOver de meses anteriores) desaparece
+  // de la lista; si no, se sigue mostrando con el total pendiente acumulado.
+  const ingresosFijosPendientes = ingresosFijos.filter((c) => c.pendiente > 0.01);
 
   // "Disponible HOY" y proyección a fin de mes: a diferencia de "Disponible
   // · Mes" (que respeta el filtro Hoy/Semana/Mes/Todo de arriba), esto SIEMPRE
@@ -3557,10 +3561,10 @@ function LibroDiario() {
                     ))}
                   </>
                 )}
-                {ingresosFijos.length > 0 && (
+                {ingresosFijosPendientes.length > 0 && (
                   <>
                     <div className="totals-subhead">Ingresos fijos</div>
-                    {ingresosFijos.map((c) => (
+                    {ingresosFijosPendientes.map((c) => (
                       <div className="compromiso-card" key={c.id}>
                         <div className="compromiso-top">
                           <div className="compromiso-icon" style={{ background: catById(c.category).color }}><Icon name={catById(c.category).icon} size={16} /></div>
@@ -4322,7 +4326,14 @@ function LibroDiario() {
             </div>
             <div className="field-label">Nombre</div>
             <input className="text-input" placeholder={compForm.kind === 'deuda' ? 'Ej. Préstamo bancario' : compForm.kind === 'cxc' ? 'Ej. Le presté a mi hermano' : compForm.kind === 'ingreso_fijo' ? 'Ej. Nómina, comisiones...' : 'Ej. Renta, Internet...'} value={compForm.name} onChange={(e) => setCompForm((f) => ({ ...f, name: e.target.value }))} />
-            <div className="field-label">{compForm.kind === 'deuda' ? 'Monto total del préstamo' : compForm.kind === 'cxc' ? 'Monto total prestado' : 'Monto mensual'}</div>
+            <div className="field-label">
+              {compForm.kind === 'deuda' ? 'Monto total del préstamo' : compForm.kind === 'cxc' ? 'Monto total prestado' : ({
+                diario: 'Monto por día',
+                semanal: 'Monto semanal',
+                quincenal: 'Monto catorcenal (cada 2 semanas)',
+                mensual: 'Monto mensual',
+              }[compForm.recurFreq || 'mensual'])}
+            </div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={compForm.amount} onChange={(e) => setCompForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} /></div>
             {compForm.kind === 'deuda' && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
