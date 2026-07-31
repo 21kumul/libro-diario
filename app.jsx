@@ -1046,6 +1046,9 @@ function LibroDiario() {
   const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '', locationId: '' });
   const [abonoError, setAbonoError] = useState('');
 
+  const [pagoLoteForm, setPagoLoteForm] = useState({ selectedIds: [], locationId: '', date: todayStr() });
+  const [pagoLoteError, setPagoLoteError] = useState('');
+
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
   const [budgetAmount, setBudgetAmount] = useState('');
   const [savError, setSavError] = useState('');
@@ -2286,6 +2289,57 @@ function LibroDiario() {
     setSheet(null);
   };
 
+  // --- Pago en lote de gastos fijos (CxP) ---
+  // Permite marcar varios gastos fijos pendientes a la vez y pagarlos juntos
+  // desde una sola cuenta, en lugar de abrir "Abonar" uno por uno. Al abrir,
+  // preseleccionamos los que están atrasados (traen carryOver de meses
+  // anteriores) porque son los que más urge cubrir; el resto queda
+  // disponible para sumarlos también si se quiere.
+  const openPagoLote = () => {
+    const pendientes = fijos.filter((c) => c.pendiente > 0.01);
+    const atrasados = pendientes.filter((c) => c.carryOver > 0.01).map((c) => c.id);
+    setPagoLoteForm({ selectedIds: atrasados, locationId: '', date: todayStr() });
+    setPagoLoteError('');
+    setSheet({ type: 'pagar-lote' });
+  };
+
+  const togglePagoLoteId = (id) => {
+    setPagoLoteForm((f) => ({
+      ...f,
+      selectedIds: f.selectedIds.includes(id) ? f.selectedIds.filter((x) => x !== id) : [...f.selectedIds, id],
+    }));
+  };
+
+  const submitPagoLote = () => {
+    const pendientes = fijos.filter((c) => c.pendiente > 0.01);
+    const seleccionados = pendientes.filter((c) => pagoLoteForm.selectedIds.includes(c.id));
+    if (!seleccionados.length) return setPagoLoteError('Selecciona al menos un gasto fijo para pagar.');
+    if (!pagoLoteForm.locationId) return setPagoLoteError('Elige de dónde sale el dinero.');
+    const date = pagoLoteForm.date;
+    const period = periodKey(date);
+    const totalAmt = seleccionados.reduce((s, c) => s + c.pendiente, 0);
+    const newTx = [];
+    const nextCompromisos = compromisos.map((x) => {
+      const sel = seleccionados.find((c) => c.id === x.id);
+      if (!sel) return x;
+      const amt = sel.pendiente;
+      const paymentId = uid();
+      const payment = { id: paymentId, amount: amt, date, period, note: 'Pago en lote', autor: profile?.name || 'Familia' };
+      let shared = null;
+      if (x.shared && x.amount) {
+        const ratio = amt / x.amount;
+        const parts = x.shared.participants.filter((p) => p.amount > 0).map((p) => ({ id: uid(), name: p.name, amount: Math.round(p.amount * ratio * 100) / 100, paid: false }));
+        if (parts.length) shared = { participants: parts };
+      }
+      newTx.push({ id: uid(), type: 'gasto', category: x.category, amount: amt, note: `Pago (lote) · ${x.name}`, date, shared, compromisoId: x.id, paymentId, locationId: pagoLoteForm.locationId, autor: profile?.name || 'Familia' });
+      return { ...x, payments: [...x.payments, payment] };
+    });
+    const patch = { compromisos: nextCompromisos, transactions: [...transactions, ...newTx] };
+    patch.moneyLocations = moneyLocations.map((l) => l.id === pagoLoteForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta('gasto', totalAmt) } : l);
+    persist(patch);
+    setSheet(null);
+  };
+
   const openNewSavings = () => {
     setSavForm({ name: '', target: '', locationId: '' });
     setSavError('');
@@ -3107,6 +3161,19 @@ function LibroDiario() {
         .cxp-total-label { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
         .totals-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-soft); font-weight: 700; margin: 10px 0 4px; }
         .totals-subhead:first-child { margin-top: 0; }
+        .subhead-row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 4px; }
+        .subhead-row .totals-subhead { margin: 0; }
+        .subhead-action-btn { display: flex; align-items: center; gap: 4px; background: none; border: none; padding: 2px 4px; font-size: 11.5px; font-weight: 700; color: var(--green-soft); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .ledger-app.dark .subhead-action-btn { color: var(--income); }
+        .lote-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .lote-row:last-child { border-bottom: none; }
+        .lote-checkbox { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--on-accent); transition: background 0.12s, border-color 0.12s; }
+        .lote-row.selected .lote-checkbox { background: var(--green-soft); border-color: var(--green-soft); }
+        .lote-row-body { flex: 1; min-width: 0; }
+        .lote-row-name { font-size: 13.5px; font-weight: 600; }
+        .lote-row-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+        .lote-row-amount { font-family: var(--mono); font-size: 13.5px; font-weight: 700; }
+        .lote-total-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin: 4px 0 12px; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
@@ -3515,7 +3582,14 @@ function LibroDiario() {
                 )}
                 {fijosPendientes.length > 0 && (
                   <>
-                    <div className="totals-subhead">Gastos fijos</div>
+                    {fijosPendientes.length > 1 ? (
+                      <div className="subhead-row">
+                        <div className="totals-subhead">Gastos fijos</div>
+                        <button className="subhead-action-btn" onClick={openPagoLote}><Icon name="List" size={13} /> Pagar varios</button>
+                      </div>
+                    ) : (
+                      <div className="totals-subhead">Gastos fijos</div>
+                    )}
                     {fijosPendientes.map((c) => (
                       <div
                         className={`compromiso-card ${c.shared ? 'clickable' : ''}`}
@@ -4465,6 +4539,62 @@ function LibroDiario() {
           </div>
         </div>
       )}
+
+      {sheet?.type === 'pagar-lote' && (() => {
+        const pendientes = fijos.filter((c) => c.pendiente > 0.01);
+        const totalSeleccionado = pendientes.filter((c) => pagoLoteForm.selectedIds.includes(c.id)).reduce((s, c) => s + c.pendiente, 0);
+        return (
+          <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+              <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+              <div className="sheet-header"><span className="sheet-title">Pagar varios gastos fijos</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+                Marca los que quieras pagar juntos. Los atrasados (con saldo de meses anteriores) ya vienen marcados.
+              </div>
+              {pendientes.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>No tienes gastos fijos pendientes por pagar ahorita.</div>
+              ) : (
+                <div style={{ marginBottom: 8 }}>
+                  {pendientes.map((c) => {
+                    const selected = pagoLoteForm.selectedIds.includes(c.id);
+                    const atrasado = c.carryOver > 0.01;
+                    return (
+                      <div key={c.id} className={`lote-row ${selected ? 'selected' : ''}`} onClick={() => togglePagoLoteId(c.id)}>
+                        <div className="lote-checkbox">{selected && <Icon name="Check" size={13} />}</div>
+                        <div className="lote-row-body">
+                          <div className="lote-row-name">{c.name}</div>
+                          <div className="lote-row-sub">
+                            {atrasado ? `Atrasado · incluye ${fmt(c.carryOver)} de antes` : catById(c.category).label}
+                          </div>
+                        </div>
+                        <div className="lote-row-amount">{fmt(c.pendiente)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {pagoLoteForm.selectedIds.length > 0 && (
+                <div className="lote-total-row">
+                  <span className="totals-subhead" style={{ margin: 0 }}>Total a pagar</span>
+                  <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(totalSeleccionado)}</span>
+                </div>
+              )}
+              <div className="field-label">¿De dónde sale este dinero? *</div>
+              {moneyLocations.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                  Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
+                </div>
+              ) : (
+                <div>{renderLocationPicker(moneyLocationsForGasto(), pagoLoteForm.locationId, (id) => setPagoLoteForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id })))}</div>
+              )}
+              <div className="field-label">Fecha</div>
+              <input className="text-input" type="date" value={pagoLoteForm.date} onChange={(e) => setPagoLoteForm((f) => ({ ...f, date: e.target.value }))} />
+              {pagoLoteError && <div className="form-error">{pagoLoteError}</div>}
+              <button className="save-btn" disabled={!(pagoLoteForm.selectedIds.length > 0 && pagoLoteForm.locationId)} onClick={submitPagoLote}><Icon name="Check" size={16} /> Pagar {pagoLoteForm.selectedIds.length > 0 ? `${pagoLoteForm.selectedIds.length} gasto${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''} fijo${pagoLoteForm.selectedIds.length !== 1 ? 's' : ''}` : 'seleccionados'}</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {sheet?.type === 'edit-amount' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
