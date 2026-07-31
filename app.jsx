@@ -45,17 +45,18 @@ const GASTO_CATS = [
   { id: 'salud', label: 'Salud', icon: 'HeartPulse', color: '#C15B72' },
   { id: 'banco', label: 'Banco', icon: 'Landmark', color: '#3E6EA5' },
   { id: 'deudas', label: 'Préstamos', icon: 'CreditCard', color: '#7A4E3A' },
+  { id: 'tienda_dep', label: 'Tienda departamental', icon: 'Package', color: '#8C6BA6' },
   { id: 'otros_gas', label: 'Otros', icon: 'MoreHorizontal', color: '#9C8672' },
 ];
 
 // Categorías exclusivas para las cuentas de CxP (gastos fijos, ingresos fijos
 // y préstamos): a partir de esta actualización, dar de alta una cuenta en CxP
-// solo permite clasificarla en una de estas 3 (el resto de categorías de
+// solo permite clasificarla en una de estas 4 (el resto de categorías de
 // Gastos/Ingresos normales no aplican aquí).
-const CXP_CATS = GASTO_CATS.filter((c) => ['banco', 'deudas', 'otros_gas'].includes(c.id));
+const CXP_CATS = GASTO_CATS.filter((c) => ['banco', 'deudas', 'tienda_dep', 'otros_gas'].includes(c.id));
 // Solo estas categorías de CxP permiten editar el monto/saldo a mano
 // (ej. actualizar lo que dice el estado de cuenta del banco).
-const CXP_EDITABLE_CATS = ['banco', 'deudas', 'cobranza'];
+const CXP_EDITABLE_CATS = ['banco', 'deudas', 'tienda_dep', 'cobranza'];
 
 // Ya no usamos una lista fija de subcategorías de "Servicios": ahora las
 // subcategorías de cualquier categoría de gasto se arman solas a partir de
@@ -2227,15 +2228,25 @@ function LibroDiario() {
     if (!abonoForm.locationId) return setAbonoError(isIngreso ? 'Elige a dónde entra este dinero.' : 'Elige de dónde sale este dinero.');
     const paymentId = uid();
     const payment = { id: paymentId, amount: amt, date: abonoForm.date, period: periodKey(abonoForm.date), note: abonoForm.note.trim(), autor: profile?.name || 'Familia' };
-    const nextCompromisos = compromisos.map((x) => {
-      if (x.id !== c.id) return x;
+    // Cuando el abono deja saldada una deuda o cuenta por cobrar, la tarjeta
+    // ya no aporta nada nuevo (ya se ve "Liquidado ✓" ahí), así que se quita
+    // de la lista de compromisos activos. El movimiento del abono en sí
+    // (y todos los anteriores) se queda intacto en Movimientos — solo se
+    // borra la "tarjeta resumen", no el historial.
+    let justSettled = false;
+    const nextCompromisos = compromisos.reduce((acc, x) => {
+      if (x.id !== c.id) { acc.push(x); return acc; }
       const nextPayments = [...x.payments, payment];
       if (isBalanceKind(x.kind)) {
         const currentBalance = x.balance != null ? x.balance : x.amount;
-        return { ...x, payments: nextPayments, balance: Math.max(0, currentBalance - amt) };
+        const newBalance = Math.max(0, currentBalance - amt);
+        if (newBalance <= 0.01) { justSettled = true; return acc; } // se omite: queda liquidada y se retira de la lista
+        acc.push({ ...x, payments: nextPayments, balance: newBalance });
+        return acc;
       }
-      return { ...x, payments: nextPayments };
-    });
+      acc.push({ ...x, payments: nextPayments });
+      return acc;
+    }, []);
     let shared = null;
     if (!isIngreso && c.shared && c.amount) {
       const ratio = amt / c.amount;
@@ -2246,7 +2257,8 @@ function LibroDiario() {
     const nextTx = [...transactions, { id: uid(), type: isIngreso ? 'ingreso' : 'gasto', category: c.category, amount: amt, note: `${notePrefix} · ${c.name}${abonoForm.note ? ' — ' + abonoForm.note.trim() : ''}`, date: abonoForm.date, shared, compromisoId: c.id, paymentId, locationId: abonoForm.locationId, autor: profile?.name || 'Familia' }];
     const patch = { compromisos: nextCompromisos, transactions: nextTx };
     patch.moneyLocations = moneyLocations.map((l) => l.id === abonoForm.locationId ? { ...l, monto: (l.monto || 0) + locationDelta(isIngreso ? 'ingreso' : 'gasto', amt) } : l);
-    persist(patch);
+    if (justSettled) withUndo(`"${c.name}" liquidada — se quitó de la lista`, () => persist(patch));
+    else persist(patch);
     setSheet(null);
   };
 
@@ -5581,4 +5593,3 @@ function LibroDiario() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
-
