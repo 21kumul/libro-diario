@@ -2904,13 +2904,25 @@ function LibroDiario() {
 
   // ---------- presupuestos por categoría (mensual) ----------
   const openBudgetEdit = (catId) => {
-    setBudgetAmount(budgets[catId] ? String(budgets[catId]) : '');
-    setBudgetSavingsChoice(budgetSavingsLinks[catId] || '');
+    const linkedId = budgetSavingsLinks[catId] || '';
+    const linkedAcc = linkedId ? savings.find((a) => a.id === linkedId) : null;
+    // Si ya está vinculado a una cuenta de ahorro y nunca se capturó un
+    // presupuesto aparte, se precarga con la meta de esa cuenta en vez de
+    // dejarlo en 0 — la meta de la cuenta de ahorro y el presupuesto de la
+    // categoría representan lo mismo, así que no hay por qué pedirla dos veces.
+    setBudgetAmount(budgets[catId] ? String(budgets[catId]) : (linkedAcc?.target ? String(linkedAcc.target) : ''));
+    setBudgetSavingsChoice(linkedId);
     setSheet({ type: 'budget-cat', catId });
   };
   const submitBudget = () => {
     const catId = sheet.catId;
-    const amt = toNumber(budgetAmount);
+    let amt = toNumber(budgetAmount);
+    // Si se elige (o ya estaba elegida) una cuenta de ahorro y no se escribió
+    // un presupuesto a mano, se usa la meta de esa cuenta como presupuesto.
+    if (!amt && budgetSavingsChoice) {
+      const acc = savings.find((a) => a.id === budgetSavingsChoice);
+      if (acc?.target) amt = acc.target;
+    }
     const next = { ...budgets };
     if (!amt || amt <= 0) delete next[catId]; else next[catId] = amt;
     const nextLinks = { ...budgetSavingsLinks };
@@ -3798,9 +3810,9 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title">Presupuestos · {new Date().toLocaleDateString('es-MX', { month: 'long' })}</div>
               {GASTO_CATS.map((c) => {
-                const budget = budgets[c.id] || 0;
                 const linkedSavingsId = budgetSavingsLinks[c.id];
                 const linkedSavings = linkedSavingsId ? savings.find((a) => a.id === linkedSavingsId) : null;
+                const budget = linkedSavings ? (budgets[c.id] || linkedSavings.target || 0) : (budgets[c.id] || 0);
                 if (linkedSavings) {
                   const apartado = progresoMetaPorAhorro[linkedSavings.id] || 0;
                   const pct = budget ? Math.min(100, (apartado / budget) * 100) : 0;
@@ -5234,7 +5246,7 @@ function LibroDiario() {
                     <button
                       key={a.id}
                       className={`cat-choice-row ${budgetSavingsChoice === a.id ? 'active' : ''}`}
-                      onClick={() => setBudgetSavingsChoice(a.id)}
+                      onClick={() => { setBudgetSavingsChoice(a.id); if (!toNumber(budgetAmount) && a.target) setBudgetAmount(String(a.target)); }}
                     >
                       <Icon name="PiggyBank" size={13} /> {a.name}
                     </button>
