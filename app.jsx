@@ -1535,6 +1535,23 @@ function LibroDiario() {
     return map;
   }, [savings]);
 
+  // Progreso de la meta del mes para cuentas de ahorro vinculadas a un
+  // presupuesto: el saldo solo no distingue "nunca ahorré" de "ya ahorré Y
+  // pagué" (ambos casos terminan en saldo bajo/cero). Por eso el progreso
+  // suma de vuelta lo que se RETIRÓ este mes calendario — así, pagar el gasto
+  // real con ese dinero sigue contando como meta cumplida, en vez de caer a
+  // 0% justo cuando terminas de lograrla. Lo que sobrevive en el saldo (sin
+  // haberse retirado) sigue siendo la ventaja real para el siguiente mes.
+  const progresoMetaPorAhorro = useMemo(() => {
+    const key = periodKey(todayStr());
+    const map = {};
+    savings.forEach((acc) => {
+      const retirosEsteMes = acc.movements.reduce((s, m) => s + (m.kind === 'retiro' && periodKey(m.date) === key ? m.amount : 0), 0);
+      map[acc.id] = (saldoTotalPorAhorro[acc.id] || 0) + retirosEsteMes;
+    });
+    return map;
+  }, [savings, saldoTotalPorAhorro]);
+
   const ingresosPorCategoria = useMemo(() => {
     const map = {};
     filtered.filter((t) => t.type === 'ingreso').forEach((t) => { map[t.category] = (map[t.category] || 0) + t.amount; });
@@ -3674,7 +3691,7 @@ function LibroDiario() {
                 const linkedSavingsId = budgetSavingsLinks[c.id];
                 const linkedSavings = linkedSavingsId ? savings.find((a) => a.id === linkedSavingsId) : null;
                 if (linkedSavings) {
-                  const apartado = saldoTotalPorAhorro[linkedSavings.id] || 0;
+                  const apartado = progresoMetaPorAhorro[linkedSavings.id] || 0;
                   const pct = budget ? Math.min(100, (apartado / budget) * 100) : 0;
                   const done = budget > 0 && apartado >= budget;
                   const barColor = !budget ? 'var(--line)' : done ? 'var(--income)' : pct >= 60 ? 'var(--gold)' : c.color;
@@ -5075,7 +5092,7 @@ function LibroDiario() {
               <div className="sheet-header"><span className="sheet-title">Presupuesto · {c.label}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
                 {budgetSavingsChoice
-                  ? `Llevas ahorrado ${fmt(saldoTotalPorAhorro[budgetSavingsChoice] || 0)} en esa cuenta (no se reinicia cada mes: si un mes ahorras de más, ese sobrante te ayuda el siguiente).`
+                  ? `Llevas ${fmt(progresoMetaPorAhorro[budgetSavingsChoice] || 0)} de meta este mes en esa cuenta (cuenta lo ahorrado y lo que ya hayas pagado desde ahí; lo que sobre sin retirar es tu ventaja para el siguiente mes).`
                   : `Llevas gastado ${fmt(spent)} este mes en esta categoría.`} Deja en blanco o en 0 para quitar el presupuesto.
               </div>
               <div className="field-label">Presupuesto mensual</div>
