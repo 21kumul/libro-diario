@@ -2618,7 +2618,9 @@ function LibroDiario() {
     const atrasados = pendientes.filter((c) => c.carryOver > 0.01).map((c) => c.id);
     setPagoLoteForm({ selectedIds: atrasados, locationId: '', date: todayStr() });
     setPagoLoteError('');
-    setPagoLoteTab('varios');
+    // Si ya no hay nada pendiente este mes, "Pagar varios" se vería vacía:
+    // se abre directo en "Adelantar meses" para no obligar a cambiar de pestaña.
+    setPagoLoteTab(pendientes.length > 0 ? 'varios' : 'adelanto');
     setAdelantoForm({ compromisoId: fijos[0]?.id || '', meses: 3, locationId: '', date: todayStr() });
     setAdelantoError('');
     setSheet({ type: 'pagar-lote' });
@@ -4078,15 +4080,18 @@ function LibroDiario() {
                     ))}
                   </>
                 )}
-                {fijosPendientes.length > 0 && (
+                {(fijosPendientes.length > 0 || fijos.length > 0) && (
                   <>
-                    {fijosPendientes.length > 1 ? (
-                      <div className="subhead-row">
-                        <div className="totals-subhead">Gastos fijos</div>
-                        <button className="subhead-action-btn" onClick={openPagoLote}><Icon name="List" size={13} /> Pagar varios</button>
-                      </div>
-                    ) : (
+                    <div className="subhead-row">
                       <div className="totals-subhead">Gastos fijos</div>
+                      {fijos.length > 0 && (
+                        <button className="subhead-action-btn" onClick={openPagoLote}><Icon name="Zap" size={13} /> Pagar varios / Adelantar</button>
+                      )}
+                    </div>
+                    {fijosPendientes.length === 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '-4px 2px 12px' }}>
+                        Ya están al día este mes. Usa "Pagar varios / Adelantar" arriba si quieres adelantar el pago de meses futuros (ej. tu plan de telefonía del siguiente mes).
+                      </div>
                     )}
                     {fijosPendientes.map((c) => (
                       <div
