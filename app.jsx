@@ -3121,8 +3121,8 @@ function LibroDiario() {
         }
         .appearance-row { display: flex; gap: 10px; margin-top: 10px; }
         .appearance-opt { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; background: none; border: none; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; }
-        .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; border: 2.5px solid var(--paper-dim); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: border-color 0.15s; }
-        .appearance-opt.active .appearance-preview { border-color: var(--gold); }
+        .appearance-preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; border: 2.5px solid rgba(130,130,130,0.35); position: relative; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.06); transition: border-color 0.15s; }
+        .appearance-opt.active .appearance-preview { border-color: var(--gold); box-shadow: 0 2px 6px rgba(0,0,0,0.15), 0 0 0 1px rgba(194,155,62,0.25); }
         .appearance-preview.light { background: #fff; }
         .appearance-preview.dark { background: #1C1F1C; }
         .appearance-preview.system { background: linear-gradient(135deg, #fff 0%, #fff 50%, #1C1F1C 50%, #1C1F1C 100%); }
@@ -3505,6 +3505,13 @@ function LibroDiario() {
         .cal-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
         .cal-legend span { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--ink-soft); }
         .cal-dot.paid { opacity: 0.35; }
+        /* --paper-dim se invierte en modo oscuro (queda más oscuro que el
+           fondo del panel, no más claro), así que estos elementos "chip"
+           nuevos del calendario necesitan su propio fondo fijo para seguir
+           leyéndose ahí — si no, se pierden contra el fondo. */
+        .ledger-app.dark .cal-cell:not(.empty) { background: rgba(255,255,255,0.07); }
+        .ledger-app.dark .gcal-card { background: rgba(255,255,255,0.06); }
+        .ledger-app.dark .gcal-collapsed-row { background: rgba(255,255,255,0.07); }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
@@ -5751,7 +5758,7 @@ function LibroDiario() {
                   <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
                 </button>
                 <button className="settings-menu-row" onClick={() => setSettingsSection('aspecto')}>
-                  <div className="settings-menu-icon" style={{ background: 'var(--ink)' }}><Icon name="Moon" size={17} color="#fff" /></div>
+                  <div className="settings-menu-icon" style={{ background: '#1C1C1E' }}><Icon name="Moon" size={17} color="#fff" /></div>
                   <div className="settings-menu-mid">
                     <div className="settings-menu-title">Aspecto</div>
                     <div className="settings-menu-sub">{{ light: 'Claro', dark: 'Oscuro', system: 'Sistema' }[appearance] || 'Sistema'}</div>
@@ -5767,7 +5774,7 @@ function LibroDiario() {
                   <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
                 </button>
                 <button className="settings-menu-row" onClick={() => setSettingsSection('datos')}>
-                  <div className="settings-menu-icon" style={{ background: 'var(--ink-soft)' }}><Icon name="List" size={17} color="#fff" /></div>
+                  <div className="settings-menu-icon" style={{ background: '#6E6E73' }}><Icon name="List" size={17} color="#fff" /></div>
                   <div className="settings-menu-mid">
                     <div className="settings-menu-title">Datos</div>
                     <div className="settings-menu-sub">Catálogo, respaldo, borrar historial</div>
@@ -5971,7 +5978,7 @@ function LibroDiario() {
                   {gcalConfigured && !gcalCardHidden && (
                     <div className="gcal-card">
                       <div className="gcal-card-row">
-                        <div className="gcal-card-icon" style={{ background: gcalToken ? 'var(--income)' : 'var(--paper-dim)', color: gcalToken ? '#fff' : 'var(--ink-soft)' }}>
+                        <div className="gcal-card-icon" style={{ background: gcalToken ? 'var(--income)' : 'rgba(130,130,130,0.18)', color: gcalToken ? '#fff' : 'var(--ink-soft)' }}>
                           <Icon name="CalendarCheck" size={16} color={gcalToken ? '#fff' : undefined} />
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
