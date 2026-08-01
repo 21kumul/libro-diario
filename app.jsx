@@ -1094,6 +1094,9 @@ function LibroDiario() {
   const [editAmountForm, setEditAmountForm] = useState({ amount: '', note: '' });
   const [editAmountError, setEditAmountError] = useState('');
 
+  const [editDateForm, setEditDateForm] = useState({ recurFreq: 'mensual', notifyDay: '', anchorDate: '' });
+  const [editDateError, setEditDateError] = useState('');
+
   const [abonoForm, setAbonoForm] = useState({ amount: '', date: todayStr(), note: '', locationId: '' });
   const [abonoError, setAbonoError] = useState('');
 
@@ -2595,6 +2598,37 @@ function LibroDiario() {
       return;
     }
     const nextCompromisos = compromisos.map((x) => x.id === c.id ? { ...x, balance: amt, adjustments: [...(x.adjustments || []), adjustment] } : x);
+    persist({ compromisos: nextCompromisos });
+    setSheet(null);
+  };
+
+  // ---------- editar la fecha/frecuencia de un gasto o ingreso fijo ----------
+  // notifyDay (mensuales) y anchorDate (semanales/quincenales) son la ÚNICA
+  // fuente que se usa para calcular las próximas fechas (calendario,
+  // recordatorios, texto "cada X días"), así que basta con actualizar el
+  // compromiso: desde ese momento, todas las fechas futuras se recalculan
+  // solas a partir del nuevo día/fecha. Lo ya pagado en meses anteriores no
+  // se toca.
+  const openEditDate = (compromiso) => {
+    setEditDateForm({ recurFreq: compromiso.recurFreq || 'mensual', notifyDay: compromiso.notifyDay ? String(compromiso.notifyDay) : '', anchorDate: compromiso.anchorDate || todayStr() });
+    setEditDateError('');
+    setSheet({ type: 'edit-date', compromiso });
+  };
+
+  const submitEditDate = () => {
+    const c = sheet.compromiso;
+    const freq = editDateForm.recurFreq;
+    let notifyDay = null, anchorDate = null;
+    if (freq === 'mensual') {
+      if (editDateForm.notifyDay) {
+        const day = parseInt(editDateForm.notifyDay, 10);
+        if (day >= 1 && day <= 31) notifyDay = day;
+      }
+    } else if (freq === 'semanal' || freq === 'quincenal') {
+      if (!editDateForm.anchorDate) return setEditDateError('Elige una fecha.');
+      anchorDate = editDateForm.anchorDate;
+    }
+    const nextCompromisos = compromisos.map((x) => x.id === c.id ? { ...x, recurFreq: freq, notifyDay, anchorDate } : x);
     persist({ compromisos: nextCompromisos });
     setSheet(null);
   };
@@ -4192,6 +4226,7 @@ function LibroDiario() {
                               <Icon name="Pencil" size={12} /> Actualizar monto
                             </button>
                           )}
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', flexShrink: 0 }} onClick={() => openEditDate(c)} title="Editar fecha de pago"><Icon name="CalendarCheck" size={14} /></button>
                         </div>
                       </div>
                     ))}
@@ -4236,6 +4271,7 @@ function LibroDiario() {
                               <Icon name="Pencil" size={12} /> Actualizar monto
                             </button>
                           )}
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', flexShrink: 0 }} onClick={() => openEditDate(c)} title="Editar fecha de llegada"><Icon name="CalendarCheck" size={14} /></button>
                         </div>
                       </div>
                     ))}
@@ -5255,6 +5291,62 @@ function LibroDiario() {
             <input className="text-input" placeholder="Ej. Interés de julio, estado de cuenta Nu" value={editAmountForm.note} onChange={(e) => setEditAmountForm((f) => ({ ...f, note: e.target.value }))} />
             {editAmountError && <div className="form-error">{editAmountError}</div>}
             <button className="save-btn" onClick={submitEditAmount}><Icon name="Check" size={16} /> Guardar nuevo monto</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'edit-date' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Editar fecha · {sheet.compromiso.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
+              Cambia el día en que {sheet.compromiso.kind === 'ingreso_fijo' ? 'debería llegar este ingreso' : 'se cobra este gasto'}. A partir de guardar, todas las fechas futuras (calendario, recordatorios, "cada X días") se recalculan solas desde el nuevo día — lo que ya está pagado o cobrado en meses anteriores no se toca.
+            </div>
+            <div className="field-label">Repetir</div>
+            <div className="cat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+              {[
+                { id: 'diario', label: 'Cada día' },
+                { id: 'semanal', label: 'Cada semana' },
+                { id: 'quincenal', label: 'Cada 2 semanas' },
+                { id: 'mensual', label: 'Cada mes' },
+              ].map((r) => (
+                <div key={r.id} className={`cat-choice ${editDateForm.recurFreq === r.id ? 'selected' : ''}`} onClick={() => setEditDateForm((f) => ({ ...f, recurFreq: r.id }))}>
+                  <Icon name="RefreshCw" size={14} />
+                  <span className="cat-choice-label">{r.label}</span>
+                </div>
+              ))}
+            </div>
+            {editDateForm.recurFreq === 'mensual' && (
+              <>
+                <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? '¿Qué día del mes debería llegar? (opcional)' : '¿Qué día del mes se cobra? (opcional)'}</div>
+                <input
+                  className="text-input"
+                  type="date"
+                  value={dayToDateInput(editDateForm.notifyDay)}
+                  onChange={(e) => setEditDateForm((f) => ({ ...f, notifyDay: dateInputToDay(e.target.value) }))}
+                />
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                  Elige cualquier fecha; solo tomamos el día. Ej. si eliges el 15, se recalcula para el 15 de cada mes en adelante.
+                </div>
+              </>
+            )}
+            {(editDateForm.recurFreq === 'semanal' || editDateForm.recurFreq === 'quincenal') && (
+              <>
+                <div className="field-label">{sheet.compromiso.kind === 'ingreso_fijo' ? '¿Qué día debería llegar? (opcional)' : '¿Qué día se cobra? (opcional)'}</div>
+                <input
+                  className="text-input"
+                  type="date"
+                  value={editDateForm.anchorDate || todayStr()}
+                  onChange={(e) => setEditDateForm((f) => ({ ...f, anchorDate: e.target.value }))}
+                />
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                  Elige cualquier fecha en la que caiga este {sheet.compromiso.kind === 'ingreso_fijo' ? 'ingreso' : 'pago'}; desde ahí se cuenta cada {editDateForm.recurFreq === 'semanal' ? '7' : '14'} días para el siguiente y para el recordatorio.
+                </div>
+              </>
+            )}
+            {editDateError && <div className="form-error">{editDateError}</div>}
+            <button className="save-btn" onClick={submitEditDate}><Icon name="Check" size={16} /> Guardar fecha</button>
           </div>
         </div>
       )}
