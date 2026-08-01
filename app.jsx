@@ -2087,35 +2087,50 @@ function LibroDiario() {
   );
 
   // ---------- derived: por cobrar (compartido) ----------
-  const pendingByPerson = useMemo(() => {
+  // Desglose ITEMIZADO de lo pendiente por cobrar: no solo el total por
+  // persona, sino cada pago individual que lo compone (de qué cuenta es, de
+  // qué fecha, y cómo liquidarlo puntualmente). "Por cobrar" se arma a
+  // partir de este mismo desglose, para que ambas vistas concuerden siempre.
+  const pendingItemsByPerson = useMemo(() => {
     const map = {};
-    const addParts = (parts) => {
-      parts.forEach((p) => {
-        if (p.paid) return;
-        const key = p.name.trim().toLowerCase();
-        if (!map[key]) map[key] = { name: p.name.trim(), total: 0, count: 0 };
-        map[key].total += p.amount;
-        map[key].count += 1;
-      });
+    const add = (name, amount, meta) => {
+      const key = name.trim().toLowerCase();
+      if (!map[key]) map[key] = { name: name.trim(), items: [] };
+      map[key].items.push({ amount, ...meta });
     };
     // Fuente 1: pagos hechos con "Abonar" / pago en lote / adelantos, que
     // guardan el reparto en la transacción (tx.shared) — el formato normal.
-    transactions.forEach((t) => { if (t.shared) addParts(t.shared.participants); });
-    // Fuente 2: pagos hechos vinculando la cuenta desde "+" (botón
-    // "Vincular" al elegir la categoría), que guardan el reparto directo en
-    // el pago del compromiso (payment.participants) en vez de en la
-    // transacción. Solo se cuentan aquí si esa transacción en particular NO
-    // trae ya su propio "shared", para no contar el mismo pago dos veces.
+    transactions.forEach((t) => {
+      if (!t.shared) return;
+      t.shared.participants.forEach((p) => {
+        if (p.paid) return;
+        add(p.name, p.amount, { source: 'tx', txId: t.id, participantId: p.id, label: t.note || catById(t.category).label, date: t.date });
+      });
+    });
+    // Fuente 2: pagos hechos vinculando la cuenta desde "+", que guardan el
+    // reparto directo en el pago del compromiso (payment.participants) en
+    // vez de en la transacción. Solo se cuentan aquí si esa transacción en
+    // particular NO trae ya su propio "shared", para no contar el mismo
+    // pago dos veces.
     compromisos.forEach((c) => {
       (c.payments || []).forEach((p) => {
         if (!p.participants || !p.participants.length) return;
         const tx = transactions.find((t) => t.paymentId === p.id);
         if (tx?.shared) return;
-        addParts(p.participants);
+        p.participants.forEach((pp, i) => {
+          if (pp.paid) return;
+          add(pp.name, pp.amount, { source: 'payment', compromisoId: c.id, paymentId: p.id, participantId: i, label: c.name, date: p.date });
+        });
       });
     });
-    return Object.values(map).sort((a, b) => b.total - a.total);
+    return map;
   }, [transactions, compromisos]);
+
+  const pendingByPerson = useMemo(() => (
+    Object.values(pendingItemsByPerson)
+      .map((g) => ({ name: g.name, total: g.items.reduce((s, it) => s + it.amount, 0), count: g.items.length }))
+      .sort((a, b) => b.total - a.total)
+  ), [pendingItemsByPerson]);
 
   const porCobrarTotal = pendingByPerson.reduce((s, p) => s + p.total, 0);
 
@@ -4020,9 +4035,9 @@ function LibroDiario() {
                   <button className="mini-abonar" onClick={() => goTab('movimientos')}>Ver en Movimientos</button>
                 </div>
                 {pendingByPerson.map((p) => (
-                  <div className="person-row" key={p.name}>
+                  <div className="person-row" key={p.name} onClick={() => setSheet({ type: 'por-cobrar-detalle', name: p.name })} style={{ cursor: 'pointer' }}>
                     <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
-                    <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''}</div></div>
+                    <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''} · toca para ver el detalle</div></div>
                     <div className="person-amount">{fmt(p.total)}</div>
                   </div>
                 ))}
@@ -4210,11 +4225,11 @@ function LibroDiario() {
               <div className="card">
                 <div className="card-title">Por cobrar (gastos compartidos)</div>
                 {pendingByPerson.map((p) => (
-                  <div className="person-row" key={p.name}>
+                  <div className="person-row" key={p.name} onClick={() => setSheet({ type: 'por-cobrar-detalle', name: p.name })} style={{ cursor: 'pointer' }}>
                     <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
-                    <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''}</div></div>
+                    <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''} · toca para ver el detalle</div></div>
                     <div className="person-amount">{fmt(p.total)}</div>
-                    <button className="mark-paid-btn" onClick={() => markPersonPaid(p.name)}><Icon name="CheckCircle2" size={12} /> Pagó</button>
+                    <button className="mark-paid-btn" onClick={(e) => { e.stopPropagation(); markPersonPaid(p.name); }}><Icon name="CheckCircle2" size={12} /> Pagó</button>
                   </div>
                 ))}
               </div>
@@ -5492,6 +5507,52 @@ function LibroDiario() {
           </div>
         </div>
       )}
+
+      {sheet?.type === 'por-cobrar-detalle' && (() => {
+        const key = sheet.name.trim().toLowerCase();
+        const group = pendingItemsByPerson[key];
+        const items = (group?.items || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+        const total = items.reduce((s, it) => s + it.amount, 0);
+        return (
+          <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+              <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+              <div className="sheet-header"><span className="sheet-title">Por cobrar · {sheet.name}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+                Esto es lo que {sheet.name} todavía no te ha devuelto. Si ya te pagó alguno, tócalo para marcarlo "Recibido" sin que se registre nada más; si te devolvió todo junto, usa "Marcar todo pagado" para además dejarlo anotado como ingreso.
+              </div>
+              {items.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Ya no hay nada pendiente de {sheet.name}.</div>
+              ) : (
+                items.map((it, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => it.source === 'tx' ? toggleTxParticipantPaid(it.txId, it.participantId) : toggleTxParticipantPaid(null, it.participantId, it.compromisoId, it.paymentId)}
+                    className="lote-row"
+                    style={{ width: '100%', textAlign: 'left', marginBottom: 6, background: 'none', border: 'none', borderBottom: '1px solid var(--line)', font: 'inherit', color: 'inherit' }}
+                  >
+                    <div className="lote-row-body">
+                      <div className="lote-row-name">{it.label}</div>
+                      <div className="lote-row-sub">{new Date(it.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                    <div className="lote-row-amount">{fmt(it.amount)}</div>
+                  </button>
+                ))
+              )}
+              {items.length > 0 && (
+                <>
+                  <div className="lote-total-row">
+                    <span className="totals-subhead" style={{ margin: 0 }}>Total pendiente</span>
+                    <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(total)}</span>
+                  </div>
+                  <button className="save-btn" onClick={() => { markPersonPaid(sheet.name); setSheet(null); }}><Icon name="CheckCircle2" size={16} /> Marcar todo pagado ({fmt(total)})</button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
 
       {sheet?.type === 'budget-cat' && (() => {
         const c = catById(sheet.catId);
