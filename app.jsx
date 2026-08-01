@@ -736,6 +736,7 @@ function LibroDiario() {
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
   const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
+  const [budgetSavingsLinks, setBudgetSavingsLinks] = useState({}); // { [categoriaId]: idDeCuentaDeAhorro }
   const [profilePhotos, setProfilePhotos] = useState({}); // { [nombreDeFamilia]: dataURL de la foto }
   const [personPins, setPersonPins] = useState({}); // { [nombreDeFamilia]: PIN de 4 dígitos (opcional) }
   const moneyLocationsByPerson = useMemo(() => {
@@ -1060,6 +1061,7 @@ function LibroDiario() {
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
   const [budgetAmount, setBudgetAmount] = useState('');
+  const [budgetSavingsChoice, setBudgetSavingsChoice] = useState('');
   const [savError, setSavError] = useState('');
 
   const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', persona: '', locationId: '', origen: '' });
@@ -1070,7 +1072,7 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml, bg, pp, pn] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg, pp, pn, bsl] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
@@ -1080,6 +1082,7 @@ function LibroDiario() {
         window.storage.get('budgets', true),
         window.storage.get('profilePhotos', true),
         window.storage.get('personPins', true),
+        window.storage.get('budgetSavingsLinks', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -1099,6 +1102,7 @@ function LibroDiario() {
       setSavings(s.status === 'fulfilled' && s.value ? JSON.parse(s.value.value) : []);
       setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
       setBudgets(bg.status === 'fulfilled' && bg.value ? JSON.parse(bg.value.value) : {});
+      setBudgetSavingsLinks(bsl.status === 'fulfilled' && bsl.value ? JSON.parse(bsl.value.value) : {});
       setProfilePhotos(pp.status === 'fulfilled' && pp.value ? JSON.parse(pp.value.value) : {});
       setPersonPins(pn.status === 'fulfilled' && pn.value ? JSON.parse(pn.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
@@ -1214,6 +1218,7 @@ function LibroDiario() {
     if (patch.savings) { setSavings(patch.savings); savingsRef.current = patch.savings; }
     if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
     if (patch.budgets) { setBudgets(patch.budgets); budgetsRef.current = patch.budgets; }
+    if (patch.budgetSavingsLinks) setBudgetSavingsLinks(patch.budgetSavingsLinks);
     if (patch.profilePhotos) setProfilePhotos(patch.profilePhotos);
     if (patch.personPins) setPersonPins(patch.personPins);
     if (patch.familia) setFamilia(patch.familia);
@@ -1225,6 +1230,7 @@ function LibroDiario() {
       if (patch.savings) jobs.push(mergeAndWrite('savings', patch.savings, baseline.savings, setSavings, savingsRef));
       if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
       if (patch.budgets) jobs.push(window.storage.set('budgets', JSON.stringify(patch.budgets), true));
+      if (patch.budgetSavingsLinks) jobs.push(window.storage.set('budgetSavingsLinks', JSON.stringify(patch.budgetSavingsLinks), true));
       if (patch.profilePhotos) jobs.push(window.storage.set('profilePhotos', JSON.stringify(patch.profilePhotos), true));
       if (patch.personPins) jobs.push(window.storage.set('personPins', JSON.stringify(patch.personPins), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
@@ -1513,6 +1519,21 @@ function LibroDiario() {
     });
     return map;
   }, [transactions]);
+
+  // Saldo total de cada cuenta de ahorro (todos los depósitos menos todos los
+  // retiros, sin importar el mes) — para las categorías de Presupuesto que
+  // estén vinculadas a una cuenta de ahorro (ej. "Transporte" -> "Fondo
+  // transporte"). A propósito NO se reinicia cada mes: si un mes ahorras de
+  // más, ese sobrante se queda como ventaja para el siguiente mes; y cuando
+  // pagas el gasto real desde ahí, el retiro baja el saldo de forma normal
+  // (estás gastando lo ahorrado y ahorrando otra vez al mismo tiempo).
+  const saldoTotalPorAhorro = useMemo(() => {
+    const map = {};
+    savings.forEach((acc) => {
+      map[acc.id] = acc.movements.reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0);
+    });
+    return map;
+  }, [savings]);
 
   const ingresosPorCategoria = useMemo(() => {
     const map = {};
@@ -2756,6 +2777,7 @@ function LibroDiario() {
   // ---------- presupuestos por categoría (mensual) ----------
   const openBudgetEdit = (catId) => {
     setBudgetAmount(budgets[catId] ? String(budgets[catId]) : '');
+    setBudgetSavingsChoice(budgetSavingsLinks[catId] || '');
     setSheet({ type: 'budget-cat', catId });
   };
   const submitBudget = () => {
@@ -2763,7 +2785,9 @@ function LibroDiario() {
     const amt = toNumber(budgetAmount);
     const next = { ...budgets };
     if (!amt || amt <= 0) delete next[catId]; else next[catId] = amt;
-    persist({ budgets: next });
+    const nextLinks = { ...budgetSavingsLinks };
+    if (budgetSavingsChoice) nextLinks[catId] = budgetSavingsChoice; else delete nextLinks[catId];
+    persist({ budgets: next, budgetSavingsLinks: nextLinks });
     setSheet(null);
   };
 
@@ -3329,6 +3353,8 @@ function LibroDiario() {
         .account-feedback.ok { background: rgba(46,125,91,0.12); color: var(--income); }
         .account-feedback.pending { background: rgba(176,67,46,0.1); color: var(--expense); }
         .cat-choice { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px; border-radius: 14px; border: none; background: var(--paper-dim); cursor: pointer; }
+        .cat-choice-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer; box-sizing: border-box; }
+        .cat-choice-row.active { border-color: var(--green); background: var(--paper-dim); color: var(--green); }
         .cat-choice.selected { background: rgba(30,61,50,0.09); box-shadow: inset 0 0 0 1.5px var(--green); }
         .cat-choice-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; }
         .cat-choice-label { font-size: 11px; font-weight: 500; text-align: center; }
@@ -3644,8 +3670,26 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title">Presupuestos · {new Date().toLocaleDateString('es-MX', { month: 'long' })}</div>
               {GASTO_CATS.map((c) => {
-                const spent = gastoMesActualPorCategoria[c.id] || 0;
                 const budget = budgets[c.id] || 0;
+                const linkedSavingsId = budgetSavingsLinks[c.id];
+                const linkedSavings = linkedSavingsId ? savings.find((a) => a.id === linkedSavingsId) : null;
+                if (linkedSavings) {
+                  const apartado = saldoTotalPorAhorro[linkedSavings.id] || 0;
+                  const pct = budget ? Math.min(100, (apartado / budget) * 100) : 0;
+                  const done = budget > 0 && apartado >= budget;
+                  const barColor = !budget ? 'var(--line)' : done ? 'var(--income)' : pct >= 60 ? 'var(--gold)' : c.color;
+                  return (
+                    <div key={c.id} className="cat-row" style={{ cursor: 'pointer' }} onClick={() => openBudgetEdit(c.id)}>
+                      <span className="cat-dot" style={{ background: c.color }} />
+                      <span className="cat-row-label"><Icon name="PiggyBank" size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{c.label}</span>
+                      <div className="cat-bar-track"><div className="cat-bar-fill" style={{ width: `${budget ? pct : 0}%`, background: barColor }} /></div>
+                      <span className="cat-row-amount" style={{ width: 'auto', minWidth: 60, fontSize: 12, whiteSpace: 'nowrap', ...(done ? { color: 'var(--income)' } : {}) }}>
+                        {budget ? `${fmt(apartado)} / ${fmt(budget)}` : 'Fijar'}
+                      </span>
+                    </div>
+                  );
+                }
+                const spent = gastoMesActualPorCategoria[c.id] || 0;
                 const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
                 const over = budget > 0 && spent > budget;
                 const barColor = !budget ? 'var(--line)' : over ? 'var(--expense)' : pct >= 85 ? 'var(--gold)' : c.color;
@@ -5030,10 +5074,39 @@ function LibroDiario() {
               <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
               <div className="sheet-header"><span className="sheet-title">Presupuesto · {c.label}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
-                Llevas gastado {fmt(spent)} este mes en esta categoría. Deja en blanco o en 0 para quitar el presupuesto.
+                {budgetSavingsChoice
+                  ? `Llevas ahorrado ${fmt(saldoTotalPorAhorro[budgetSavingsChoice] || 0)} en esa cuenta (no se reinicia cada mes: si un mes ahorras de más, ese sobrante te ayuda el siguiente).`
+                  : `Llevas gastado ${fmt(spent)} este mes en esta categoría.`} Deja en blanco o en 0 para quitar el presupuesto.
               </div>
               <div className="field-label">Presupuesto mensual</div>
               <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={budgetAmount} onChange={(e) => setBudgetAmount(formatAmountTyping(e.target.value))} autoFocus /></div>
+
+              <div className="field-label" style={{ marginTop: 4 }}>Vincular a una cuenta de ahorro (opcional)</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 8 }}>
+                Si la vinculas, la barra de arriba ya no compara "gastado", sino lo que hayas <b>apartado este mes</b> en esa cuenta — como una meta de ahorro por categoría.
+              </div>
+              {savings.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+                  Todavía no tienes cuentas de ahorro. Crea una desde la pestaña Ahorro y regresa aquí para vincularla.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                  <button
+                    className={`cat-choice-row ${!budgetSavingsChoice ? 'active' : ''}`}
+                    onClick={() => setBudgetSavingsChoice('')}
+                  >Sin vincular · comparar contra lo gastado</button>
+                  {savings.map((a) => (
+                    <button
+                      key={a.id}
+                      className={`cat-choice-row ${budgetSavingsChoice === a.id ? 'active' : ''}`}
+                      onClick={() => setBudgetSavingsChoice(a.id)}
+                    >
+                      <Icon name="PiggyBank" size={13} /> {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <button className="save-btn" onClick={submitBudget}><Icon name="Check" size={16} /> Guardar presupuesto</button>
             </div>
           </div>
