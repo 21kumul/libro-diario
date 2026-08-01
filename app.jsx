@@ -1623,20 +1623,24 @@ function LibroDiario() {
   const ingresosFijosPendientes = ingresosFijos.filter((c) => c.pendiente > 0.01);
 
   // Calendario (Ajustes › Calendario): para un mes "YYYY-MM" dado, arma la
-  // lista de ocurrencias de gastos/ingresos fijos pendientes que caen en ese
-  // mes, con su fecha exacta. Los mensuales usan notifyDay (día del mes); los
-  // semanales/quincenales cuentan de 7 o 14 días a partir de anchorDate hacia
-  // ambos lados hasta cubrir el mes completo. Los diarios no se marcan (caen
-  // todos los días, no aporta verlos en el calendario).
+  // lista de ocurrencias de TODOS los gastos/ingresos fijos activos que caen
+  // en ese mes (ya estén pagados o pendientes ese mes), con su fecha exacta
+  // y si ese mes ya se cubrió o no. Los mensuales usan notifyDay (día del
+  // mes); los semanales/quincenales cuentan de 7 o 14 días a partir de
+  // anchorDate hacia ambos lados hasta cubrir el mes completo. Los diarios
+  // no se marcan (caen todos los días, no aporta verlos en el calendario).
   const eventsForCalMonth = useCallback((monthKey) => {
     const [y, m] = monthKey.split('-').map(Number);
     const diasEnMes = new Date(y, m, 0).getDate();
     const out = [];
-    [...fijosPendientes, ...ingresosFijosPendientes].forEach((c) => {
+    [...fijos, ...ingresosFijos].forEach((c) => {
       const freq = c.recurFreq || 'mensual';
+      const baseAmount = c.balance != null ? c.balance : c.amount;
+      const pagadoEnMes = c.payments.filter((p) => p.period === monthKey).reduce((s, p) => s + p.amount, 0);
+      const pagado = baseAmount > 0 ? pagadoEnMes >= baseAmount - 0.01 : pagadoEnMes > 0;
       if (freq === 'mensual') {
         if (!c.notifyDay || c.notifyDay > diasEnMes) return;
-        out.push({ date: `${monthKey}-${String(c.notifyDay).padStart(2, '0')}`, compromiso: c });
+        out.push({ date: `${monthKey}-${String(c.notifyDay).padStart(2, '0')}`, compromiso: c, pagado });
       } else if ((freq === 'semanal' || freq === 'quincenal') && c.anchorDate) {
         const every = freq === 'semanal' ? 7 : 14;
         const [ay, am, ad] = c.anchorDate.split('-').map(Number);
@@ -1648,13 +1652,13 @@ function LibroDiario() {
         for (let guard = 0; guard < diasEnMes + every * 2; guard++) {
           const d = new Date(anchor); d.setDate(d.getDate() + n * every);
           if (d > monthEnd) break;
-          if (d >= monthStart) out.push({ date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, compromiso: c });
+          if (d >= monthStart) out.push({ date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, compromiso: c, pagado });
           n++;
         }
       }
     });
     return out.sort((a, b) => a.date < b.date ? -1 : 1);
-  }, [fijosPendientes, ingresosFijosPendientes]);
+  }, [fijos, ingresosFijos]);
   const [calMonth, setCalMonth] = useState(currentPeriodKey);
   const [calSelectedDate, setCalSelectedDate] = useState(null);
 
@@ -1680,6 +1684,7 @@ function LibroDiario() {
   const [gcalBusy, setGcalBusy] = useState(false);
   const [gcalEventBusy, setGcalEventBusy] = useState(null);
   const [gcalMsg, setGcalMsg] = useState('');
+  const [gcalCardHidden, setGcalCardHidden] = useState(false);
   const gcalTokenClientRef = useRef(null);
   const gcalPendingRef = useRef([]);
   const gcalTokenRef = useRef(gcalToken);
@@ -1974,11 +1979,11 @@ function LibroDiario() {
         const linkParticipants = {};
         keepIds.forEach((id) => { linkParticipants[id] = f.linkParticipants[id]; });
         // Empieza sin nadie seleccionado: eliges a quién(es) corresponde este pago.
-        return { ...f, links: [...keepIds, c.id], linkAmounts, linkParticipants: { ...linkParticipants, [c.id]: {} } };
+        return { ...f, links: [...keepIds, c.id], category: c.category, linkAmounts, linkParticipants: { ...linkParticipants, [c.id]: {} } };
       }
       // Cuenta individual (no compartida): selección única, reemplaza cualquier otra.
       const amt = c.pendiente || c.amount;
-      return { ...f, links: [c.id], linkAmounts: { [c.id]: amt ? String(amt) : '' }, linkParticipants: {} };
+      return { ...f, links: [c.id], category: c.category, linkAmounts: { [c.id]: amt ? String(amt) : '' }, linkParticipants: {} };
     });
   };
 
@@ -2040,6 +2045,16 @@ function LibroDiario() {
       .filter(Boolean);
     const linkedTotal = links.reduce((s, e) => s + e.amt, 0);
     if (links.length && linkedTotal > amt + 0.01) return setTxError('La suma de los montos vinculados no puede ser mayor al total del movimiento.');
+    // La categoría del movimiento y el "concepto" en la nota deben salir de
+    // la(s) cuenta(s) que se está(n) liquidando, no de lo que haya quedado
+    // marcado arriba en el selector de categorías (que solo sirve para
+    // encontrar la cuenta en la lista y puede quedar desfasado si el
+    // usuario probó varias categorías antes de dar con la correcta). Así
+    // nunca se guarda "Otros" por accidente cuando el préstamo/cuenta sí
+    // tiene su categoría real bien puesta.
+    const finalCategory = links.length ? links[0].c.category : txForm.category;
+    const notaBase = txForm.note.trim();
+    const finalNote = links.length === 1 ? `${links[0].c.name}${notaBase ? ' — ' + notaBase : ''}` : notaBase;
 
     if (links.length === 1) {
       const { c, amt: linkAmt, participants } = links[0];
@@ -2087,7 +2102,7 @@ function LibroDiario() {
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: txForm.category, subcategory: links.length === 1 ? links[0].c.id : null, note: txForm.note.trim(), date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: finalCategory, subcategory: links.length === 1 ? links[0].c.id : null, note: finalNote, date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     const finalizeTx = () => { persist(patch); setSheet(null); };
     if (locationId) {
@@ -3483,6 +3498,13 @@ function LibroDiario() {
         .gcal-card-row { display: flex; align-items: center; gap: 10px; }
         .gcal-card-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         .gcal-synced-tag { display: flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--income); white-space: nowrap; }
+        .gcal-card-links { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+        .gcal-card-links button { background: none; border: none; padding: 6px 2px; text-align: left; font-family: inherit; font-size: 11px; color: var(--ink-soft); text-decoration: underline; cursor: pointer; }
+        .gcal-collapsed-row { display: flex; align-items: center; gap: 6px; background: var(--paper-dim); border: none; border-radius: 10px; padding: 8px 12px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 4px; width: 100%; }
+        .gcal-collapsed-row span { flex: 1; text-align: left; }
+        .cal-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+        .cal-legend span { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--ink-soft); }
+        .cal-dot.paid { opacity: 0.35; }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
@@ -5943,10 +5965,10 @@ function LibroDiario() {
                 <>
                   <button className="settings-back-row" onClick={() => setSettingsSection(null)}><Icon name="ChevronLeft" size={16} /> Calendario</button>
                   <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
-                    Días en que caen tus gastos e ingresos fijos pendientes (mensuales, semanales o quincenales).
+                    Días en que caen tus gastos e ingresos fijos (mensuales, semanales o quincenales), pagados o pendientes.
                   </div>
 
-                  {gcalConfigured ? (
+                  {gcalConfigured && !gcalCardHidden && (
                     <div className="gcal-card">
                       <div className="gcal-card-row">
                         <div className="gcal-card-icon" style={{ background: gcalToken ? 'var(--income)' : 'var(--paper-dim)', color: gcalToken ? '#fff' : 'var(--ink-soft)' }}>
@@ -5957,19 +5979,33 @@ function LibroDiario() {
                           <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{gcalToken ? 'Puedes sincronizar tus pagos e ingresos con un toque.' : 'Vincula tu cuenta para crear los eventos directo, sin descargar nada.'}</div>
                         </div>
                         {gcalToken ? (
-                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={disconnectGoogleCalendar} title="Desconectar"><Icon name="X" size={15} /></button>
+                          <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setGcalCardHidden(true)} title="Ocultar esta tarjeta (sigue conectado)"><Icon name="ChevronUp" size={15} /></button>
                         ) : (
                           <button className="save-btn" style={{ width: 'auto', padding: '10px 14px', margin: 0 }} onClick={connectGoogleCalendar}>Conectar</button>
                         )}
                       </div>
                       {gcalToken && (
-                        <button className="danger-btn neutral" style={{ marginTop: 10 }} disabled={gcalBusy || monthEvents.length === 0} onClick={() => syncMonthToGoogle(calMonth)}>
-                          <Icon name={gcalBusy ? 'RefreshCw' : 'CalendarCheck'} size={14} /> {gcalBusy ? 'Sincronizando…' : `Sincronizar ${monthLabel} con Google Calendar`}
-                        </button>
+                        <>
+                          <button className="danger-btn neutral" style={{ marginTop: 10 }} disabled={gcalBusy || monthEvents.length === 0} onClick={() => syncMonthToGoogle(calMonth)}>
+                            <Icon name={gcalBusy ? 'RefreshCw' : 'CalendarCheck'} size={14} /> {gcalBusy ? 'Sincronizando…' : `Sincronizar ${monthLabel} con Google Calendar`}
+                          </button>
+                          <div className="gcal-card-links">
+                            <button onClick={() => askConfirm('¿Borrar el historial de sincronización? Los eventos ya creados en tu Google Calendar NO se borran allá, pero la app dejará de marcarlos como "En Google" y podrás volver a mandarlos si quieres.', () => { setGcalSyncedIds({}); try { localStorage.removeItem('libroDiario:gcalSynced'); } catch (e) {} }, { confirmLabel: 'Borrar historial', danger: false })}>Borrar historial de sincronización</button>
+                            <button onClick={() => askConfirm('¿Desconectar tu cuenta de Google? Vas a tener que volver a dar permiso la próxima vez que quieras sincronizar.', disconnectGoogleCalendar, { confirmLabel: 'Desconectar' })}>Desconectar cuenta</button>
+                          </div>
+                        </>
                       )}
                       {gcalMsg && <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 8 }}>{gcalMsg}</div>}
                     </div>
-                  ) : (
+                  )}
+                  {gcalConfigured && gcalCardHidden && (
+                    <button className="gcal-collapsed-row" onClick={() => setGcalCardHidden(false)}>
+                      <Icon name="CalendarCheck" size={14} color={gcalToken ? 'var(--income)' : 'var(--ink-soft)'} />
+                      <span>{gcalToken ? 'Conectado a Google Calendar' : 'Google Calendar'}</span>
+                      <Icon name="ChevronDown" size={14} />
+                    </button>
+                  )}
+                  {!gcalConfigured && (
                     <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', background: 'var(--paper-dim)', borderRadius: 12, padding: 12, marginBottom: 4 }}>
                       La sincronización directa con Google Calendar todavía no está configurada (falta el Client ID en <code>google-calendar-config.js</code>, ver <code>GOOGLE-CALENDAR.md</code>). Mientras tanto puedes usar los links "Agregar a Google Calendar" de cada día o descargar el mes en .ics.
                     </div>
@@ -5989,23 +6025,32 @@ function LibroDiario() {
                       const evs = eventsByDate[date] || [];
                       const dayNum = Number(date.slice(-2));
                       const isToday = date === todayStr();
-                      const hasIngreso = evs.some((e) => e.compromiso.kind === 'ingreso_fijo');
-                      const hasGasto = evs.some((e) => e.compromiso.kind === 'fijo');
+                      const hasIngresoPend = evs.some((e) => e.compromiso.kind === 'ingreso_fijo' && !e.pagado);
+                      const hasGastoPend = evs.some((e) => e.compromiso.kind === 'fijo' && !e.pagado);
+                      const hasIngresoPag = evs.some((e) => e.compromiso.kind === 'ingreso_fijo' && e.pagado);
+                      const hasGastoPag = evs.some((e) => e.compromiso.kind === 'fijo' && e.pagado);
                       return (
                         <button key={date} className={`cal-cell ${isToday ? 'today' : ''} ${calSelectedDate === date ? 'selected' : ''}`} onClick={() => evs.length > 0 && setCalSelectedDate(date === calSelectedDate ? null : date)}>
                           <span className="cal-daynum">{dayNum}</span>
                           {evs.length > 0 && (
                             <span className="cal-dots">
-                              {hasGasto && <span className="cal-dot gasto" />}
-                              {hasIngreso && <span className="cal-dot ingreso" />}
+                              {hasGastoPend && <span className="cal-dot gasto" />}
+                              {hasIngresoPend && <span className="cal-dot ingreso" />}
+                              {hasGastoPag && <span className="cal-dot gasto paid" />}
+                              {hasIngresoPag && <span className="cal-dot ingreso paid" />}
                             </span>
                           )}
                         </button>
                       );
                     })}
                   </div>
+                  <div className="cal-legend">
+                    <span><span className="cal-dot gasto" /> Gasto pendiente</span>
+                    <span><span className="cal-dot ingreso" /> Ingreso pendiente</span>
+                    <span><span className="cal-dot gasto paid" /> Ya pagado/cobrado</span>
+                  </div>
                   {monthEvents.length === 0 ? (
-                    <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 14 }}>No hay gastos o ingresos fijos pendientes con fecha programada este mes.</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 14 }}>No hay gastos o ingresos fijos con fecha programada este mes.</div>
                   ) : (
                     <button className="danger-btn neutral" style={{ marginTop: 14 }} onClick={() => downloadCalMonthIcs(calMonth)}>
                       <Icon name="CalendarCheck" size={14} /> Descargar mes completo (.ics)
@@ -6024,7 +6069,9 @@ function LibroDiario() {
                           <div key={key} className="lote-row" style={{ cursor: 'default' }}>
                             <div className="lote-row-body">
                               <div className="lote-row-name">{ev.compromiso.name}</div>
-                              <div className="lote-row-sub" style={{ color: isIngreso ? 'var(--income)' : 'var(--expense)' }}>{isIngreso ? 'Ingreso fijo' : 'Gasto fijo'} · {fmt(ev.compromiso.amount)}</div>
+                              <div className="lote-row-sub" style={{ color: isIngreso ? 'var(--income)' : 'var(--expense)' }}>
+                                {isIngreso ? 'Ingreso fijo' : 'Gasto fijo'} · {fmt(ev.compromiso.amount)} · {ev.pagado ? (isIngreso ? 'Ya cobrado' : 'Ya pagado') : 'Pendiente'}
+                              </div>
                             </div>
                             {gcalConfigured && gcalToken ? (
                               synced ? (
