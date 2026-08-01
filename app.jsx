@@ -3523,6 +3523,7 @@ function LibroDiario() {
         .ledger-app.dark .kind-badge.fijo { background: rgba(232,197,107,0.18); color: #E8C56B; }
         .ledger-app.dark .danger-btn.neutral { color: #8FD9B6; }
         .ledger-app.dark .add-participant-btn { color: #8FD9B6; }
+        .ledger-app.dark .cat-choice-row.active { color: #8FD9B6; border-color: #8FD9B6; }
         .ledger-app.dark .mark-paid-btn { color: #8FD9B6; }
         .ledger-app.dark .compromiso-card.selected { border-color: #8FD9B6; background: rgba(143,217,182,0.08); }
         .ledger-app.dark .text-input:focus { border-color: #8FD9B6; }
@@ -4569,7 +4570,7 @@ function LibroDiario() {
                     return (
                       <button
                         onClick={(e) => { e.stopPropagation(); openLinkSavings(acc); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, margin: '2px 0 8px', cursor: 'pointer', fontSize: 11.5, color: linkedLoc ? 'var(--ink-soft)' : 'var(--green)', fontWeight: 600 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, margin: '2px 0 8px', cursor: 'pointer', fontSize: 11.5, color: linkedLoc ? 'var(--ink-soft)' : 'var(--income)', fontWeight: 600 }}
                       >
                         <Icon name={linkedLoc?.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={12} />
                         {linkedLoc ? `Guardado en: ${linkedLoc.persona} · ${linkedLoc.tipo === 'tarjeta' ? (linkedLoc.nombre || 'Tarjeta') : 'Monedero'}` : 'Vincular a una tarjeta o monedero'}
@@ -6660,7 +6661,7 @@ function LibroDiario() {
                 {lastSync && (
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Icon name="RefreshCw" size={11} /> Sincronizado {new Date(lastSync).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                    <button onClick={loadShared} style={{ background: 'none', border: 'none', color: 'var(--green)', fontWeight: 600, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>actualizar</button>
+                    <button onClick={loadShared} style={{ background: 'none', border: 'none', color: 'var(--income)', fontWeight: 600, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>actualizar</button>
                   </div>
                 )}
                 <button className="danger-btn neutral" style={{ marginTop: 12 }} onClick={exportBackup}>
