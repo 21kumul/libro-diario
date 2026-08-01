@@ -1842,7 +1842,14 @@ function LibroDiario() {
         }
         const tok = { access_token: resp.access_token, expiresAt: Date.now() + (resp.expires_in - 60) * 1000 };
         setGcalToken(tok);
-        try { localStorage.setItem('libroDiario:gcalToken', JSON.stringify(tok)); } catch (e) { /* nada que hacer si no hay storage */ }
+        try {
+          localStorage.setItem('libroDiario:gcalToken', JSON.stringify(tok));
+          // Esta marca NO expira con el token: sirve para saber, la próxima
+          // vez que se abra la app (aunque hayan pasado horas y el token ya
+          // haya vencido), que vale la pena intentar renovarlo solo antes de
+          // mostrar "no conectado".
+          localStorage.setItem('libroDiario:gcalWasConnected', '1');
+        } catch (e) { /* nada que hacer si no hay storage */ }
         setGcalMsg('');
         waiters.forEach(({ resolve }) => resolve(tok.access_token));
       },
@@ -1873,9 +1880,37 @@ function LibroDiario() {
       window.google.accounts.oauth2.revoke(gcalToken.access_token, () => {});
     }
     setGcalToken(null);
-    try { localStorage.removeItem('libroDiario:gcalToken'); } catch (e) { /* nada que limpiar */ }
+    try {
+      localStorage.removeItem('libroDiario:gcalToken');
+      localStorage.removeItem('libroDiario:gcalWasConnected');
+    } catch (e) { /* nada que limpiar */ }
     setGcalMsg('Se desconectó Google Calendar.');
   };
+
+  // Si ya te habías conectado antes (aunque el token de esta sesión ya haya
+  // vencido), intenta renovarlo solo en segundo plano en cuanto abre la app,
+  // antes de mostrarte "no conectado". Casi siempre funciona sin pedirte
+  // nada, mientras sigas con la sesión de Google activa en el navegador.
+  useEffect(() => {
+    if (gcalToken || !gcalConfigured) return;
+    let wasConnected = false;
+    try { wasConnected = localStorage.getItem('libroDiario:gcalWasConnected') === '1'; } catch (e) { /* sin storage, nada que hacer */ }
+    if (!wasConnected) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryRefresh = () => {
+      if (cancelled) return;
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+        ensureGcalToken(false).catch(() => { /* falló el intento silencioso; se queda como "no conectado" y puedes reconectar a mano */ });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) setTimeout(tryRefresh, 300); // Google Identity Services aún no cargaba; reintenta un rato
+    };
+    tryRefresh();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gcalConfigured]);
 
   const markGcalSynced = (key, eventId) => {
     setGcalSyncedIds((prev) => {
@@ -2356,7 +2391,7 @@ function LibroDiario() {
     }
     const l = moneyLocations.find((x) => x.id === id);
     if (!l) return 'Cuenta eliminada';
-    return `${l.persona} · ${l.tipo === 'tarjeta' ? (l.nombre || 'Banco') : 'Monedero'}`;
+    return `${l.persona} · ${l.tipo === 'tarjeta' ? `${l.nombre || 'Banco'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero'}`;
   };
 
   const openEditTx = (t) => {
@@ -3910,7 +3945,7 @@ function LibroDiario() {
                             <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={14} />
                           </div>
                           <div className="mini-row-mid">
-                            <div className="mini-row-name">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</div>
+                            <div className="mini-row-name">{l.tipo === 'tarjeta' ? `${l.nombre || 'Tarjeta'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero'}</div>
                           </div>
                           <div className="mini-row-amount" style={{ color: l.esCredito ? 'var(--expense)' : 'var(--ink)' }}>
                             {l.esCredito ? `Debes ${fmt(l.monto)}` : fmt(l.monto)}
@@ -6158,7 +6193,7 @@ function LibroDiario() {
             ) : (
               <input className="text-input" placeholder="Ej. Mamá, Papá..." value={moveForm.persona} onChange={(e) => setMoveForm((f) => ({ ...f, persona: e.target.value, locationId: '' }))} />
             )}
-            <div className="field-label">{moveForm.kind === 'deposito' ? '¿De qué cuenta sale? *' : '¿A qué cuenta regresa? *'}</div>
+            <div className="field-label">{moveForm.kind === 'deposito' ? '¿En qué cuenta queda guardado el ahorro? *' : '¿A qué cuenta regresa? *'}</div>
             {moneyLocations.length === 0 ? (
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>Primero registra una tarjeta o monedero en la pestaña Tarjetas.</div>
             ) : (
@@ -6166,7 +6201,7 @@ function LibroDiario() {
                 {moneyLocations.filter((l) => !moveForm.persona || l.persona === moveForm.persona).map((l) => (
                   <div key={l.id} className={`cat-choice ${moveForm.locationId === l.id ? 'selected' : ''}`} onClick={() => setMoveForm((f) => ({ ...f, locationId: l.id }))}>
                     <Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={16} />
-                    <span className="cat-choice-label">{l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}</span>
+                    <span className="cat-choice-label">{l.tipo === 'tarjeta' ? `${l.nombre || 'Tarjeta'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero'}</span>
                   </div>
                 ))}
               </div>
