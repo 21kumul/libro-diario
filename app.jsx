@@ -986,6 +986,10 @@ function LibroDiario() {
     goTab(parentKey);
   };
   const [period, setPeriod] = useState('mes');
+  // Mes seleccionado para las gráficas de la pestaña Gráficas ("YYYY-MM").
+  // Es independiente del filtro Hoy/Semana/Mes/Todo de arriba: aquí siempre
+  // se elige un mes calendario puntual para poder comparar meses pasados.
+  const [chartMonth, setChartMonth] = useState(currentPeriodKey);
   const [sheet, setSheet] = useState(null); // {type, ...}
   const [sheetDragY, setSheetDragY] = useState(0);
   const sheetDragging = useRef(false);
@@ -1580,6 +1584,44 @@ function LibroDiario() {
     return { ingresos, gastos, totalIngresos, totalGastos, utilidad: totalIngresos - totalGastos };
   }, [filtered]);
 
+  // ---------- derived: gráficas por mes elegido (pestaña Gráficas) ----------
+  // A diferencia de "filtered" (que respeta el filtro Hoy/Semana/Mes/Todo de
+  // arriba), estas se arman a partir del mes puntual que se elija en el
+  // selector de la pestaña Gráficas, para poder ver cualquier mes pasado.
+  const chartTx = useMemo(() => transactions.filter((t) => periodKey(t.date) === chartMonth), [transactions, chartMonth]);
+
+  const savingsMovesEnChartMonth = useMemo(() => {
+    let net = 0;
+    savings.forEach((acc) => acc.movements.forEach((m) => {
+      if (periodKey(m.date) === chartMonth) net += m.kind === 'deposito' ? m.amount : -m.amount;
+    }));
+    return net;
+  }, [savings, chartMonth]);
+
+  const gastosPorCategoriaMes = useMemo(() => {
+    const map = {};
+    chartTx.filter((t) => t.type === 'gasto').forEach((t) => { map[t.category] = (map[t.category] || 0) + t.amount; });
+    return Object.entries(map).map(([id, value]) => ({ id, name: catById(id).label, value, color: catById(id).color }))
+      .sort((a, b) => b.value - a.value);
+  }, [chartTx]);
+
+  const estadoResultadoMes = useMemo(() => {
+    const map = {};
+    chartTx.forEach((t) => {
+      if (t.type === 'traspaso') return;
+      const cuenta = cuentaOf(t.category);
+      const key = cuenta.codigo;
+      if (!map[key]) map[key] = { codigo: cuenta.codigo, nombre: cuenta.nombre, grupo: cuenta.grupo, value: 0 };
+      map[key].value += t.amount;
+    });
+    const rows = Object.values(map).sort((a, b) => a.codigo.localeCompare(b.codigo));
+    const ingresos = rows.filter((r) => r.grupo === 'ingresos');
+    const gastos = rows.filter((r) => r.grupo === 'gastos');
+    const totalIngresos = ingresos.reduce((s, r) => s + r.value, 0);
+    const totalGastos = gastos.reduce((s, r) => s + r.value, 0);
+    return { ingresos, gastos, totalIngresos, totalGastos, utilidad: totalIngresos - totalGastos };
+  }, [chartTx]);
+
   const monthly6 = useMemo(() => {
     const now = new Date();
     const months = [];
@@ -1644,6 +1686,19 @@ function LibroDiario() {
     if (changed) persist({ compromisos: next });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compromisos.length]);
+
+  // Limpieza de datos viejos: préstamos/CxC que ya se habían saldado por
+  // completo (con "Actualizar monto" a $0) antes de que eso los quitara de
+  // la lista automáticamente, y se quedaron atorados mostrando "Liquidado".
+  // Se corre una sola vez al cargar y los retira, conservando su historial
+  // de pagos en Movimientos (solo se quita la "tarjeta resumen").
+  useEffect(() => {
+    const atorados = compromisosView.filter((c) => isBalanceKind(c.kind) && c.liquidada);
+    if (atorados.length === 0) return;
+    const idsAtorados = new Set(atorados.map((c) => c.id));
+    persist({ compromisos: compromisos.filter((c) => !idsAtorados.has(c.id)) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compromisosView]);
 
   const deudas = compromisosView.filter((c) => c.kind === 'deuda');
   const cxc = compromisosView.filter((c) => c.kind === 'cxc');
@@ -1922,8 +1977,13 @@ function LibroDiario() {
   const ITEM_COLORS = ['#1E3D32', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#7A4E3A', '#8C6239'];
   const gastosFijosPorConcepto = useMemo(() => {
     const map = {};
-    compromisosView.filter((c) => c.kind === 'fijo' && c.pendiente > 0.01).forEach((c) => {
-      map[c.name] = (map[c.name] || 0) + c.pendiente;
+    // Se usa el monto comprometido del mes en curso (pagado + lo que falte,
+    // sin contar el carryOver de meses anteriores) para que un gasto fijo ya
+    // pagado este mes siga apareciendo en la gráfica con su rebanada normal,
+    // en vez de desaparecer solo por estar al día.
+    compromisosView.filter((c) => c.kind === 'fijo').forEach((c) => {
+      const montoMes = c.balance != null ? c.balance : c.amount;
+      if (montoMes > 0.01) map[c.name] = (map[c.name] || 0) + montoMes;
     });
     return Object.entries(map)
       .map(([name, value], i) => ({ id: name, name, value, color: ITEM_COLORS[i % ITEM_COLORS.length] }))
@@ -2484,6 +2544,16 @@ function LibroDiario() {
     const amt = toNumber(editAmountForm.amount);
     if (isNaN(amt) || amt < 0) return setEditAmountError('Ingresa un monto válido.');
     const adjustment = { id: uid(), date: todayStr(), from: c.pendiente, to: amt, note: editAmountForm.note.trim(), autor: profile?.name || 'Familia' };
+    // Si es una cuenta de saldo total (préstamo/CxC, no gasto o ingreso fijo
+    // recurrente) y el ajuste la deja en $0, ya quedó saldada: se quita de la
+    // lista igual que cuando se liquida con "Abonar", en vez de dejarla ahí
+    // marcada "Liquidado" para siempre.
+    if (isBalanceKind(c.kind) && amt <= 0.01) {
+      const nextCompromisos = compromisos.filter((x) => x.id !== c.id);
+      withUndo(`"${c.name}" liquidada — se quitó de la lista`, () => persist({ compromisos: nextCompromisos }));
+      setSheet(null);
+      return;
+    }
     const nextCompromisos = compromisos.map((x) => x.id === c.id ? { ...x, balance: amt, adjustments: [...(x.adjustments || []), adjustment] } : x);
     persist({ compromisos: nextCompromisos });
     setSheet(null);
@@ -2729,6 +2799,40 @@ function LibroDiario() {
     setSheet({ type: 'new-location' });
   };
 
+  // Cuando una tarjeta de crédito se sobregira (el monto capturado supera su
+  // límite), esto la convierte en una cuenta por pagar (CxP) ligada a esa
+  // tarjeta: si ya estaba vinculada a un préstamo, solo actualiza su saldo
+  // para que coincida con el monto de la tarjeta (así, cada vez que se
+  // captura a mano el nuevo saldo con intereses, el préstamo se actualiza
+  // solo); si no tenía préstamo vinculado, crea uno nuevo automáticamente.
+  // Regresa { compromisos, prestamoId } con la lista ya actualizada y el id
+  // que debe quedar guardado en la ubicación (tarjeta).
+  const syncCardPrestamo = (loc, monto, limite, esCredito, prestamoIdField, baseCompromisos) => {
+    if (!esCredito || !limite) return { compromisos: baseCompromisos, prestamoId: null };
+    const sobregirada = monto > limite + 0.01;
+    let prestamoId = prestamoIdField || null;
+    let next = baseCompromisos;
+    const yaVinculado = prestamoId && next.some((c) => c.id === prestamoId && c.kind === 'deuda');
+    if (yaVinculado) {
+      next = next.map((c) => {
+        if (c.id !== prestamoId) return c;
+        const from = c.balance != null ? c.balance : c.amount;
+        if (Math.abs(from - monto) < 0.01) return c; // sin cambios, no ensucia el historial de ajustes
+        const adjustment = { id: uid(), date: todayStr(), from, to: monto, note: 'Sincronizado con el saldo de la tarjeta', autor: profile?.name || 'Familia' };
+        return { ...c, balance: monto, adjustments: [...(c.adjustments || []), adjustment] };
+      });
+    } else if (sobregirada) {
+      const newId = uid();
+      next = [...next, {
+        id: newId, kind: 'deuda', category: 'banco',
+        name: `Tarjeta ${loc?.nombre || ''} · sobregiro`.trim(),
+        amount: monto, balance: monto, payments: [], adjustments: [], carryOver: 0,
+      }];
+      prestamoId = newId;
+    }
+    return { compromisos: next, prestamoId };
+  };
+
   const submitLocation = () => {
     if (!locForm.persona.trim()) return setLocError('Elige o escribe a quién pertenece.');
     if (locForm.tipo === 'tarjeta') {
@@ -2738,21 +2842,24 @@ function LibroDiario() {
     }
     const monto = toNumber(locForm.monto);
     const esCredito = locForm.tipo === 'tarjeta' && locForm.esCredito;
+    const limite = esCredito ? toNumber(locForm.limite) || null : null;
+    const newLocId = uid();
+    const { compromisos: nextCompromisos, prestamoId } = syncCardPrestamo({ id: newLocId, nombre: locForm.nombre }, monto, limite, esCredito, locForm.prestamoId, compromisos);
     const next = [...moneyLocations, {
-      id: uid(), persona: locForm.persona.trim(), tipo: locForm.tipo,
+      id: newLocId, persona: locForm.persona.trim(), tipo: locForm.tipo,
       nombre: locForm.tipo === 'tarjeta' ? locForm.nombre.trim() : (locForm.nombre.trim() || null),
       monto,
       esCredito,
-      limite: esCredito ? toNumber(locForm.limite) || null : null,
+      limite,
       diaCorte: esCredito && locForm.diaCorte ? parseInt(locForm.diaCorte, 10) : null,
       diaPago: esCredito && locForm.diaPago ? parseInt(locForm.diaPago, 10) : null,
       ultimos4: locForm.tipo === 'tarjeta' ? locForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null : null,
       red: locForm.tipo === 'tarjeta' ? (locForm.red || null) : null,
       clabe: locForm.tipo === 'tarjeta' ? (locForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
       montoAPagar: esCredito ? toNumber(locForm.montoAPagar) || null : null,
-      prestamoId: esCredito ? (locForm.prestamoId || null) : null,
+      prestamoId: esCredito ? (prestamoId || locForm.prestamoId || null) : null,
     }];
-    persist({ moneyLocations: next });
+    persist({ moneyLocations: next, compromisos: nextCompromisos });
     setSheet(null);
   };
 
@@ -2768,19 +2875,21 @@ function LibroDiario() {
     const monto = toNumber(editLocForm.monto);
     if (isNaN(monto)) return setEditLocError('Ingresa un monto válido.');
     const esCredito = loc.tipo === 'tarjeta' && editLocForm.esCredito;
+    const limite = esCredito ? toNumber(editLocForm.limite) || null : null;
+    const { compromisos: nextCompromisos, prestamoId } = syncCardPrestamo(loc, monto, limite, esCredito, editLocForm.prestamoId, compromisos);
     const next = moneyLocations.map((l) => l.id === loc.id ? {
       ...l, monto, nombre: editLocForm.nombre.trim() || l.nombre,
       esCredito,
-      limite: esCredito ? toNumber(editLocForm.limite) || null : null,
+      limite,
       diaCorte: esCredito && editLocForm.diaCorte ? parseInt(editLocForm.diaCorte, 10) : null,
       diaPago: esCredito && editLocForm.diaPago ? parseInt(editLocForm.diaPago, 10) : null,
       ultimos4: loc.tipo === 'tarjeta' ? (editLocForm.ultimos4.replace(/\D/g, '').slice(0, 4) || null) : null,
       red: loc.tipo === 'tarjeta' ? (editLocForm.red || null) : null,
       clabe: loc.tipo === 'tarjeta' ? (editLocForm.clabe.replace(/\D/g, '').slice(0, 18) || null) : null,
       montoAPagar: esCredito ? toNumber(editLocForm.montoAPagar) || null : null,
-      prestamoId: esCredito ? (editLocForm.prestamoId || null) : null,
+      prestamoId: esCredito ? (prestamoId || editLocForm.prestamoId || null) : null,
     } : l);
-    persist({ moneyLocations: next });
+    persist({ moneyLocations: next, compromisos: nextCompromisos });
     setSheet(null);
   };
 
@@ -3926,16 +4035,6 @@ function LibroDiario() {
                         )}
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button className="abonar-btn" disabled={c.liquidada} onClick={() => openAbonar(c)} style={{ flex: 1 }}>{c.liquidada ? 'Liquidado ✓' : 'Abonar'}</button>
-                          {CXP_EDITABLE_CATS.includes(c.category) && (
-                            <button
-                              className="abonar-btn"
-                              style={{ flex: 1, background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px solid var(--line)' }}
-                              onClick={() => openEditAmount(c)}
-                              title="Actualiza el saldo con el monto que te mande tu banco"
-                            >
-                              <Icon name="Pencil" size={12} /> Actualizar monto
-                            </button>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -4252,14 +4351,28 @@ function LibroDiario() {
           </>
         ) : (
           <>
+            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div className="card-title" style={{ padding: 0 }}>Mes de las gráficas</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 2 }}>Filtra "Gastos por categoría" y "Estado de Resultado" de abajo.</div>
+              </div>
+              <input
+                className="text-input"
+                type="month"
+                style={{ width: 'auto', flexShrink: 0 }}
+                value={chartMonth}
+                max={currentPeriodKey}
+                onChange={(e) => e.target.value && setChartMonth(e.target.value)}
+              />
+            </div>
             <div className="card">
-              <div className="card-title">Gastos por categoría · {PERIOD_LABEL[period]}</div>
-              {gastosPorCategoria.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos en este periodo.</div> : (
+              <div className="card-title">Gastos por categoría · {periodLabel(chartMonth)}</div>
+              {gastosPorCategoriaMes.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos en este mes.</div> : (
                 <>
                   <div className="chart-wrap">
-                    <CategoryDonut data={gastosPorCategoria} />
+                    <CategoryDonut data={gastosPorCategoriaMes} />
                   </div>
-                  <div className="legend-row">{gastosPorCategoria.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
+                  <div className="legend-row">{gastosPorCategoriaMes.map((c) => <div className="legend-item" key={c.id}><span className="legend-dot" style={{ background: c.color }} />{c.name}</div>)}</div>
                 </>
               )}
             </div>
@@ -4285,7 +4398,7 @@ function LibroDiario() {
             </div>
             <div className="card">
               <div className="card-title">Gastos fijos · por concepto</div>
-              {gastosFijosPorConcepto.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos fijos pendientes. Dalos de alta desde la pestaña Cuentas.</div> : (
+              {gastosFijosPorConcepto.length === 0 ? <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin gastos fijos dados de alta. Dalos de alta desde la pestaña Cuentas.</div> : (
                 <>
                   <div className="chart-wrap">
                     <CategoryDonut data={gastosFijosPorConcepto} title="Fijos" />
@@ -4306,15 +4419,15 @@ function LibroDiario() {
               )}
             </div>
             <div className="card">
-              <div className="card-title">Estado de Resultado · {PERIOD_LABEL[period]}</div>
-              {estadoResultado.ingresos.length === 0 && estadoResultado.gastos.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este periodo.</div>
+              <div className="card-title">Estado de Resultado · {periodLabel(chartMonth)}</div>
+              {estadoResultadoMes.ingresos.length === 0 && estadoResultadoMes.gastos.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este mes.</div>
               ) : (
                 <>
                   <div className="er-group-title" style={{ color: 'var(--income)' }}>{GRUPO_LABEL.ingresos}</div>
-                  {estadoResultado.ingresos.length === 0 ? (
-                    <div className="er-empty">Sin ingresos en este periodo.</div>
-                  ) : estadoResultado.ingresos.map((r) => (
+                  {estadoResultadoMes.ingresos.length === 0 ? (
+                    <div className="er-empty">Sin ingresos en este mes.</div>
+                  ) : estadoResultadoMes.ingresos.map((r) => (
                     <div className="er-row" key={r.codigo}>
                       <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
                       <span className="er-monto">{fmt(r.value)}</span>
@@ -4322,13 +4435,13 @@ function LibroDiario() {
                   ))}
                   <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
                     <span>Total ingresos</span>
-                    <span style={{ color: 'var(--income)' }}>{fmt(estadoResultado.totalIngresos)}</span>
+                    <span style={{ color: 'var(--income)' }}>{fmt(estadoResultadoMes.totalIngresos)}</span>
                   </div>
 
                   <div className="er-group-title" style={{ color: 'var(--expense)', marginTop: 14 }}>{GRUPO_LABEL.gastos}</div>
-                  {estadoResultado.gastos.length === 0 ? (
-                    <div className="er-empty">Sin gastos en este periodo.</div>
-                  ) : estadoResultado.gastos.map((r) => (
+                  {estadoResultadoMes.gastos.length === 0 ? (
+                    <div className="er-empty">Sin gastos en este mes.</div>
+                  ) : estadoResultadoMes.gastos.map((r) => (
                     <div className="er-row" key={r.codigo}>
                       <span className="er-cuenta"><span className="er-codigo">{r.codigo}</span> {r.nombre}</span>
                       <span className="er-monto">{fmt(r.value)}</span>
@@ -4336,20 +4449,20 @@ function LibroDiario() {
                   ))}
                   <div className="er-total-row" style={{ borderTop: '1px solid var(--line)' }}>
                     <span>Total costos y gastos</span>
-                    <span style={{ color: 'var(--expense)' }}>{fmt(estadoResultado.totalGastos)}</span>
+                    <span style={{ color: 'var(--expense)' }}>{fmt(estadoResultadoMes.totalGastos)}</span>
                   </div>
 
                   <div className="er-total-row" style={{ borderTop: '2px solid var(--ink)', marginTop: 10, paddingTop: 10 }}>
                     <span style={{ fontWeight: 700 }}>Utilidad neta</span>
-                    <span style={{ fontWeight: 700, color: estadoResultado.utilidad >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(estadoResultado.utilidad)}</span>
+                    <span style={{ fontWeight: 700, color: estadoResultadoMes.utilidad >= 0 ? 'var(--income)' : 'var(--expense)' }}>{fmt(estadoResultadoMes.utilidad)}</span>
                   </div>
 
                   <div className="er-group-title" style={{ color: 'var(--gold)', marginTop: 14 }}>Balance (no afecta la utilidad)</div>
                   <div className="er-row">
                     <span className="er-cuenta"><span className="er-codigo">{CUENTA_AHORRO.codigo}</span> {CUENTA_AHORRO.nombre}</span>
-                    <span className="er-monto">{fmt(savingsMovesInPeriod)}</span>
+                    <span className="er-monto">{fmt(savingsMovesEnChartMonth)}</span>
                   </div>
-                  <div className="er-empty">Traspaso de banco/efectivo a ahorro en el periodo · cuenta de Activo, no es gasto.</div>
+                  <div className="er-empty">Traspaso de banco/efectivo a ahorro en el mes · cuenta de Activo, no es gasto.</div>
                 </>
               )}
             </div>
@@ -4792,7 +4905,7 @@ function LibroDiario() {
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
               {compForm.kind === 'deuda'
-                ? 'Registra préstamos, tarjetas o cuentas por pagar. Podrás abonar después desde la pestaña Cuentas.'
+                ? 'Registra préstamos, tarjetas o cuentas por pagar. Solo se pueden abonar (no editar el monto a mano); si es la deuda de una tarjeta de crédito, vincúlala desde la tarjeta y su saldo se actualizará solo.'
                 : compForm.kind === 'cxc'
                 ? 'Registra dinero que le prestaste a alguien. Cuando te vaya pagando, regístralo como cobro y se sumará a tus ingresos (cuenta 4300 · Cobranza).'
                 : 'Esto solo da de alta el compromiso; todavía no se crea ningún movimiento. Cuando hagas el pago (o lo recibas), regístralo desde el botón + o con "Abonar" aquí mismo.'}
@@ -4810,7 +4923,7 @@ function LibroDiario() {
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={compForm.amount} onChange={(e) => setCompForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} /></div>
             {compForm.kind === 'deuda' && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
-                Si es de un banco (Nu, Bodega Aurrera, etc.) que sube el saldo por intereses, no te preocupes por eso ahora: cada mes podrás actualizar el monto pendiente directo desde la tarjeta del préstamo con el estado de cuenta que te manden.
+                Si es la deuda de una tarjeta de crédito (Nu, Bodega Aurrera, etc.) que sube el saldo por intereses, no la des de alta aquí: mejor márcala como tarjeta de crédito en "¿Dónde está el dinero?" y vincúlala a un préstamo — así el saldo se actualiza solo cada vez que captures el monto de la tarjeta.
               </div>
             )}
             {isBalanceKind(compForm.kind) && moneyLocations.length > 0 && (
@@ -5540,9 +5653,12 @@ function LibroDiario() {
                 <div className="field-label">Monto a pagar (opcional)</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo (pago para no generar intereses, o el mínimo).</div>
                 <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.montoAPagar} onChange={(e) => setLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '10px 0 -2px' }}>
+                  Si el monto que captures arriba supera el límite, esta tarjeta se vincula sola a un préstamo (CxP) por ese saldo, y cada vez que actualices el monto de la tarjeta ese préstamo se actualiza junto con ella.
+                </div>
                 {deudas.length > 0 && (
                   <>
-                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional — se llena sola si se sobregira)</div>
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 8px' }}>Por ejemplo, si el banco te dio un préstamo sobre esta tarjeta que llevas por separado en Cuentas.</div>
                     <div className="cat-grid">
                       {deudas.map((d) => (
@@ -5648,9 +5764,12 @@ function LibroDiario() {
                 <div className="field-label">Monto a pagar (opcional)</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Lo que te pide tu estado de cuenta este ciclo.</div>
                 <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editLocForm.montoAPagar} onChange={(e) => setEditLocForm((f) => ({ ...f, montoAPagar: formatAmountTyping(e.target.value) }))} /></div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '10px 0 -2px' }}>
+                  Si el monto que captures arriba supera el límite, esta tarjeta se vincula sola a un préstamo (CxP) por ese saldo, y cada vez que actualices el monto de la tarjeta ese préstamo se actualiza junto con ella.
+                </div>
                 {deudas.length > 0 && (
                   <>
-                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional)</div>
+                    <div className="field-label" style={{ marginTop: 12 }}>¿Esta tarjeta está ligada a un préstamo? (opcional — se llena sola si se sobregira)</div>
                     <div className="cat-grid">
                       {deudas.map((d) => (
                         <div key={d.id} className={`cat-choice ${editLocForm.prestamoId === d.id ? 'selected' : ''}`} onClick={() => setEditLocForm((f) => ({ ...f, prestamoId: f.prestamoId === d.id ? '' : d.id }))}>
