@@ -2045,18 +2045,33 @@ function LibroDiario() {
   // ---------- derived: por cobrar (compartido) ----------
   const pendingByPerson = useMemo(() => {
     const map = {};
-    transactions.forEach((t) => {
-      if (!t.shared) return;
-      t.shared.participants.forEach((p) => {
+    const addParts = (parts) => {
+      parts.forEach((p) => {
         if (p.paid) return;
         const key = p.name.trim().toLowerCase();
         if (!map[key]) map[key] = { name: p.name.trim(), total: 0, count: 0 };
         map[key].total += p.amount;
         map[key].count += 1;
       });
+    };
+    // Fuente 1: pagos hechos con "Abonar" / pago en lote / adelantos, que
+    // guardan el reparto en la transacción (tx.shared) — el formato normal.
+    transactions.forEach((t) => { if (t.shared) addParts(t.shared.participants); });
+    // Fuente 2: pagos hechos vinculando la cuenta desde "+" (botón
+    // "Vincular" al elegir la categoría), que guardan el reparto directo en
+    // el pago del compromiso (payment.participants) en vez de en la
+    // transacción. Solo se cuentan aquí si esa transacción en particular NO
+    // trae ya su propio "shared", para no contar el mismo pago dos veces.
+    compromisos.forEach((c) => {
+      (c.payments || []).forEach((p) => {
+        if (!p.participants || !p.participants.length) return;
+        const tx = transactions.find((t) => t.paymentId === p.id);
+        if (tx?.shared) return;
+        addParts(p.participants);
+      });
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
-  }, [transactions]);
+  }, [transactions, compromisos]);
 
   const porCobrarTotal = pendingByPerson.reduce((s, p) => s + p.total, 0);
 
@@ -2210,6 +2225,12 @@ function LibroDiario() {
         }
         return { ...x, payments: [...x.payments, payment] };
       });
+      // Guarda el reparto también en tx.shared (el mismo formato que usan
+      // "Abonar" y el resto), para que este pago aparezca en "Por cobrar" de
+      // Resumen y en el botón "Pagó" sin depender de un respaldo especial.
+      if (!shared && participants && participants.length) {
+        shared = { participants: participants.map((p) => ({ id: uid(), name: p.name, amount: p.amount, paid: false })) };
+      }
     } else if (links.length > 1) {
       paymentIds = {};
       nextCompromisos = compromisos.map((x) => {
@@ -3040,19 +3061,39 @@ function LibroDiario() {
 
   const markPersonPaid = (name) => {
     let collected = 0;
+    const key = name.trim().toLowerCase();
     const nextTx = transactions.map((t) => {
       if (!t.shared) return t;
       let changed = false;
       const parts = t.shared.participants.map((p) => {
-        if (!p.paid && p.name.trim().toLowerCase() === name.trim().toLowerCase()) { changed = true; collected += p.amount; return { ...p, paid: true }; }
+        if (!p.paid && p.name.trim().toLowerCase() === key) { changed = true; collected += p.amount; return { ...p, paid: true }; }
         return p;
       });
       return changed ? { ...t, shared: { ...t.shared, participants: parts } } : t;
     });
+    // También liquida lo que venga de pagos hechos vinculando la cuenta
+    // desde "+" (que guardan su reparto en payment.participants) y que esta
+    // misma tarjeta ya está sumando — si no, "Pagó" nunca lograría bajar el
+    // pendiente de esos casos y la persona se quedaría marcada para siempre.
+    const nextCompromisos = compromisos.map((c) => {
+      let changed = false;
+      const payments = (c.payments || []).map((p) => {
+        if (!p.participants || !p.participants.length) return p;
+        const tx = nextTx.find((t) => t.paymentId === p.id);
+        if (tx?.shared) return p; // esto ya se contó y liquidó arriba
+        let pChanged = false;
+        const participants = p.participants.map((pp) => {
+          if (!pp.paid && pp.name.trim().toLowerCase() === key) { pChanged = true; changed = true; collected += pp.amount; return { ...pp, paid: true }; }
+          return pp;
+        });
+        return pChanged ? { ...p, participants } : p;
+      });
+      return changed ? { ...c, payments } : c;
+    });
     const withIncome = collected > 0
       ? [...nextTx, { id: uid(), type: 'ingreso', category: 'cobranza', amount: collected, note: `Cobro compartido de ${name}`, date: todayStr(), autor: profile?.name || 'Familia' }]
       : nextTx;
-    persist({ transactions: withIncome });
+    persist({ transactions: withIncome, compromisos: nextCompromisos });
   };
 
   // Marca/desmarca a UN participante de UN pago puntual, desde el detalle de
@@ -3060,15 +3101,33 @@ function LibroDiario() {
   // diferencia de "Pagó" (que junta y registra un ingreso por todo lo
   // pendiente de esa persona), este es solo un marcador manual: no crea
   // ningún movimiento nuevo, para no duplicar el ingreso si luego también
-  // usas "Pagó". Útil para llevar la cuenta aunque el dinero en sí lo
-  // registres aparte (o ya lo hayas registrado con "Pagó").
-  const toggleTxParticipantPaid = (txId, participantId) => {
-    const nextTx = transactions.map((t) => {
-      if (t.id !== txId || !t.shared) return t;
-      const participants = t.shared.participants.map((p) => (p.id === participantId ? { ...p, paid: !p.paid } : p));
-      return { ...t, shared: { ...t.shared, participants } };
+  // usas "Pagó". Sirve tanto para pagos hechos con "Abonar" (reparto en la
+  // transacción) como para los hechos vinculando la cuenta desde "+"
+  // (reparto guardado en el pago del compromiso) — por eso recibe también
+  // compromisoId y paymentId, por si hace falta ir a buscarlo ahí.
+  const toggleTxParticipantPaid = (txId, participantId, compromisoId, paymentId) => {
+    if (txId) {
+      const nextTx = transactions.map((t) => {
+        if (t.id !== txId || !t.shared) return t;
+        const participants = t.shared.participants.map((p) => (p.id === participantId ? { ...p, paid: !p.paid } : p));
+        return { ...t, shared: { ...t.shared, participants } };
+      });
+      persist({ transactions: nextTx });
+      return;
+    }
+    // Fuente 2: el reparto vive en compromiso.payments (sin tx.shared). Esos
+    // participantes no traen "id" propio (se guardaron como {name, amount}
+    // nada más), así que aquí los identificamos por su posición en la lista.
+    const nextCompromisos = compromisos.map((c) => {
+      if (c.id !== compromisoId) return c;
+      const payments = c.payments.map((p) => {
+        if (p.id !== paymentId) return p;
+        const participants = p.participants.map((pp, i) => (i === participantId ? { ...pp, paid: !pp.paid } : pp));
+        return { ...p, participants };
+      });
+      return { ...c, payments };
     });
-    persist({ transactions: nextTx });
+    persist({ compromisos: nextCompromisos });
   };
 
   const clearAll = async () => { await persist({ transactions: [], compromisos: [], savings: [], moneyLocations: [] }); setSettingsOpen(false); };
@@ -5449,11 +5508,15 @@ function LibroDiario() {
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Todavía no hay pagos registrados.</div>
               ) : (
                 paymentsSorted.map((p) => {
-                  // El desglose de quién debe qué de ESTE pago vive en la
-                  // transacción vinculada (t.shared), no en el propio
-                  // registro de pago del compromiso.
+                  // El desglose de quién debe qué de ESTE pago normalmente
+                  // vive en la transacción vinculada (tx.shared) — eso pasa
+                  // cuando se pagó con "Abonar", pago en lote o adelanto. Si
+                  // se pagó vinculando la cuenta desde "+", en cambio, el
+                  // desglose se guardó directo en el pago del compromiso
+                  // (p.participants); por eso revisamos ambos lugares.
                   const tx = transactions.find((t) => t.paymentId === p.id);
-                  const parts = tx?.shared?.participants || [];
+                  const usaTx = !!tx?.shared;
+                  const parts = usaTx ? tx.shared.participants : (p.participants || []);
                   return (
                     <div key={p.id} style={{ marginBottom: 8 }}>
                       <div className="mini-row">
@@ -5465,11 +5528,11 @@ function LibroDiario() {
                       </div>
                       {parts.length > 0 && (
                         <div style={{ margin: '0 0 0 12px', paddingLeft: 10, borderLeft: '2px solid var(--line)' }}>
-                          {parts.map((pp) => (
-                            <div key={pp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 0' }}>
+                          {parts.map((pp, i) => (
+                            <div key={pp.id || i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 0' }}>
                               <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{pp.name}</span>
                               <button
-                                onClick={() => toggleTxParticipantPaid(tx.id, pp.id)}
+                                onClick={() => (usaTx ? toggleTxParticipantPaid(tx.id, pp.id) : toggleTxParticipantPaid(null, i, c.id, p.id))}
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'inherit' }}
                                 title={pp.paid ? 'Marcar como pendiente' : 'Marcar como ya me pagó'}
                               >
