@@ -1106,9 +1106,18 @@ function LibroDiario() {
   const [adelantoForm, setAdelantoForm] = useState({ compromisoId: '', meses: 3, locationId: '', date: todayStr() });
   const [adelantoError, setAdelantoError] = useState('');
 
-  const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '' });
+  const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
   const [budgetAmount, setBudgetAmount] = useState('');
-  const [budgetSavingsChoice, setBudgetSavingsChoice] = useState('');
+  const [budgetSavingsChoices, setBudgetSavingsChoices] = useState([]);
+  // Normaliza budgetSavingsLinks[catId], que en datos viejos guardaba un solo
+  // id de cuenta como string; ahora siempre se maneja como arreglo para
+  // poder vincular varias cuentas de ahorro (ej. AT&T + Internet) a la
+  // misma categoría de presupuesto.
+  const savingsLinksFor = (catId) => {
+    const v = budgetSavingsLinks[catId];
+    if (!v) return [];
+    return Array.isArray(v) ? v : [v];
+  };
   const [savError, setSavError] = useState('');
 
   const [moveForm, setMoveForm] = useState({ kind: 'deposito', amount: '', date: todayStr(), note: '', persona: '', locationId: '', origen: '' });
@@ -2840,7 +2849,7 @@ function LibroDiario() {
   };
 
   const openNewSavings = () => {
-    setSavForm({ name: '', target: '', locationId: '' });
+    setSavForm({ name: '', target: '', locationId: '', category: '' });
     setSavError('');
     setSheet({ type: 'new-savings' });
   };
@@ -2849,7 +2858,28 @@ function LibroDiario() {
     if (!savForm.name.trim()) return setSavError('Ponle un nombre a tu meta o cuenta.');
     const target = toNumber(savForm.target);
     if (!target || target <= 0) return setSavError('Ponle una meta (monto a ahorrar) para poder seguir.');
-    const next = [...savings, { id: uid(), name: savForm.name.trim(), target, movements: [], locationId: savForm.locationId || null }];
+    const next = [...savings, { id: uid(), name: savForm.name.trim(), target, movements: [], locationId: savForm.locationId || null, category: savForm.category || null }];
+    persist({ savings: next });
+    setSheet(null);
+  };
+
+  // Abre la misma tarjeta de ahorro para actualizar lo ya capturado (nombre,
+  // meta y categoría) — se dispara al tocar la tarjeta, sin afectar los
+  // botones de Depositar/Retirar/vincular/eliminar que van dentro de ella.
+  const openEditSavings = (acc) => {
+    setSavForm({ name: acc.name, target: String(acc.target || ''), locationId: acc.locationId || '', category: acc.category || '' });
+    setSavError('');
+    setSheet({ type: 'edit-savings', account: acc });
+  };
+
+  const submitEditSavings = () => {
+    const acc = sheet.account;
+    if (!savForm.name.trim()) return setSavError('Ponle un nombre a tu meta o cuenta.');
+    const target = toNumber(savForm.target);
+    if (!target || target <= 0) return setSavError('Ponle una meta (monto a ahorrar) para poder seguir.');
+    const next = savings.map((a) => a.id === acc.id ? {
+      ...a, name: savForm.name.trim(), target, locationId: savForm.locationId || null, category: savForm.category || null,
+    } : a);
     persist({ savings: next });
     setSheet(null);
   };
@@ -3034,29 +3064,28 @@ function LibroDiario() {
 
   // ---------- presupuestos por categoría (mensual) ----------
   const openBudgetEdit = (catId) => {
-    const linkedId = budgetSavingsLinks[catId] || '';
-    const linkedAcc = linkedId ? savings.find((a) => a.id === linkedId) : null;
-    // Si ya está vinculado a una cuenta de ahorro y nunca se capturó un
-    // presupuesto aparte, se precarga con la meta de esa cuenta en vez de
-    // dejarlo en 0 — la meta de la cuenta de ahorro y el presupuesto de la
+    const linkedIds = savingsLinksFor(catId);
+    const linkedTotalTarget = linkedIds.reduce((s, id) => s + (savings.find((a) => a.id === id)?.target || 0), 0);
+    // Si ya está vinculado a una o más cuentas de ahorro y nunca se capturó
+    // un presupuesto aparte, se precarga con la suma de sus metas en vez de
+    // dejarlo en 0 — las metas de esas cuentas y el presupuesto de la
     // categoría representan lo mismo, así que no hay por qué pedirla dos veces.
-    setBudgetAmount(budgets[catId] ? String(budgets[catId]) : (linkedAcc?.target ? String(linkedAcc.target) : ''));
-    setBudgetSavingsChoice(linkedId);
+    setBudgetAmount(budgets[catId] ? String(budgets[catId]) : (linkedTotalTarget ? String(linkedTotalTarget) : ''));
+    setBudgetSavingsChoices(linkedIds);
     setSheet({ type: 'budget-cat', catId });
   };
   const submitBudget = () => {
     const catId = sheet.catId;
     let amt = toNumber(budgetAmount);
-    // Si se elige (o ya estaba elegida) una cuenta de ahorro y no se escribió
-    // un presupuesto a mano, se usa la meta de esa cuenta como presupuesto.
-    if (!amt && budgetSavingsChoice) {
-      const acc = savings.find((a) => a.id === budgetSavingsChoice);
-      if (acc?.target) amt = acc.target;
+    // Si hay cuentas de ahorro elegidas y no se escribió un presupuesto a
+    // mano, se usa la suma de sus metas como presupuesto.
+    if (!amt && budgetSavingsChoices.length > 0) {
+      amt = budgetSavingsChoices.reduce((s, id) => s + (savings.find((a) => a.id === id)?.target || 0), 0);
     }
     const next = { ...budgets };
     if (!amt || amt <= 0) delete next[catId]; else next[catId] = amt;
     const nextLinks = { ...budgetSavingsLinks };
-    if (budgetSavingsChoice) nextLinks[catId] = budgetSavingsChoice; else delete nextLinks[catId];
+    if (budgetSavingsChoices.length > 0) nextLinks[catId] = budgetSavingsChoices; else delete nextLinks[catId];
     persist({ budgets: next, budgetSavingsLinks: nextLinks });
     setSheet(null);
   };
@@ -4001,18 +4030,19 @@ function LibroDiario() {
             <div className="card">
               <div className="card-title">Presupuestos · {new Date().toLocaleDateString('es-MX', { month: 'long' })}</div>
               {GASTO_CATS.map((c) => {
-                const linkedSavingsId = budgetSavingsLinks[c.id];
-                const linkedSavings = linkedSavingsId ? savings.find((a) => a.id === linkedSavingsId) : null;
-                const budget = linkedSavings ? (budgets[c.id] || linkedSavings.target || 0) : (budgets[c.id] || 0);
-                if (linkedSavings) {
-                  const apartado = progresoMetaPorAhorro[linkedSavings.id] || 0;
+                const linkedSavingsIds = savingsLinksFor(c.id);
+                const linkedSavingsAccs = linkedSavingsIds.map((id) => savings.find((a) => a.id === id)).filter(Boolean);
+                const linkedTargetSum = linkedSavingsAccs.reduce((s, a) => s + (a.target || 0), 0);
+                const budget = linkedSavingsAccs.length > 0 ? (budgets[c.id] || linkedTargetSum || 0) : (budgets[c.id] || 0);
+                if (linkedSavingsAccs.length > 0) {
+                  const apartado = linkedSavingsAccs.reduce((s, a) => s + (progresoMetaPorAhorro[a.id] || 0), 0);
                   const pct = budget ? Math.min(100, (apartado / budget) * 100) : 0;
                   const done = budget > 0 && apartado >= budget;
                   const barColor = !budget ? 'var(--line)' : done ? 'var(--income)' : pct >= 60 ? 'var(--gold)' : c.color;
                   return (
                     <div key={c.id} className="cat-row" style={{ cursor: 'pointer' }} onClick={() => openBudgetEdit(c.id)}>
                       <span className="cat-dot" style={{ background: c.color }} />
-                      <span className="cat-row-label"><Icon name="PiggyBank" size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{c.label}</span>
+                      <span className="cat-row-label"><Icon name="PiggyBank" size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{c.label}{linkedSavingsAccs.length > 1 ? ` (${linkedSavingsAccs.length})` : ''}</span>
                       <div className="cat-bar-track"><div className="cat-bar-fill" style={{ width: `${budget ? pct : 0}%`, background: barColor }} /></div>
                       <span className="cat-row-amount" style={{ width: 'auto', minWidth: 60, fontSize: 12, whiteSpace: 'nowrap', ...(done ? { color: 'var(--income)' } : {}) }}>
                         {budget ? `${fmt(apartado)} / ${fmt(budget)}` : 'Fijar'}
@@ -4524,20 +4554,21 @@ function LibroDiario() {
               const saved = acc.movements.reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0);
               const pct = acc.target ? Math.min(100, (saved / acc.target) * 100) : null;
               return (
-                <div className="savings-card" key={acc.id}>
+                <div className="savings-card" key={acc.id} style={{ cursor: 'pointer' }} onClick={() => openEditSavings(acc)}>
                   <div className="savings-top">
-                    <div className="savings-icon"><Icon name="PiggyBank" size={17} /></div>
+                    <div className="savings-icon"><Icon name={acc.category ? catById(acc.category).icon : 'PiggyBank'} size={17} /></div>
                     <div style={{ flex: 1 }}>
                       <div className="compromiso-name">{acc.name}</div>
+                      {acc.category && <div style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>{catById(acc.category).label}</div>}
                       <div className="savings-amount">{fmt(saved)}{acc.target && <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}> / {fmt(acc.target)}</span>}</div>
                     </div>
-                    <button className="compromiso-del" onClick={() => deleteSavings(acc.id)}><Icon name="Trash2" size={14} /></button>
+                    <button className="compromiso-del" onClick={(e) => { e.stopPropagation(); deleteSavings(acc.id); }}><Icon name="Trash2" size={14} /></button>
                   </div>
                   {(() => {
                     const linkedLoc = acc.locationId ? moneyLocations.find((l) => l.id === acc.locationId) : null;
                     return (
                       <button
-                        onClick={() => openLinkSavings(acc)}
+                        onClick={(e) => { e.stopPropagation(); openLinkSavings(acc); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, margin: '2px 0 8px', cursor: 'pointer', fontSize: 11.5, color: linkedLoc ? 'var(--ink-soft)' : 'var(--green)', fontWeight: 600 }}
                       >
                         <Icon name={linkedLoc?.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={12} />
@@ -4551,7 +4582,7 @@ function LibroDiario() {
                       <div className="progress-pct">{pct.toFixed(0)}% de tu meta</div>
                     </>
                   )}
-                  <div className="savings-actions">
+                  <div className="savings-actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn-deposito" onClick={() => openMove(acc, 'deposito')}>Depositar</button>
                     <button className="btn-retiro" onClick={() => openMove(acc, 'retiro')}>Retirar</button>
                   </div>
@@ -5470,16 +5501,16 @@ function LibroDiario() {
               <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
               <div className="sheet-header"><span className="sheet-title">Presupuesto · {c.label}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
-                {budgetSavingsChoice
-                  ? `Llevas ${fmt(progresoMetaPorAhorro[budgetSavingsChoice] || 0)} de meta este mes en esa cuenta (cuenta lo ahorrado y lo que ya hayas pagado desde ahí; lo que sobre sin retirar es tu ventaja para el siguiente mes).`
+                {budgetSavingsChoices.length > 0
+                  ? `Llevas ${fmt(budgetSavingsChoices.reduce((s, id) => s + (progresoMetaPorAhorro[id] || 0), 0))} de meta este mes entre esa${budgetSavingsChoices.length > 1 ? 's' : ''} cuenta${budgetSavingsChoices.length > 1 ? 's' : ''} (cuenta lo ahorrado y lo que ya hayas pagado desde ahí; lo que sobre sin retirar es tu ventaja para el siguiente mes).`
                   : `Llevas gastado ${fmt(spent)} este mes en esta categoría.`} Deja en blanco o en 0 para quitar el presupuesto.
               </div>
               <div className="field-label">Presupuesto mensual</div>
               <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={budgetAmount} onChange={(e) => setBudgetAmount(formatAmountTyping(e.target.value))} autoFocus /></div>
 
-              <div className="field-label" style={{ marginTop: 4 }}>Vincular a una cuenta de ahorro (opcional)</div>
+              <div className="field-label" style={{ marginTop: 4 }}>Vincular a una o varias cuentas de ahorro (opcional)</div>
               <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 8 }}>
-                Si la vinculas, la barra de arriba ya no compara "gastado", sino lo que hayas <b>apartado este mes</b> en esa cuenta — como una meta de ahorro por categoría.
+                Si vinculas alguna, la barra de arriba ya no compara "gastado", sino lo que hayas <b>apartado este mes</b> entre esas cuentas — como una meta de ahorro por categoría. Útil si un mismo gasto se paga desde varias cuentas (ej. AT&T + Internet dentro de "Servicios").
               </div>
               {savings.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
@@ -5488,18 +5519,25 @@ function LibroDiario() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   <button
-                    className={`cat-choice-row ${!budgetSavingsChoice ? 'active' : ''}`}
-                    onClick={() => setBudgetSavingsChoice('')}
+                    className={`cat-choice-row ${budgetSavingsChoices.length === 0 ? 'active' : ''}`}
+                    onClick={() => setBudgetSavingsChoices([])}
                   >Sin vincular · comparar contra lo gastado</button>
-                  {savings.map((a) => (
-                    <button
-                      key={a.id}
-                      className={`cat-choice-row ${budgetSavingsChoice === a.id ? 'active' : ''}`}
-                      onClick={() => { setBudgetSavingsChoice(a.id); if (!toNumber(budgetAmount) && a.target) setBudgetAmount(String(a.target)); }}
-                    >
-                      <Icon name="PiggyBank" size={13} /> {a.name}
-                    </button>
-                  ))}
+                  {savings.map((a) => {
+                    const selected = budgetSavingsChoices.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        className={`cat-choice-row ${selected ? 'active' : ''}`}
+                        onClick={() => setBudgetSavingsChoices((ids) => {
+                          const next = selected ? ids.filter((id) => id !== a.id) : [...ids, a.id];
+                          if (!selected && !toNumber(budgetAmount) && a.target) setBudgetAmount(String(next.reduce((s, id) => s + (savings.find((x) => x.id === id)?.target || 0), 0)));
+                          return next;
+                        })}
+                      >
+                        <Icon name="PiggyBank" size={13} /> {a.name}{selected ? ' ✓' : ''}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -5590,16 +5628,25 @@ function LibroDiario() {
         );
       })()}
 
-      {sheet?.type === 'new-savings' && (
+      {(sheet?.type === 'new-savings' || sheet?.type === 'edit-savings') && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
-            <div className="sheet-header"><span className="sheet-title">Nueva cuenta de ahorro</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="sheet-header"><span className="sheet-title">{sheet.type === 'edit-savings' ? 'Editar cuenta de ahorro' : 'Nueva cuenta de ahorro'}</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div className="field-label">Nombre</div>
             <input className="text-input" placeholder="Ej. Fondo de emergencia" value={savForm.name} onChange={(e) => setSavForm((f) => ({ ...f, name: e.target.value }))} />
             <div className="field-label">Meta *</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>¿Cuánto quieres juntar? Lo necesitamos para calcular tu avance.</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={savForm.target} onChange={(e) => setSavForm((f) => ({ ...f, target: formatAmountTyping(e.target.value) }))} /></div>
+            <div className="field-label">Categoría (opcional)</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Para agrupar varias cuentas de ahorro bajo un mismo gasto — ej. AT&T e Internet ambas como "Servicios".</div>
+            <div className="cat-grid">
+              {GASTO_CATS.map((c) => (
+                <div key={c.id} className={`cat-choice ${savForm.category === c.id ? 'selected' : ''}`} onClick={() => setSavForm((f) => ({ ...f, category: f.category === c.id ? '' : c.id }))}>
+                  <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
+                </div>
+              ))}
+            </div>
             {moneyLocations.length > 0 && (
               <>
                 <div className="field-label">¿En qué cuenta vive este ahorro? (opcional)</div>
@@ -5610,7 +5657,9 @@ function LibroDiario() {
               </>
             )}
             {savError && <div className="form-error">{savError}</div>}
-            <button className="save-btn" disabled={!(savForm.name.trim() && toNumber(savForm.target) > 0)} onClick={submitSavings}><Icon name="Check" size={16} /> Crear cuenta</button>
+            <button className="save-btn" disabled={!(savForm.name.trim() && toNumber(savForm.target) > 0)} onClick={sheet.type === 'edit-savings' ? submitEditSavings : submitSavings}>
+              <Icon name="Check" size={16} /> {sheet.type === 'edit-savings' ? 'Guardar cambios' : 'Crear cuenta'}
+            </button>
           </div>
         </div>
       )}
