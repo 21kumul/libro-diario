@@ -3055,6 +3055,22 @@ function LibroDiario() {
     persist({ transactions: withIncome });
   };
 
+  // Marca/desmarca a UN participante de UN pago puntual, desde el detalle de
+  // un gasto compartido (ej. "Ana ya me pagó lo de Netflix de julio"). A
+  // diferencia de "Pagó" (que junta y registra un ingreso por todo lo
+  // pendiente de esa persona), este es solo un marcador manual: no crea
+  // ningún movimiento nuevo, para no duplicar el ingreso si luego también
+  // usas "Pagó". Útil para llevar la cuenta aunque el dinero en sí lo
+  // registres aparte (o ya lo hayas registrado con "Pagó").
+  const toggleTxParticipantPaid = (txId, participantId) => {
+    const nextTx = transactions.map((t) => {
+      if (t.id !== txId || !t.shared) return t;
+      const participants = t.shared.participants.map((p) => (p.id === participantId ? { ...p, paid: !p.paid } : p));
+      return { ...t, shared: { ...t.shared, participants } };
+    });
+    persist({ transactions: nextTx });
+  };
+
   const clearAll = async () => { await persist({ transactions: [], compromisos: [], savings: [], moneyLocations: [] }); setSettingsOpen(false); };
 
   // Sale del grupo/código de familia actual: borra el código y el perfil de
@@ -5432,26 +5448,43 @@ function LibroDiario() {
               {paymentsSorted.length === 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Todavía no hay pagos registrados.</div>
               ) : (
-                paymentsSorted.map((p) => (
-                  <div key={p.id} style={{ marginBottom: 8 }}>
-                    <div className="mini-row">
-                      <div className="mini-row-mid">
-                        <div className="mini-row-name">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                        {p.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{p.note}</div>}
+                paymentsSorted.map((p) => {
+                  // El desglose de quién debe qué de ESTE pago vive en la
+                  // transacción vinculada (t.shared), no en el propio
+                  // registro de pago del compromiso.
+                  const tx = transactions.find((t) => t.paymentId === p.id);
+                  const parts = tx?.shared?.participants || [];
+                  return (
+                    <div key={p.id} style={{ marginBottom: 8 }}>
+                      <div className="mini-row">
+                        <div className="mini-row-mid">
+                          <div className="mini-row-name">{new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                          {p.note && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{p.note}</div>}
+                        </div>
+                        <div className="mini-row-amount">{fmt(p.amount)}</div>
                       </div>
-                      <div className="mini-row-amount">{fmt(p.amount)}</div>
+                      {parts.length > 0 && (
+                        <div style={{ margin: '0 0 0 12px', paddingLeft: 10, borderLeft: '2px solid var(--line)' }}>
+                          {parts.map((pp) => (
+                            <div key={pp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 0' }}>
+                              <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{pp.name}</span>
+                              <button
+                                onClick={() => toggleTxParticipantPaid(tx.id, pp.id)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'inherit' }}
+                                title={pp.paid ? 'Marcar como pendiente' : 'Marcar como ya me pagó'}
+                              >
+                                <span style={{ fontSize: 11.5, fontWeight: 600, color: pp.paid ? 'var(--ink-soft)' : 'var(--ink)', textDecoration: pp.paid ? 'line-through' : 'none' }}>{fmt(pp.amount)}</span>
+                                {pp.paid
+                                  ? <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--income)' }}><Icon name="CheckCircle2" size={12} /> Recibido</span>
+                                  : <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--expense)' }}><Icon name="Circle" size={12} /> Pendiente</span>}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {p.participants && p.participants.length > 0 && (
-                      <div style={{ margin: '0 0 0 12px', paddingLeft: 10, borderLeft: '2px solid var(--line)' }}>
-                        {p.participants.map((pp, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ink-soft)', padding: '2px 0' }}>
-                            <span>{pp.name}</span><span>{fmt(pp.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
               <button className="abonar-btn" style={{ marginTop: 16 }} disabled={c.pendiente <= 0.01} onClick={() => { setSheet(null); openAbonar(c); }}>{c.pendiente <= 0.01 ? 'Pagado este mes' : 'Pagar / Abonar'}</button>
             </div>
