@@ -645,6 +645,12 @@ function donutSlicePath(cx, cy, rOuter, rInner, startAngle, endAngle) {
   return `M ${so.x} ${so.y} A ${rOuter} ${rOuter} 0 ${largeArc} 0 ${eo.x} ${eo.y} L ${ei.x} ${ei.y} A ${rInner} ${rInner} 0 ${largeArc} 1 ${si.x} ${si.y} Z`;
 }
 function CategoryDonut({ data, title = 'Gastos' }) {
+  // Qué rebanada está "activa" (dedo encima o mouse encima): mientras lo
+  // esté, el centro de la dona cambia de mostrar el total general a mostrar
+  // el nombre y el monto exacto de esa categoría — así el dato aparece
+  // siempre en el mismo lugar (el centro), no en un globito que salta a la
+  // izquierda o se sale de la pantalla en el celular.
+  const [active, setActive] = useState(null);
   const total = data.reduce((s, d) => s + d.value, 0);
   if (!total) return null;
   let angle = 0;
@@ -664,39 +670,73 @@ function CategoryDonut({ data, title = 'Gastos' }) {
     angle += sweep;
     return seg;
   });
+  const activeSeg = segments.find((s) => s.id === active);
   return (
-    <svg viewBox="0 0 180 184" width="100%" height="100%">
+    <svg viewBox="0 0 180 184" width="100%" height="100%" onClick={() => setActive(null)}>
       {segments.map((s) => (
-        <path key={s.id} d={s.path} fill={s.color}><title>{`${s.name}: ${fmt(s.value)} (${s.pct}%)`}</title></path>
+        <path
+          key={s.id}
+          d={s.path}
+          fill={s.color}
+          opacity={active && active !== s.id ? 0.4 : 1}
+          style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+          onMouseEnter={() => setActive(s.id)}
+          onMouseLeave={() => setActive(null)}
+          onClick={(e) => { e.stopPropagation(); setActive(active === s.id ? null : s.id); }}
+        ><title>{`${s.name}: ${fmt(s.value)} (${s.pct}%)`}</title></path>
       ))}
       {segments.map((s) => s.showLabel && (
         <text key={`${s.id}-pct`} x={s.labelPt.x} y={s.labelPt.y} textAnchor="middle" dominantBaseline="middle" fontFamily="IBM Plex Sans" fontWeight="700" fontSize="11.5" fill="#FAF9F5" style={{ pointerEvents: 'none' }}>{s.pct}%</text>
       ))}
-      <text x={cx} y={cy - 6} textAnchor="middle" fontFamily="IBM Plex Mono" fontSize="10.5" fill="#6B6A62">{title}</text>
-      <text x={cx} y={cy + 13} textAnchor="middle" fontFamily="IBM Plex Mono" fontWeight="700" fontSize="14" fill="#1C1F1D">{fmt(total)}</text>
+      {activeSeg ? (
+        <>
+          <text x={cx} y={cy - 6} textAnchor="middle" fontFamily="IBM Plex Sans" fontSize="10" fontWeight="600" style={{ fill: 'var(--ink-soft)', pointerEvents: 'none' }}>{activeSeg.name} · {activeSeg.pct}%</text>
+          <text x={cx} y={cy + 13} textAnchor="middle" fontFamily="IBM Plex Mono" fontWeight="700" fontSize="14" style={{ fill: 'var(--ink)', pointerEvents: 'none' }}>{fmt(activeSeg.value)}</text>
+        </>
+      ) : (
+        <>
+          <text x={cx} y={cy - 6} textAnchor="middle" fontFamily="IBM Plex Mono" fontSize="10.5" style={{ fill: 'var(--ink-soft)', pointerEvents: 'none' }}>{title}</text>
+          <text x={cx} y={cy + 13} textAnchor="middle" fontFamily="IBM Plex Mono" fontWeight="700" fontSize="14" style={{ fill: 'var(--ink)', pointerEvents: 'none' }}>{fmt(total)}</text>
+        </>
+      )}
     </svg>
   );
 }
 function MonthlyBarChart({ data }) {
+  // Igual que en la dona: al tocar/pasar el mouse por una barra aparece un
+  // globito con el monto exacto, siempre centrado arriba de la gráfica (no
+  // pegado a la izquierda ni fuera de la pantalla).
+  const [activeInfo, setActiveInfo] = useState(null); // { label, value, color }
   const max = Math.max(1, ...data.flatMap((d) => [d.ingreso, d.gasto]));
-  const W = 320, H = 168, padBottom = 20, padTop = 8, legendY = H + 14;
+  const W = 320, H = 168, padBottom = 20, padTop = 24, legendY = H + 14;
   const groupW = W / (data.length || 1);
   const barW = Math.min(14, groupW / 3.6);
+  const tipText = activeInfo ? `${activeInfo.label}: ${fmt(activeInfo.value)}` : '';
+  const tipW = Math.min(W - 8, tipText.length * 6.1 + 22);
   return (
-    <svg viewBox={`0 0 ${W} ${legendY + 18}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+    <svg viewBox={`0 0 ${W} ${legendY + 18}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" onClick={() => setActiveInfo(null)}>
+      <rect x="0" y="0" width={W} height={legendY + 18} fill="transparent" />
       <line x1="0" y1={H - padBottom} x2={W} y2={H - padBottom} stroke="#DCD7C9" strokeWidth="1" />
       {data.map((d, i) => {
         const cx = groupW * i + groupW / 2;
         const hIn = ((H - padBottom - padTop) * d.ingreso) / max;
         const hGa = ((H - padBottom - padTop) * d.gasto) / max;
+        const showIn = () => setActiveInfo({ label: `Ingresos ${d.label}`, value: d.ingreso });
+        const showGa = () => setActiveInfo({ label: `Gastos ${d.label}`, value: d.gasto });
         return (
           <g key={d.key}>
-            <rect x={cx - barW - 2} y={H - padBottom - hIn} width={barW} height={Math.max(0, hIn)} rx="2" fill="#2E7D5B"><title>{`Ingresos ${d.label}: ${fmt(d.ingreso)}`}</title></rect>
-            <rect x={cx + 2} y={H - padBottom - hGa} width={barW} height={Math.max(0, hGa)} rx="2" fill="#B0432E"><title>{`Gastos ${d.label}: ${fmt(d.gasto)}`}</title></rect>
+            <rect x={cx - barW - 2} y={H - padBottom - hIn} width={barW} height={Math.max(0, hIn)} rx="2" fill="#2E7D5B" style={{ cursor: 'pointer' }} onMouseEnter={showIn} onMouseLeave={() => setActiveInfo(null)} onClick={(e) => { e.stopPropagation(); showIn(); }} />
+            <rect x={cx + 2} y={H - padBottom - hGa} width={barW} height={Math.max(0, hGa)} rx="2" fill="#B0432E" style={{ cursor: 'pointer' }} onMouseEnter={showGa} onMouseLeave={() => setActiveInfo(null)} onClick={(e) => { e.stopPropagation(); showGa(); }} />
             <text x={cx} y={H - 5} textAnchor="middle" fontSize="10" fontFamily="IBM Plex Sans" fill="#6B6A62">{d.label}</text>
           </g>
         );
       })}
+      {activeInfo && (
+        <g style={{ pointerEvents: 'none' }}>
+          <rect x={W / 2 - tipW / 2} y={2} width={tipW} height={18} rx={9} fill="#1C1F1D" />
+          <text x={W / 2} y={14.5} textAnchor="middle" fontSize="10.5" fontWeight="700" fontFamily="IBM Plex Sans" fill="#FAF9F5">{tipText}</text>
+        </g>
+      )}
       <g transform={`translate(${W / 2 - 68}, ${legendY})`}>
         <rect width="9" height="9" rx="2" fill="#2E7D5B" /><text x="13" y="8.5" fontSize="10" fontFamily="IBM Plex Sans" fill="#6B6A62">Ingresos</text>
         <rect x="82" width="9" height="9" rx="2" fill="#B0432E" /><text x="95" y="8.5" fontSize="10" fontFamily="IBM Plex Sans" fill="#6B6A62">Gastos</text>
@@ -3678,6 +3718,13 @@ function LibroDiario() {
         .ledger-app.dark .cal-cell:not(.empty) { background: rgba(255,255,255,0.07); }
         .ledger-app.dark .gcal-card { background: rgba(255,255,255,0.06); }
         .ledger-app.dark .gcal-collapsed-row { background: rgba(255,255,255,0.07); }
+        /* Las "pistas" de barra (Presupuestos y Ahorro) no llevan borde, solo
+           color de fondo — y --paper-dim en modo oscuro es literalmente el
+           mismo tono que el fondo de toda la pantalla, así que la pista
+           desaparecía por completo (sobre todo con $0.00, el caso más
+           común, donde no hay relleno de color que la delate). */
+        .ledger-app.dark .cat-bar-track { background: rgba(255,255,255,0.1); }
+        .ledger-app.dark .progress-track { background: rgba(255,255,255,0.1); }
         .mini-row:last-child { border-bottom: none; }
         .mini-row-mid { flex: 1; }
         .mini-row-name { font-size: 13px; font-weight: 600; }
