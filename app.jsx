@@ -373,6 +373,29 @@ const TICKET_CAT_KEYWORDS = [
   { cat: 'servicios', words: ['CFE', 'TELMEX', 'TOTALPLAY', 'IZZI', 'NETFLIX', 'SPOTIFY', 'MEGACABLE', 'AT&T', 'TELCEL', 'MOVISTAR', 'AGUA POTABLE', 'GAS NATURAL', 'GAS LP'] },
   { cat: 'renta', words: ['RENTA MENSUAL', 'ARRENDAMIENTO', 'INMOBILIARIA'] },
 ];
+// Líneas que casi nunca sirven como "concepto" de un ticket: razón social,
+// domicilio fiscal, folios/IDs de la venta. Muy comunes en OXXO y tiendas de
+// conveniencia, que imprimen esto ANTES del nombre de la sucursal o del
+// producto — si no las filtramos, el concepto termina siendo puro texto
+// legal ilegible en vez de algo útil.
+const TICKET_BOILERPLATE_PATTERNS = [
+  /S\.?\s*A\.?\s*DE\s*C\.?\s*V\.?/i, // "S.A. DE C.V."
+  /CADENA COMERCIAL/i,
+  /REGIMEN/i,
+  /COLONIA/i,
+  /C\.P\.\s*\d/i,
+  /^RFC\b/i,
+  /^FOL(IO)?[_\s]?VTA/i,
+  /^ID\s*=/i,
+];
+// Un número con forma de dinero de verdad: SIEMPRE trae 2 decimales en
+// tickets mexicanos (48.50, 1,234.00...). Un folio de venta, ID de
+// transacción o número de afiliación es un entero pelón sin punto decimal,
+// así que exigir el ".XX" evita confundirlos con el total — este era
+// justo el bug con los tickets de OXXO, que imprimen el folio de venta en
+// la MISMA línea que el total.
+const MONEY_REGEX = /\$?\s?(\d{1,3}(?:,\d{3})*\.\d{2})/g;
+const parseNum = (s) => parseFloat(s.replace(/,/g, ''));
 const parseTicket = (text) => {
   const upper = text.toUpperCase();
   let category = 'otros_gas';
@@ -380,17 +403,26 @@ const parseTicket = (text) => {
     if (group.words.some((w) => upper.includes(w))) { category = group.cat; break; }
   }
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const note = (lines.find((l) => /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}/.test(l)) || '').slice(0, 40);
-  const numRegex = /\$?\s?(\d{1,3}(?:[,.]\d{3})*(?:\.\d{2})?)/g;
-  const parseNum = (s) => parseFloat(s.replace(/,/g, ''));
+  const isBoilerplate = (l) => TICKET_BOILERPLATE_PATTERNS.some((p) => p.test(l));
+  const totalIdx = lines.findIndex((l) => /TOTAL/i.test(l) && !/SUBTOTAL/i.test(l));
+  // Concepto: primero intenta encontrar la línea del producto comprado (la
+  // que trae letras Y un precio, antes del total) — es lo más útil, ej.
+  // "COCA COLA 3L    1    48.50". Si no hay una clara, usa el nombre de
+  // sucursal/tienda (la primera línea con letras que no sea puro trámite
+  // legal). Cualquiera de las dos es mejor que la razón social.
+  const searchLines = totalIdx > 0 ? lines.slice(0, totalIdx + 1) : lines;
+  const productLine = searchLines.find((l) => /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}/.test(l) && !isBoilerplate(l) && MONEY_REGEX.test(l));
+  MONEY_REGEX.lastIndex = 0; // .test() con /g deja el regex "a medias"; hay que resetearlo antes de reusarlo
+  const branchLine = lines.find((l) => /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}/.test(l) && !isBoilerplate(l));
+  const note = (productLine || branchLine || '').replace(/\s{2,}/g, ' ').trim().slice(0, 40);
   let amount = 0;
-  const totalLine = lines.find((l) => /TOTAL/i.test(l) && !/SUBTOTAL/i.test(l));
+  const totalLine = totalIdx >= 0 ? lines[totalIdx] : null;
   if (totalLine) {
-    const found = [...totalLine.matchAll(numRegex)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0);
+    const found = [...totalLine.matchAll(MONEY_REGEX)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0);
     if (found.length) amount = Math.max(...found);
   }
   if (!amount) {
-    const found = [...text.matchAll(numRegex)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0 && n < 999999);
+    const found = [...text.matchAll(MONEY_REGEX)].map((m) => parseNum(m[1])).filter((n) => !isNaN(n) && n > 0 && n < 999999);
     if (found.length) amount = Math.max(...found);
   }
   let date = todayStr();
