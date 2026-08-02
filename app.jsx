@@ -1081,7 +1081,7 @@ function LibroDiario() {
   const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
 
-  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '' });
+  const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '', shared: false, participants: [] });
   const [editTxError, setEditTxError] = useState('');
 
   const [compForm, setCompForm] = useState({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [], locationId: '' });
@@ -2419,7 +2419,12 @@ function LibroDiario() {
   };
 
   const openEditTx = (t) => {
-    setEditTxForm({ id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '' });
+    setEditTxForm({
+      id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '',
+      shared: !!t.shared,
+      // Conserva quién ya te había pagado (paid) si el gasto ya venía compartido.
+      participants: t.shared ? t.shared.participants.map((p) => ({ id: p.id || uid(), name: p.name, amount: formatAmountTyping(String(p.amount)), paid: !!p.paid })) : [],
+    });
     setEditTxError('');
     setSheet({ type: 'edit-tx' });
   };
@@ -2465,6 +2470,18 @@ function LibroDiario() {
       }
     }
     const nextLocationId = editTxForm.locationId || null;
+    // Si activaste "¿Es un gasto compartido?", arma el reparto igual que al
+    // crear un movimiento nuevo. Si lo desactivaste, se quita el reparto
+    // (deja de contar en "Por cobrar"). Conserva el "paid" de cada persona
+    // que ya venía marcada, para no perder lo que ya te habían devuelto.
+    const finalShared = (editTxForm.type === 'gasto' && editTxForm.shared)
+      ? (() => {
+          const parts = editTxForm.participants
+            .filter((p) => p.name.trim() && toNumber(p.amount) > 0)
+            .map((p) => ({ id: p.id, name: p.name.trim(), amount: toNumber(p.amount), paid: !!p.paid }));
+          return parts.length ? { participants: parts } : null;
+        })()
+      : null;
     const next = transactions.map((t) => t.id === editTxForm.id ? {
       ...t,
       amount: amt,
@@ -2474,6 +2491,7 @@ function LibroDiario() {
       date: editTxForm.date,
       paymentId: syncedPaymentId,
       locationId: nextLocationId,
+      shared: finalShared,
     } : t);
     const patch = { transactions: next, compromisos: nextCompromisos };
     const finalizeEditTx = () => { persist(patch); setSheet(null); };
@@ -3408,6 +3426,9 @@ function LibroDiario() {
   const addParticipant = () => setTxForm((f) => ({ ...f, participants: [...f.participants, { id: uid(), name: '', amount: '' }] }));
   const updateParticipant = (id, patch) => setTxForm((f) => ({ ...f, participants: f.participants.map((p) => p.id === id ? { ...p, ...patch } : p) }));
   const removeParticipant = (id) => setTxForm((f) => ({ ...f, participants: f.participants.filter((p) => p.id !== id) }));
+  const addEditParticipant = () => setEditTxForm((f) => ({ ...f, participants: [...f.participants, { id: uid(), name: '', amount: '', paid: false }] }));
+  const updateEditParticipant = (id, patch) => setEditTxForm((f) => ({ ...f, participants: f.participants.map((p) => p.id === id ? { ...p, ...patch } : p) }));
+  const removeEditParticipant = (id) => setEditTxForm((f) => ({ ...f, participants: f.participants.filter((p) => p.id !== id) }));
   const myShare = txForm.amount ? Math.max(0, toNumber(txForm.amount) - txForm.participants.reduce((s, p) => s + toNumber(p.amount), 0)) : 0;
 
 // Atajo desde el icono de la app (Android: mantener presionado el ícono)
@@ -5066,6 +5087,32 @@ function LibroDiario() {
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={editTxForm.note} onChange={(e) => setEditTxForm((f) => ({ ...f, note: e.target.value }))} />
             <div className="field-label">Fecha *</div>
             <input className="text-input" type="date" value={editTxForm.date} onChange={(e) => setEditTxForm((f) => ({ ...f, date: e.target.value }))} />
+
+            {editTxForm.type === 'gasto' && (
+              <>
+                <div className="toggle-row">
+                  <span className="toggle-row-label"><Icon name="Users" size={14} /> ¿Es un gasto compartido?</span>
+                  <button className={`switch ${editTxForm.shared ? 'on' : ''}`} onClick={() => setEditTxForm((f) => ({ ...f, shared: !f.shared }))} />
+                </div>
+                {editTxForm.shared && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginBottom: 6 }}>
+                      Ya lo pagaste completo tú; agrega quién te debe su parte para que aparezca en "Por cobrar" hasta que te la regresen.
+                    </div>
+                    {editTxForm.participants.map((p) => (
+                      <div className="participant-row" key={p.id}>
+                        <input className="text-input" placeholder="Nombre" value={p.name} onChange={(e) => updateEditParticipant(p.id, { name: e.target.value })} />
+                        <input className="text-input amount-mini" type="text" inputMode="decimal" placeholder="$0" value={p.amount} onChange={(e) => updateEditParticipant(p.id, { amount: formatAmountTyping(e.target.value) })} />
+                        <button className="remove-participant" onClick={() => removeEditParticipant(p.id)}><Icon name="X" size={15} /></button>
+                      </div>
+                    ))}
+                    <button className="add-participant-btn" onClick={addEditParticipant}><Icon name="UserPlus" size={14} /> Agregar persona</button>
+                    <div className="my-share-line">Tu parte: {fmt(Math.max(0, toNumber(editTxForm.amount) - editTxForm.participants.reduce((s, p) => s + toNumber(p.amount), 0)))}</div>
+                  </div>
+                )}
+              </>
+            )}
+
             {editTxError && <div className="form-error">{editTxError}</div>}
             <button
               className="save-btn"
