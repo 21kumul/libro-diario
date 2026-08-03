@@ -1,13 +1,14 @@
 // sw.js
 // Estrategia:
 // 1) Archivos PROPIOS de la app (los que editas en GitHub: index.html, app.jsx,
-//    storage.js, icons.js, firebase-config.js, manifest.json, iconos) -> "caché
-//    primero, refresca detrás": la app abre al instante con lo último guardado,
-//    y en segundo plano se revisa si hay una versión más nueva para la
-//    siguiente vez que la abras (evita esperar a la red cada vez que entras).
-// 2) CDNs externos (React, Babel, Firebase): misma idea, "caché primero,
-//    refresca detrás". Esos casi no cambian, así que priorizamos velocidad y
-//    que funcionen sin conexión desde la primera visita.
+//    storage.js, icons.js, firebase-config.js, manifest.json, iconos) -> "red
+//    primero": si hay internet, siempre trae la versión más reciente que
+//    subiste a GitHub y la deja guardada; si no hay internet, usa la última
+//    guardada. Así los cambios se ven con un solo refresh, sin esperar a la
+//    siguiente apertura.
+// 2) CDNs externos (React, Babel, Firebase): "caché primero, refresca detrás".
+//    Esos casi no cambian, así que priorizamos velocidad y que funcionen sin
+//    conexión desde la primera visita.
 
 const CACHE_NAME = 'libro-diario-shell'; // fijo: ya no se incrementa a mano
 
@@ -23,6 +24,10 @@ const APP_SHELL = [
   './icon-512.png',
   './apple-touch-icon.png',
 ];
+
+// Nombres de archivo (sin carpeta) que cuentan como "propios" para la
+// estrategia de red primero. '' cubre la ruta raíz ('/').
+const OWN_FILENAMES = new Set(['', 'index.html', 'app.jsx', 'storage.js', 'icons.js', 'firebase-config.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -44,9 +49,30 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
-  // CACHÉ PRIMERO (para archivos propios y externos por igual): responde con
-  // lo que ya está guardado si existe, y de una vez sale a la red a traer la
-  // versión más reciente para dejarla guardada de cara a la próxima apertura.
+  const url = new URL(req.url);
+  const filename = url.pathname.split('/').pop();
+  const isOwnFile = url.origin === self.location.origin && OWN_FILENAMES.has(filename);
+
+  if (isOwnFile) {
+    // RED PRIMERO: trae siempre lo último que subiste. Si falla (sin
+    // internet), cae al respaldo guardado en caché.
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.open(CACHE_NAME).then((cache) => cache.match(req)))
+    );
+    return;
+  }
+
+  // CACHÉ PRIMERO (para CDNs externos): responde con lo que ya está guardado
+  // si existe, y de una vez sale a la red a traer la versión más reciente
+  // para dejarla guardada de cara a la próxima apertura.
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) =>
       cache.match(req).then((cached) => {
