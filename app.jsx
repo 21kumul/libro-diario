@@ -1116,6 +1116,9 @@ function LibroDiario() {
   const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '', shared: false, participants: [] });
   const [editTxError, setEditTxError] = useState('');
 
+  const [editTraspasoForm, setEditTraspasoForm] = useState({ id: null, fromId: '', toId: '', amount: '', note: '', date: todayStr() });
+  const [editTraspasoError, setEditTraspasoError] = useState('');
+
   const [compForm, setCompForm] = useState({ kind: 'deuda', name: '', category: 'deudas', amount: '', notifyDay: '', shared: false, participants: [], locationId: '' });
   const [msiForm, setMsiForm] = useState({ name: '', amount: '', months: '12' });
   const [notifPermission, setNotifPermission] = useState(
@@ -2436,6 +2439,60 @@ function LibroDiario() {
       });
       persist({ transactions: transactions.filter((t) => t.id !== id), moneyLocations: nextLocations });
     }));
+  };
+
+  // Un traspaso es editable de forma directa solo cuando ambos lados son
+  // ubicaciones de dinero reales. Los que se generaron automáticamente al
+  // dar de alta un préstamo/CxC tienen un lado "compromiso:..." y esos se
+  // manejan desde ese préstamo/CxC, no aquí.
+  const isEditableTraspaso = (t) => t?.type === 'traspaso'
+    && typeof t.fromLocationId === 'string' && !t.fromLocationId.startsWith('compromiso:')
+    && typeof t.toLocationId === 'string' && !t.toLocationId.startsWith('compromiso:');
+
+  const openEditTraspaso = (t) => {
+    if (!isEditableTraspaso(t)) return deleteTraspaso(t.id);
+    setEditTraspasoForm({ id: t.id, fromId: t.fromLocationId, toId: t.toLocationId, amount: formatAmountTyping(String(t.amount)), note: t.note || '', date: t.date });
+    setEditTraspasoError('');
+    setSheet({ type: 'edit-traspaso' });
+  };
+
+  const submitEditTraspaso = () => {
+    const amt = toNumber(editTraspasoForm.amount);
+    if (!amt || amt <= 0) return setEditTraspasoError('Ingresa un monto válido.');
+    if (!editTraspasoForm.fromId) return setEditTraspasoError('Elige de dónde sale el dinero.');
+    if (!editTraspasoForm.toId) return setEditTraspasoError('Elige a dónde entra el dinero.');
+    if (editTraspasoForm.fromId === editTraspasoForm.toId) return setEditTraspasoError('Elige dos ubicaciones distintas.');
+    if (!editTraspasoForm.date) return setEditTraspasoError('Elige una fecha.');
+    const orig = transactions.find((t) => t.id === editTraspasoForm.id);
+    if (!orig) return setEditTraspasoError('Este traspaso ya no existe.');
+    const from = moneyLocations.find((l) => l.id === editTraspasoForm.fromId);
+    const to = moneyLocations.find((l) => l.id === editTraspasoForm.toId);
+    if (!from || !to) return setEditTraspasoError('Esa ubicación ya no existe.');
+    // Primero revierte el efecto del traspaso original en las cuentas donde
+    // estaba, y luego aplica el nuevo monto/cuentas — así todo queda
+    // cuadrado aunque hayas cambiado el monto, la fecha o las cuentas.
+    let nextLocations = moneyLocations.map((l) => {
+      let monto = l.monto || 0;
+      if (l.id === orig.fromLocationId) monto += orig.amount;
+      if (l.id === orig.toLocationId) monto -= orig.amount;
+      return { ...l, monto };
+    });
+    nextLocations = nextLocations.map((l) => {
+      let monto = l.monto || 0;
+      if (l.id === from.id) monto -= amt;
+      if (l.id === to.id) monto += amt;
+      return { ...l, monto };
+    });
+    const nextTx = transactions.map((t) => t.id === editTraspasoForm.id ? {
+      ...t,
+      amount: amt,
+      fromLocationId: from.id,
+      toLocationId: to.id,
+      note: editTraspasoForm.note.trim(),
+      date: editTraspasoForm.date,
+    } : t);
+    persist({ transactions: nextTx, moneyLocations: nextLocations });
+    setSheet(null);
   };
   // Nombre corto de una ubicación para mostrar en el detalle del traspaso.
   const locationLabel = (id) => {
@@ -4247,14 +4304,14 @@ function LibroDiario() {
                   {txs.map((t) => {
                     if (t.type === 'traspaso') {
                       return (
-                        <div className="tx-row" key={t.id} onClick={() => deleteTraspaso(t.id)}>
+                        <div className="tx-row" key={t.id} onClick={() => openEditTraspaso(t)}>
                           <div className="tx-icon" style={{ background: 'var(--gold)' }}><Icon name="ArrowLeftRight" size={16} /></div>
                           <div className="tx-mid">
                             <div className="tx-cat">Traspaso{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
                             <div className="tx-note">{locationLabel(t.fromLocationId)} → {locationLabel(t.toLocationId)}{t.note && ` · ${t.note}`} · <span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
                           </div>
                           <div className="tx-amount" style={{ color: 'var(--gold)' }}>{fmt(t.amount)}</div>
-                          <span className="tx-edit-hint"><Icon name="Trash2" size={13} /></span>
+                          <span className="tx-edit-hint"><Icon name={isEditableTraspaso(t) ? 'Pencil' : 'Trash2'} size={13} /></span>
                         </div>
                       );
                     }
@@ -6355,6 +6412,35 @@ function LibroDiario() {
             <input className="text-input" type="date" value={traspasoForm.date} onChange={(e) => setTraspasoForm((f) => ({ ...f, date: e.target.value }))} />
             {traspasoError && <div className="form-error">{traspasoError}</div>}
             <button className="save-btn" onClick={submitTraspaso}><Icon name="Check" size={16} /> Guardar traspaso</button>
+          </div>
+        </div>
+      )}
+
+      {sheet?.type === 'edit-traspaso' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Editar traspaso</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 12px' }}>
+              Si cambias el monto o las cuentas, primero se revierte el traspaso original y luego se aplica el nuevo, para que ambas cuentas queden cuadradas.
+            </div>
+            <div className="field-label">Monto *</div>
+            <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={editTraspasoForm.amount} onChange={(e) => setEditTraspasoForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
+            <div className="field-label">Sale de *</div>
+            <div>{renderLocationPicker(moneyLocations, editTraspasoForm.fromId, (id) => setEditTraspasoForm((f) => ({ ...f, fromId: f.fromId === id ? '' : id })))}</div>
+            <div className="field-label">Entra a *</div>
+            <div>{renderLocationPicker(moneyLocations.filter((l) => l.id !== editTraspasoForm.fromId), editTraspasoForm.toId, (id) => setEditTraspasoForm((f) => ({ ...f, toId: f.toId === id ? '' : id })))}</div>
+            <div className="field-label">Nota (opcional)</div>
+            <textarea className="text-input" rows={3} style={{ resize: 'vertical', fontFamily: 'inherit' }} placeholder="Ej. Retiro de cajero, depósito..." value={editTraspasoForm.note} onChange={(e) => setEditTraspasoForm((f) => ({ ...f, note: e.target.value }))} />
+            <div className="field-label">Fecha *</div>
+            <input className="text-input" type="date" value={editTraspasoForm.date} onChange={(e) => setEditTraspasoForm((f) => ({ ...f, date: e.target.value }))} />
+            {editTraspasoError && <div className="form-error">{editTraspasoError}</div>}
+            <button
+              className="save-btn"
+              disabled={!(toNumber(editTraspasoForm.amount) > 0 && editTraspasoForm.fromId && editTraspasoForm.toId && editTraspasoForm.date)}
+              onClick={submitEditTraspaso}
+            ><Icon name="Check" size={16} /> Actualizar traspaso</button>
+            <button className="danger-btn" onClick={() => deleteTraspaso(editTraspasoForm.id)}><Icon name="Trash2" size={14} /> Eliminar traspaso</button>
           </div>
         </div>
       )}
