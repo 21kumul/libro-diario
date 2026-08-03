@@ -2445,9 +2445,14 @@ function LibroDiario() {
   // ubicaciones de dinero reales. Los que se generaron automáticamente al
   // dar de alta un préstamo/CxC tienen un lado "compromiso:..." y esos se
   // manejan desde ese préstamo/CxC, no aquí.
+  // Los ids de tarjetas/monederos son números (uid()); solo los ids de
+  // préstamos/CxC recién dados de alta son texto con prefijo "compromiso:".
+  // Antes esta función exigía que el id fuera texto, lo cual excluía por
+  // error a TODOS los traspasos normales (con ids numéricos).
+  const isCompromisoRef = (id) => typeof id === 'string' && id.startsWith('compromiso:');
   const isEditableTraspaso = (t) => t?.type === 'traspaso'
-    && typeof t.fromLocationId === 'string' && !t.fromLocationId.startsWith('compromiso:')
-    && typeof t.toLocationId === 'string' && !t.toLocationId.startsWith('compromiso:');
+    && t.fromLocationId != null && !isCompromisoRef(t.fromLocationId)
+    && t.toLocationId != null && !isCompromisoRef(t.toLocationId);
 
   const openEditTraspaso = (t) => {
     if (!isEditableTraspaso(t)) return deleteTraspaso(t.id);
