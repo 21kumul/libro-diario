@@ -5590,7 +5590,7 @@ function LibroDiario() {
       {sheet?.type === 'por-cobrar-detalle' && (() => {
         const key = sheet.name.trim().toLowerCase();
         const group = pendingItemsByPerson[key];
-        const items = (group?.items || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+        const items = (group?.items || []).slice().sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.id || 0) - (a.id || 0)));
         const total = items.reduce((s, it) => s + it.amount, 0);
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
@@ -5691,7 +5691,7 @@ function LibroDiario() {
       {sheet?.type === 'compromiso-shared-detail' && (() => {
         const c = compromisosView.find((x) => x.id === sheet.compromiso.id) || sheet.compromiso;
         const totalParts = (c.shared?.participants || []).reduce((s, p) => s + p.amount, 0);
-        const paymentsSorted = [...(c.payments || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const paymentsSorted = [...(c.payments || [])].sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.id || 0) - (a.id || 0)));
         return (
           <div className="sheet-backdrop" onClick={() => setSheet(null)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
@@ -5909,7 +5909,7 @@ function LibroDiario() {
                 {sheet.historyOpen && (() => {
                   const historyTxs = transactions
                     .filter((t) => t.locationId === loc.id || t.fromLocationId === loc.id || t.toLocationId === loc.id)
-                    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+                    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : b.id - a.id));
                   if (historyTxs.length === 0) {
                     return <div className="empty-state" style={{ padding: '14px 0' }}>Sin movimientos todavía.</div>;
                   }
