@@ -1109,6 +1109,7 @@ function LibroDiario() {
     : { transition: 'transform 0.2s ease' };
   const [saving, setSavingFlag] = useState(false);
   const [filterCat, setFilterCat] = useState('todas');
+  const [filterTipo, setFilterTipo] = useState('todas');
 
   const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
@@ -1504,6 +1505,7 @@ function LibroDiario() {
     const groups = {};
     const base = searchMonth ? transactions.filter((t) => periodKey(t.date) === searchMonth) : filtered;
     let list = filterCat === 'todas' ? base : base.filter((t) => t.category === filterCat);
+    if (filterTipo !== 'todas') list = list.filter((t) => t.type === filterTipo);
     if (filterAutor !== 'todos') list = list.filter((t) => (t.autor || 'Familia') === filterAutor);
     const q = searchQuery.trim().toLowerCase();
     if (q) {
@@ -1516,7 +1518,7 @@ function LibroDiario() {
     list.slice().sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
       .forEach((t) => { (groups[t.date] = groups[t.date] || []).push(t); });
     return Object.entries(groups);
-  }, [filtered, filterCat, filterAutor, searchQuery, searchMonth, transactions]);
+  }, [filtered, filterCat, filterTipo, filterAutor, searchQuery, searchMonth, transactions]);
 
   const conciliacionRows = useMemo(() => {
     return conciliaRaw.split('\n').map(parseConciliaLine).filter(Boolean).map((row) => {
@@ -3965,6 +3967,8 @@ function LibroDiario() {
         .mark-paid-btn { background: var(--paper-dim); border: 1px solid var(--line); color: var(--green); border-radius: 8px; padding: 6px 8px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 8px; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
         .mini-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
         .er-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; }
+        .er-group-title-link { display: inline-flex; align-items: center; gap: 2px; }
+        .er-group-title-link:active { opacity: 0.65; }
         .er-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; }
         .er-cuenta { color: var(--ink); }
         .er-codigo { font-family: var(--mono); color: var(--ink-soft); font-size: 12px; margin-right: 4px; }
@@ -4288,6 +4292,11 @@ function LibroDiario() {
                 />
                 <button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSearchMonth(nextPeriodKey(searchMonth || currentPeriodKey))}><Icon name="ChevronRight" size={15} /></button>
                 {searchMonth && <button className="filter-chip" onClick={() => setSearchMonth('')}>Volver a "{PERIOD_LABEL[period]}"</button>}
+              </div>
+              <div className="filter-row">
+                <button className={`filter-chip ${filterTipo === 'todas' ? 'active' : ''}`} onClick={() => setFilterTipo('todas')}>Todos los tipos</button>
+                <button className={`filter-chip ${filterTipo === 'ingreso' ? 'active' : ''}`} onClick={() => setFilterTipo('ingreso')}>Ingresos</button>
+                <button className={`filter-chip ${filterTipo === 'gasto' ? 'active' : ''}`} onClick={() => setFilterTipo('gasto')}>Gastos</button>
               </div>
               <div className="filter-row">
                 <button className={`filter-chip ${filterCat === 'todas' ? 'active' : ''}`} onClick={() => setFilterCat('todas')}>Todas</button>
@@ -4796,7 +4805,21 @@ function LibroDiario() {
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Sin movimientos en este mes.</div>
               ) : (
                 <>
-                  <div className="er-group-title" style={{ color: 'var(--income)' }}>{GRUPO_LABEL.ingresos}</div>
+                  <div
+                    className="er-group-title er-group-title-link"
+                    style={{ color: 'var(--income)', cursor: 'pointer' }}
+                    onClick={() => {
+                      setFilterTipo('ingreso');
+                      setFilterCat('todas');
+                      setFilterAutor('todos');
+                      setSearchQuery('');
+                      setSearchMonth(chartMonth === currentPeriodKey ? '' : chartMonth);
+                      setMovsRevealed(true);
+                      goTab('movimientos');
+                    }}
+                  >
+                    {GRUPO_LABEL.ingresos} <Icon name="ChevronRight" size={13} style={{ verticalAlign: -2 }} />
+                  </div>
                   {estadoResultadoMes.ingresos.length === 0 ? (
                     <div className="er-empty">Sin ingresos en este mes.</div>
                   ) : estadoResultadoMes.ingresos.map((r) => (
