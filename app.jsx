@@ -4027,6 +4027,7 @@ function LibroDiario() {
         .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; }
         .wallet-mini-card-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.22); flex-shrink: 0; }
         .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
+        .wallet-mini-card-type { font-family: var(--sans); font-weight: 700; letter-spacing: 0.4px; opacity: 1; }
         .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 5; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
         .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
@@ -4688,13 +4689,18 @@ function LibroDiario() {
                   const disponible = locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
                   const open = !!walletOpenMap[persona];
                   // Geometría del abanico: en reposo las tarjetas están casi
-                  // encimadas (solo se asoma un filo); al abrir la billetera
-                  // se reparten en columna con espacio uniforme entre ellas.
-                  const restGap = 8;
-                  const fanGap = 34;
+                  // encimadas (solo se asoma un filo, tope fijo para que no
+                  // se vean "ya salidas" aunque haya muchas tarjetas); al
+                  // abrir la billetera se reparten en columna con más espacio
+                  // entre ellas (para que el dedo tenga un objetivo de toque
+                  // cómodo, no solo una rendija de unos pocos píxeles).
+                  const restGap = n > 1 ? Math.min(7, 30 / (n - 1)) : 0;
+                  const fanGap = 44;
                   const restBottom = (i) => 20 + (n - 1 - i) * restGap;
                   const fannedBottom = (i) => 24 + (n - 1 - i) * fanGap;
-                  const sceneHeight = Math.max(210, fannedBottom(0) + 116 + 24);
+                  const sceneHeightRest = restBottom(0) + 116 + 24;
+                  const sceneHeightFanned = fannedBottom(0) + 116 + 24;
+                  const sceneHeight = Math.max(210, open ? sceneHeightFanned : sceneHeightRest);
                   return (
                     <div key={persona} style={{ marginBottom: 18 }}>
                       <div className="person-section-header">
@@ -4705,7 +4711,9 @@ function LibroDiario() {
                         <>
                           {/* Cada billetera es independiente: su estado de apertura vive en
                               walletOpenMap[persona], así que tocar la de una persona nunca
-                              afecta la de otra. */}
+                              afecta la de otra. La altura de la escena solo crece mientras
+                              está abierta (con transición), para no dejar un hueco vacío
+                              enorme reservado de antemano cuando está cerrada. */}
                           <div
                             className={`wallet-scene ${open ? 'fanned' : ''}`}
                             style={{ height: sceneHeight }}
@@ -4738,7 +4746,14 @@ function LibroDiario() {
                                     <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
                                     <span className="wallet-mini-card-dot" />
                                   </div>
-                                  <div className="wallet-mini-card-foot">{l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}</div>
+                                  <div className="wallet-mini-card-foot">
+                                    {l.tipo === 'efectivo' ? 'Efectivo' : (
+                                      <>
+                                        <span className="wallet-mini-card-type">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                                        {l.ultimos4 ? ` · •••• ${l.ultimos4}` : ''}
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
