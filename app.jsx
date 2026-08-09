@@ -854,6 +854,10 @@ function LibroDiario() {
   // billetera) de la pestaña Tarjetas: al tocarla, sus tarjetas se abanican
   // y se revela el saldo de esa persona (oculto por defecto, por privacidad).
   const [walletOpenMap, setWalletOpenMap] = useState({});
+  // Id de la tarjeta que el cursor está sobrevolando dentro de una billetera
+  // cerrada: hace que esa tarjeta se asome un poco de la bolsa como vista
+  // previa (solo aplica con mouse/trackpad; en táctil no hay "hover").
+  const [walletHoverId, setWalletHoverId] = useState(null);
   // Controla el giro 3D (flip) de la vista previa de tarjeta en los modales
   // de alta/edición, activado al capturar el número/CLABE de la tarjeta.
   const [cardPreviewFlippedNew, setCardPreviewFlippedNew] = useState(false);
@@ -4013,35 +4017,22 @@ function LibroDiario() {
            Inspirado en la wallet UI de Aduok Code: tarjetas dentro de una
            "bolsa" de piel dibujada en SVG, que se abanican al tocar y revelan
            el saldo total con una animación de opacidad/traslación. */
-        .wallet-scene { position: relative; width: 100%; max-width: 280px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease; cursor: pointer; }
+        .wallet-scene { position: relative; width: 100%; max-width: 300px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease, height 0.35s ease; cursor: pointer; }
         .wallet-scene.fanned { transform: translateY(-4px); }
-        .wallet-shell { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 240px; height: 150px; background: #3b1f0e; border-radius: 22px 22px 60px 60px; box-shadow: inset 0 20px 30px rgba(0,0,0,0.4), inset 0 5px 12px rgba(0,0,0,0.3); z-index: 1; }
-        .wallet-mini-card { position: absolute; left: 50%; transform: translate(-50%, 0); width: 220px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; }
+        .wallet-shell { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 260px; height: 150px; background: #3b1f0e; border-radius: 22px 22px 60px 60px; box-shadow: inset 0 20px 30px rgba(0,0,0,0.4), inset 0 5px 12px rgba(0,0,0,0.3); z-index: 1; }
+        .wallet-mini-card { position: absolute; left: 50%; width: 200px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease; animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; }
         @keyframes wallet-mini-drop { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translate(-50%, 0); } }
-        .wallet-mini-0 { bottom: 68px; z-index: 2; animation-delay: 0.04s; }
-        .wallet-mini-1 { bottom: 48px; z-index: 3; animation-delay: 0.1s; }
-        .wallet-mini-2 { bottom: 28px; z-index: 4; animation-delay: 0.16s; }
-        .wallet-scene.fanned .wallet-mini-0 { transform: translate(-50%, -56px) rotate(-4deg); }
-        .wallet-scene.fanned .wallet-mini-1 { transform: translate(-50%, -32px) rotate(3deg); }
-        .wallet-scene.fanned .wallet-mini-2 { transform: translate(-50%, -6px) rotate(0deg); }
+        .wallet-mini-card:hover { filter: brightness(1.06); }
         .wallet-mini-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
         .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; }
         .wallet-mini-card-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.22); flex-shrink: 0; }
         .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
-        .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 260px; height: 134px; z-index: 5; pointer-events: none; }
+        .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 5; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
         .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
         .wallet-pocket-balance-real { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 20px; letter-spacing: 1px; white-space: nowrap; }
         .wallet-pocket-label { font-size: 10px; color: #a0734e; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
         .wallet-pocket-hint { text-align: center; font-size: 11px; color: var(--ink-soft); margin: 0 0 18px; font-style: italic; }
-        /* Lista completa de cuentas de una persona (tarjetas + monedero), que
-           aparece debajo de su billetera al tocarla, con el mismo diseño de
-           tarjeta que ya usa el resto de la app (banco, tipo, monto, ahorro).
-           La animación las hace "salir" de la billetera y caer/acomodarse
-           una tras otra, como si se sacaran físicamente de la bolsa. */
-        @keyframes wallet-card-drop { 0% { opacity: 0; transform: translateY(-46px) scale(0.9); } 65% { opacity: 1; transform: translateY(5px) scale(1.01); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
-        .wallet-fulllist-expand { overflow: visible; }
-        .wallet-fulllist-expand .wallet-card { animation: wallet-card-drop 0.55s cubic-bezier(0.25, 0.9, 0.35, 1.15) backwards; transform-origin: top center; }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
         .compromiso-card.clickable:active { background: var(--paper-dim); }
@@ -4693,33 +4684,66 @@ function LibroDiario() {
                   const tarjetas = locs.filter((l) => l.tipo === 'tarjeta');
                   const efectivos = locs.filter((l) => l.tipo === 'efectivo');
                   const todos = [...tarjetas, ...efectivos]; // todo lo que va dentro de la billetera de esta persona
-                  const miniPreview = todos.slice(0, 3);
+                  const n = todos.length;
                   const disponible = locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
                   const open = !!walletOpenMap[persona];
+                  // Geometría del abanico: en reposo las tarjetas están casi
+                  // encimadas (solo se asoma un filo); al abrir la billetera
+                  // se reparten en columna con espacio uniforme entre ellas.
+                  const restGap = 8;
+                  const fanGap = 34;
+                  const restBottom = (i) => 20 + (n - 1 - i) * restGap;
+                  const fannedBottom = (i) => 24 + (n - 1 - i) * fanGap;
+                  const sceneHeight = Math.max(210, fannedBottom(0) + 116 + 24);
                   return (
                     <div key={persona} style={{ marginBottom: 18 }}>
                       <div className="person-section-header">
                         <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
                         <span>{persona}</span>
                       </div>
-                      {todos.length > 0 && (
+                      {n > 0 && (
                         <>
                           {/* Cada billetera es independiente: su estado de apertura vive en
                               walletOpenMap[persona], así que tocar la de una persona nunca
                               afecta la de otra. */}
-                          <div className={`wallet-scene ${open ? 'fanned' : ''}`} onClick={() => setWalletOpenMap((m) => ({ ...m, [persona]: !m[persona] }))}>
+                          <div
+                            className={`wallet-scene ${open ? 'fanned' : ''}`}
+                            style={{ height: sceneHeight }}
+                            onClick={() => setWalletOpenMap((m) => ({ ...m, [persona]: !m[persona] }))}
+                          >
                             <div className="wallet-shell" />
-                            {miniPreview.map((l, i) => (
-                              <div key={l.id} className={`wallet-mini-card wallet-mini-${i}`} style={{ background: cardBg(l) }}>
-                                <div className="wallet-mini-card-top">
-                                  <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
-                                  <span className="wallet-mini-card-dot" />
+                            {todos.map((l, i) => {
+                              const hovered = walletHoverId === l.id;
+                              let transform;
+                              if (open) {
+                                const delta = fannedBottom(i) - restBottom(i);
+                                const back = n - 1 - i; // 0 = tarjeta de enfrente, crece hacia atrás
+                                const rot = back === 0 ? 0 : (back % 2 === 1 ? 1 : -1) * (1.6 + back * 0.5);
+                                transform = `translate(-50%, ${-delta}px) rotate(${rot}deg)`;
+                              } else if (hovered) {
+                                transform = 'translate(-50%, -20px) scale(1.03)';
+                              } else {
+                                transform = 'translate(-50%, 0)';
+                              }
+                              return (
+                                <div
+                                  key={l.id}
+                                  className="wallet-mini-card"
+                                  style={{ background: cardBg(l), bottom: restBottom(i), zIndex: i + 2, transform, animationDelay: `${i * 0.05}s` }}
+                                  onMouseEnter={() => setWalletHoverId(l.id)}
+                                  onMouseLeave={() => setWalletHoverId((id) => (id === l.id ? null : id))}
+                                  onClick={(e) => { if (open) { e.stopPropagation(); openWalletDetail(l); } }}
+                                >
+                                  <div className="wallet-mini-card-top">
+                                    <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
+                                    <span className="wallet-mini-card-dot" />
+                                  </div>
+                                  <div className="wallet-mini-card-foot">{l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}</div>
                                 </div>
-                                <div className="wallet-mini-card-foot">{l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}</div>
-                              </div>
-                            ))}
+                              );
+                            })}
                             <div className="wallet-pocket">
-                              <svg viewBox="0 0 280 160" fill="none">
+                              <svg viewBox="0 0 280 160" fill="none" preserveAspectRatio="none">
                                 <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
                                 <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
                               </svg>
@@ -4730,107 +4754,9 @@ function LibroDiario() {
                             </div>
                           </div>
                           <div className="wallet-pocket-hint">
-                            Toca la billetera para {open ? 'ocultar' : 'ver'} {todos.length > 1 ? `las ${todos.length} cuentas` : 'la cuenta'}
+                            {open ? 'Toca una tarjeta para editarla · toca la billetera para guardar y cerrar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
                           </div>
                         </>
-                      )}
-                      {todos.length > 0 && open && (
-                        <div className="wallet-fulllist-expand">
-                          {todos.map((l, i) => {
-                            if (l.tipo === 'efectivo') {
-                              return (
-                                <div key={l.id} className="wallet-card wallet-card-cash" style={{ animationDelay: `${i * 0.08}s` }} onClick={() => openWalletDetail(l)}>
-                                  <div className="wallet-card-top">
-                                    <div>
-                                      <div className="wallet-card-name">Monedero</div>
-                                      <span className="wallet-card-pill">EFECTIVO</span>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                      <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                                    </div>
-                                  </div>
-                                  <div className="wallet-card-footrow">
-                                    <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
-                                  </div>
-                                  {reservedForLocation(l.id) > 0.01 && (
-                                    <div className="wallet-card-footrow">
-                                      <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
-                                      <span>{fmt(reservedForLocation(l.id))}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            }
-                            const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
-                            const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
-                            const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
-                            const bg = cardBg(l);
-                            const bankInfo = getBankInfo(l);
-                            const net = l.red || bankInfo?.network;
-                            const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
-                            const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
-                            return (
-                              <div key={l.id} className="wallet-card" style={{ background: bg, animationDelay: `${i * 0.08}s`, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
-                                <div className="wallet-card-top">
-                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                    {bankInfo?.name && <span className="bank-monogram"><Icon name="Landmark" size={14} /></span>}
-                                    <div>
-                                      <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
-                                      <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                                      {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
-                                    </div>
-                                  </div>
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                                    {l.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
-                                  </div>
-                                </div>
-                                {!l.esCredito && reservedForLocation(l.id) > 0.01 && (
-                                  <div className="wallet-card-footrow" style={{ marginTop: l.esCredito ? 0 : 10 }}>
-                                    <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
-                                    <span>{fmt(reservedForLocation(l.id))}</span>
-                                  </div>
-                                )}
-                                {l.esCredito && (
-                                  <div className="wallet-card-body">
-                                    <div className="wallet-card-limitrow">
-                                      <span>Uso del límite</span>
-                                      <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
-                                    </div>
-                                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
-                                    <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
-                                      <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
-                                    </div>
-                                    {l.montoAPagar > 0 && (
-                                      <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
-                                        <span>Monto a pagar</span>
-                                        <span>{fmt(l.montoAPagar)}</span>
-                                      </div>
-                                    )}
-                                    {prestamoLigado && (
-                                      <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
-                                        <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
-                                        <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
-                                      </div>
-                                    )}
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                      {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
-                                      {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
-                                    </div>
-                                  </div>
-                                )}
-                                {(l.ultimos4 || net) && (
-                                  <div className="wallet-card-footrow">
-                                    <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
-                                    {/mastercard/i.test(net || '') && <span className="net-glyph"><span className="net-circle net-circle-a" /><span className="net-circle net-circle-b" /></span>}
-                                    {/visa/i.test(net || '') && <span className="net-glyph net-glyph-visa" />}
-                                    {/amex|american express/i.test(net || '') && <span className="net-glyph net-glyph-amex"><Icon name="CreditCard" size={12} /></span>}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
                       )}
                     </div>
                   );
