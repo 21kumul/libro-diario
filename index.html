@@ -31,6 +31,26 @@
 <body>
 <div id="root"></div>
 
+<!-- Red de seguridad: si algo truena ANTES de que React logre montarse (por
+     ejemplo, un error de ejecución en el script recién compilado), esto
+     evita que la pantalla se quede en blanco sin ningún aviso. Una vez que
+     React monta la app, la propia app (AppErrorBoundary) toma el control. -->
+<script>
+  window.addEventListener('error', function (e) {
+    var root = document.getElementById('root');
+    if (root && !root.hasChildNodes()) {
+      root.innerHTML =
+        '<div style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;font-family:system-ui,-apple-system,sans-serif;background:#EFEFF2;color:#2A2A28;">' +
+        '<div style="font-size:34px;">\uD83D\uDE15</div>' +
+        '<div style="font-size:16px;font-weight:700;">Algo salió mal</div>' +
+        '<div style="font-size:13px;color:#6B6A62;max-width:280px;line-height:1.5;">Libro·Diario no pudo cargar. Verifica tu conexión e intenta de nuevo.</div>' +
+        '<button onclick="location.reload()" style="margin-top:6px;padding:11px 26px;border-radius:999px;border:none;background:#1E3D32;color:#fff;font-size:14px;font-weight:700;">Recargar</button>' +
+        '</div>';
+    }
+    console.error('Libro·Diario: error temprano', e.error || e.message);
+  });
+</script>
+
 <!-- Firebase (para sincronizar entre los celulares de la familia) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
