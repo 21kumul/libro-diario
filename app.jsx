@@ -799,6 +799,49 @@ function DebtsBarChart({ data }) {
   );
 }
 
+// Vista previa en vivo de una tarjeta mientras se llena el formulario de
+// alta/edición: se actualiza con cada tecla (nombre, últimos 4 dígitos,
+// banco/red detectados) y gira en 3D para mostrar el reverso mientras el
+// usuario captura el número/CLABE, como una tarjeta física real.
+function CardLivePreview({ nombre, ultimos4, esCredito, bankInfo, net, persona, gradient, flipped }) {
+  const bg = bankInfo?.gradient || gradient || 'linear-gradient(135deg, #3a3a42, #55565f)';
+  const last4 = ultimos4 || '';
+  const groups = ['••••', '••••', '••••', last4 ? last4.padStart(4, '•') : '••••'];
+  return (
+    <div className="card-live-scene">
+      <div className={`card-live-inner ${flipped ? 'flipped' : ''}`}>
+        <div className="card-live-face card-live-front" style={{ background: bg }}>
+          <div className="card-live-top">
+            <div className="card-live-chip" />
+            {net && /mastercard/i.test(net) ? (
+              <div className="card-live-mc"><span className="card-live-mc-circle card-live-mc-a" /><span className="card-live-mc-circle card-live-mc-b" /></div>
+            ) : net ? (
+              <div className="card-live-network">{net}</div>
+            ) : (
+              <div className="card-live-brand">{esCredito ? 'Crédito' : 'Débito'}</div>
+            )}
+          </div>
+          <div className="card-live-number">
+            {groups.map((g, i) => <span key={i}>{g}</span>)}
+          </div>
+          <div className="card-live-bottom">
+            <div>
+              <div className="card-live-field-label">Titular</div>
+              <div className="card-live-holder">{(nombre || persona || 'Nombre de la tarjeta').toUpperCase()}</div>
+            </div>
+            <div className="card-live-field-label" style={{ textAlign: 'right' }}>{esCredito ? 'CRÉDITO' : 'DÉBITO'}</div>
+          </div>
+        </div>
+        <div className="card-live-face card-live-back" style={{ background: bg }}>
+          <div className="card-live-stripe" />
+          <div className="card-live-signature"><span>{last4 ? `•••• ${last4}` : '•••• ••••'}</span></div>
+          <div className="card-live-back-hint">{bankInfo?.name || 'Tarjeta'}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LibroDiario() {
   const [transactions, setTransactions] = useState([]);
   const [compromisos, setCompromisos] = useState([]);
@@ -807,6 +850,14 @@ function LibroDiario() {
   // en Resumen. Se capturan a mano y se suman solos cuando registras un
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
+  // Abre/cierra la "bolsa" de la pila de tarjetas (estilo billetera) de la
+  // pestaña Tarjetas: al tocarla, las tarjetas se abanican y se revela el
+  // saldo total (oculto por defecto, por privacidad al mostrar la pantalla).
+  const [walletOpen, setWalletOpen] = useState(false);
+  // Controla el giro 3D (flip) de la vista previa de tarjeta en los modales
+  // de alta/edición, activado al capturar el número/CLABE de la tarjeta.
+  const [cardPreviewFlippedNew, setCardPreviewFlippedNew] = useState(false);
+  const [cardPreviewFlippedEdit, setCardPreviewFlippedEdit] = useState(false);
   const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
   const [budgetSavingsLinks, setBudgetSavingsLinks] = useState({}); // { [categoriaId]: idDeCuentaDeAhorro }
   const [profilePhotos, setProfilePhotos] = useState({}); // { [nombreDeFamilia]: dataURL de la foto }
@@ -3087,6 +3138,7 @@ function LibroDiario() {
     setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
     setLocIdentificador('');
     setLocError('');
+    setCardPreviewFlippedNew(false);
     setSheet({ type: 'new-location' });
   };
 
@@ -3158,6 +3210,7 @@ function LibroDiario() {
     setEditLocForm({ monto: String(loc.monto), nombre: loc.nombre || '', esCredito: !!loc.esCredito, limite: loc.limite != null ? String(loc.limite) : '', diaCorte: loc.diaCorte != null ? String(loc.diaCorte) : '', diaPago: loc.diaPago != null ? String(loc.diaPago) : '', ultimos4: loc.ultimos4 || '', red: loc.red || '', clabe: loc.clabe || '', montoAPagar: loc.montoAPagar != null ? String(loc.montoAPagar) : '', prestamoId: loc.prestamoId || '' });
     setEditLocCardNumber('');
     setEditLocError('');
+    setCardPreviewFlippedEdit(false);
     setSheet({ type: 'edit-location', location: loc });
   };
 
@@ -3922,6 +3975,65 @@ function LibroDiario() {
         .wallet-progress-track { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.25); overflow: hidden; margin-bottom: 10px; }
         .wallet-progress-fill { height: 100%; background: #fff; border-radius: 4px; }
         .wallet-pill-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 20px; }
+        /* --- Vista previa en vivo de la tarjeta (modal de alta/edición) ---
+           Inspirado en la tarjeta animada con flip 3D de Aduok Code: escena
+           con perspectiva, cara frontal y reverso, y un halo tipo "aurora"
+           (conic-gradient) girando lentamente sobre la superficie. */
+        .card-live-scene { perspective: 1000px; margin: 2px 0 20px; }
+        .card-live-inner { position: relative; width: 100%; aspect-ratio: 1.6 / 1; min-height: 172px; max-height: 210px; transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); }
+        .card-live-inner.flipped { transform: rotateY(180deg); }
+        .card-live-face { position: absolute; inset: 0; border-radius: 18px; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; box-shadow: 0 12px 26px rgba(0,0,0,0.28); }
+        .card-live-front { padding: 18px 20px; display: flex; flex-direction: column; justify-content: space-between; transition: background 0.35s ease; }
+        .card-live-back { transform: rotateY(180deg); }
+        .card-live-front::before, .card-live-back::before { content: ''; position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; background: conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(255,255,255,0.16) 60deg, rgba(255,255,255,0.06) 120deg, transparent 180deg, rgba(255,255,255,0.10) 240deg, transparent 300deg); animation: card-aurora 9s linear infinite; pointer-events: none; }
+        @keyframes card-aurora { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .card-live-top { display: flex; align-items: flex-start; justify-content: space-between; position: relative; z-index: 1; }
+        .card-live-chip { width: 34px; height: 25px; border-radius: 6px; background: linear-gradient(135deg, #f0dd9a, #c9a94f); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15); position: relative; }
+        .card-live-chip::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,0.25); }
+        .card-live-chip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(0,0,0,0.25); }
+        .card-live-brand { font-size: 11px; font-weight: 700; letter-spacing: 0.6px; opacity: 0.9; text-transform: uppercase; text-align: right; }
+        .card-live-mc { width: 38px; height: 24px; position: relative; flex-shrink: 0; }
+        .card-live-mc-circle { width: 22px; height: 22px; border-radius: 50%; position: absolute; top: 1px; }
+        .card-live-mc-a { background: #EB5B3C; left: 0; }
+        .card-live-mc-b { background: #F2A93C; left: 12px; mix-blend-mode: screen; }
+        .card-live-number { display: flex; gap: 8px; font-family: var(--mono); font-size: 16px; letter-spacing: 2px; margin: 10px 0 2px; opacity: 0.96; position: relative; z-index: 1; }
+        .card-live-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; position: relative; z-index: 1; }
+        .card-live-field-label { font-size: 8px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px; }
+        .card-live-holder { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
+        .card-live-network { font-size: 15px; font-weight: 700; font-style: italic; letter-spacing: 0; text-transform: uppercase; opacity: 0.92; flex-shrink: 0; }
+        .card-live-stripe { position: absolute; top: 26px; left: 0; right: 0; height: 38px; background: linear-gradient(180deg, #111 0%, #222 50%, #111 100%); z-index: 1; }
+        .card-live-signature { position: absolute; left: 16px; right: 16px; bottom: 22px; background: rgba(255,255,255,0.92); border-radius: 5px; height: 32px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; z-index: 1; }
+        .card-live-signature span { font-family: var(--mono); font-size: 14px; color: #111; letter-spacing: 3px; }
+        .card-live-back-hint { position: absolute; left: 16px; bottom: 8px; font-size: 9px; color: rgba(255,255,255,0.6); letter-spacing: 0.4px; z-index: 1; }
+        .card-live-flip-hint { font-size: 10.5px; color: var(--ink-soft); margin: -12px 0 14px; text-align: center; }
+        /* --- Pila de tarjetas estilo billetera (resumen arriba de la lista) ---
+           Inspirado en la wallet UI de Aduok Code: tarjetas dentro de una
+           "bolsa" de piel dibujada en SVG, que se abanican al tocar y revelan
+           el saldo total con una animación de opacidad/traslación. */
+        .wallet-scene { position: relative; width: 100%; max-width: 280px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease; cursor: pointer; }
+        .wallet-scene.fanned { transform: translateY(-4px); }
+        .wallet-shell { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 240px; height: 150px; background: #3b1f0e; border-radius: 22px 22px 60px 60px; box-shadow: inset 0 20px 30px rgba(0,0,0,0.4), inset 0 5px 12px rgba(0,0,0,0.3); z-index: 1; }
+        .wallet-mini-card { position: absolute; left: 50%; transform: translate(-50%, 0); width: 220px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+        @keyframes wallet-mini-drop { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .wallet-mini-0 { bottom: 68px; z-index: 2; animation-delay: 0.04s; }
+        .wallet-mini-1 { bottom: 48px; z-index: 3; animation-delay: 0.1s; }
+        .wallet-mini-2 { bottom: 28px; z-index: 4; animation-delay: 0.16s; }
+        .wallet-scene.fanned .wallet-mini-0 { transform: translate(-50%, -56px) rotate(-4deg); }
+        .wallet-scene.fanned .wallet-mini-1 { transform: translate(-50%, -32px) rotate(3deg); }
+        .wallet-scene.fanned .wallet-mini-2 { transform: translate(-50%, -6px) rotate(0deg); }
+        .wallet-mini-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+        .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; }
+        .wallet-mini-card-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.22); flex-shrink: 0; }
+        .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
+        .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 260px; height: 134px; z-index: 5; pointer-events: none; }
+        .wallet-pocket svg { width: 100%; height: 100%; display: block; }
+        .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
+        .wallet-pocket-balance-hidden { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 20px; letter-spacing: 3px; opacity: 1; transition: opacity 0.3s ease; }
+        .wallet-pocket-balance-real { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 19px; position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 10px); opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease; white-space: nowrap; }
+        .wallet-scene.fanned .wallet-pocket-balance-hidden { opacity: 0; }
+        .wallet-scene.fanned .wallet-pocket-balance-real { opacity: 1; transform: translate(-50%, 0); }
+        .wallet-pocket-label { font-size: 10px; color: #a0734e; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
+        .wallet-pocket-hint { text-align: center; font-size: 11px; color: var(--ink-soft); margin: 0 0 18px; font-style: italic; }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
         .compromiso-card.clickable:active { background: var(--paper-dim); }
@@ -4562,6 +4674,38 @@ function LibroDiario() {
           </>
         ) : tab === 'tarjetas' ? (
           <>
+            {(() => {
+              const tarjetasFan = moneyLocations.filter((l) => l.tipo === 'tarjeta').slice(0, 3);
+              if (tarjetasFan.length === 0) return null;
+              return (
+                <>
+                  <div className={`wallet-scene ${walletOpen ? 'fanned' : ''}`} onClick={() => setWalletOpen((v) => !v)}>
+                    <div className="wallet-shell" />
+                    {tarjetasFan.map((l, i) => (
+                      <div key={l.id} className={`wallet-mini-card wallet-mini-${i}`} style={{ background: cardBg(l) }}>
+                        <div className="wallet-mini-card-top">
+                          <span className="wallet-mini-card-name">{l.nombre || 'Tarjeta'}</span>
+                          <span className="wallet-mini-card-dot" />
+                        </div>
+                        <div className="wallet-mini-card-foot">{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</div>
+                      </div>
+                    ))}
+                    <div className="wallet-pocket">
+                      <svg viewBox="0 0 280 160" fill="none">
+                        <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
+                        <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
+                      </svg>
+                      <div className="wallet-pocket-body">
+                        <div className="wallet-pocket-balance-hidden">••••••</div>
+                        <div className="wallet-pocket-balance-real">{fmt(moneyLocationsDisponible)}</div>
+                        <div className="wallet-pocket-label">Saldo disponible</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="wallet-pocket-hint">Toca la billetera para {walletOpen ? 'ocultar' : 'ver'} el saldo</div>
+                </>
+              );
+            })()}
             <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 }}>
               <span>¿Dónde está el dinero?</span>
             </div>
@@ -6161,8 +6305,22 @@ function LibroDiario() {
                   ? (idInfo.network ? `Red ${idInfo.network} detectada (banco no identificable solo con el número de tarjeta)` : 'Número de tarjeta no reconocido')
                   : 'Ingresa tu CLABE o número de tarjeta';
               const bancoOk = idInfo.tipo === 'clabe' ? !!idInfo.bankName : idInfo.tipo === 'card' ? !!idInfo.network : false;
+              const previewBankInfo = getBankInfo(locForm);
+              const previewNet = locForm.red || previewBankInfo?.network;
+              const previewGradient = CARD_GRADIENTS[hashStr(locForm.nombre || 'nueva-tarjeta') % CARD_GRADIENTS.length];
               return (
                 <>
+                  <CardLivePreview
+                    nombre={locForm.nombre}
+                    ultimos4={locForm.ultimos4}
+                    esCredito={locForm.esCredito}
+                    bankInfo={previewBankInfo}
+                    net={previewNet}
+                    persona={locForm.persona}
+                    gradient={previewGradient}
+                    flipped={cardPreviewFlippedNew}
+                  />
+                  <div className="card-live-flip-hint">La tarjeta gira mientras capturas el número o CLABE</div>
                   <div className="field-label">Nombre / alias</div>
                   <input className="text-input" placeholder="Ej. Tarjeta de nómina, Tarjeta principal..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
                   <div className="field-label">Clave interbancaria o número de tarjeta</div>
@@ -6173,6 +6331,8 @@ function LibroDiario() {
                     maxLength={23}
                     placeholder="18 dígitos (CLABE) o número de tarjeta"
                     value={formatCardNumberTyping(locIdentificador)}
+                    onFocus={() => setCardPreviewFlippedNew(true)}
+                    onBlur={() => setCardPreviewFlippedNew(false)}
                     onChange={(e) => {
                       const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
                       setLocIdentificador(digits);
@@ -6254,6 +6414,17 @@ function LibroDiario() {
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>{sheet.location.persona} · {sheet.location.tipo === 'tarjeta' ? (sheet.location.nombre || 'Tarjeta') : 'Monedero'}</div>
             {sheet.location.tipo === 'tarjeta' && (
               <>
+                <CardLivePreview
+                  nombre={editLocForm.nombre}
+                  ultimos4={editLocForm.ultimos4}
+                  esCredito={sheet.location.esCredito}
+                  bankInfo={getBankInfo(editLocForm)}
+                  net={editLocForm.red || getBankInfo(editLocForm)?.network}
+                  persona={sheet.location.persona}
+                  gradient={CARD_GRADIENTS[hashStr(sheet.location.id || editLocForm.nombre || 'tarjeta') % CARD_GRADIENTS.length]}
+                  flipped={cardPreviewFlippedEdit}
+                />
+                <div className="card-live-flip-hint">La tarjeta gira mientras editas el número</div>
                 <div className="field-label">Nombre del banco o cuenta</div>
                 <input className="text-input" value={editLocForm.nombre} onChange={(e) => setEditLocForm((f) => ({ ...f, nombre: e.target.value }))} />
                 <div className="field-label">CLABE interbancaria (opcional)</div>
@@ -6276,6 +6447,8 @@ function LibroDiario() {
                   maxLength={19}
                   placeholder="•••• •••• •••• ••••"
                   value={formatCardNumberTyping(editLocCardNumber)}
+                  onFocus={() => setCardPreviewFlippedEdit(true)}
+                  onBlur={() => setCardPreviewFlippedEdit(false)}
                   onChange={(e) => {
                     const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
                     setEditLocCardNumber(digits);
