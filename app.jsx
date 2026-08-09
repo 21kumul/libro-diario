@@ -4028,12 +4028,14 @@ function LibroDiario() {
         .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .wallet-mini-card-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.22); flex-shrink: 0; }
         .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
+        .wallet-mini-card-amount { font-family: var(--mono); font-size: 16px; font-weight: 700; margin-bottom: 2px; }
         .wallet-mini-card-type { font-family: var(--sans); font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; background: rgba(255,255,255,0.24); padding: 2px 6px; border-radius: 6px; flex-shrink: 0; }
         .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 5; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
         .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
         .wallet-pocket-balance-real { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 20px; letter-spacing: 1px; white-space: nowrap; }
         .wallet-pocket-label { font-size: 10px; color: #a0734e; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
+        .wallet-pocket-close { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.14); border: none; color: #e8c9a0; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer; }
         .wallet-pocket-hint { text-align: center; font-size: 11px; color: var(--ink-soft); margin: 0 0 18px; font-style: italic; }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
@@ -4729,7 +4731,6 @@ function LibroDiario() {
                             <div className="wallet-shell" />
                             {todos.map((l, i) => {
                               const hovered = walletHoverId === l.id;
-                              const esFrente = i === n - 1; // la tarjeta que ya se ve cuando está cerrada
                               let transform;
                               if (open) {
                                 const delta = fannedBottom(i) - restBottom(i);
@@ -4750,11 +4751,10 @@ function LibroDiario() {
                                   onMouseLeave={() => setWalletHoverId((id) => (id === l.id ? null : id))}
                                   onClick={(e) => {
                                     if (!open) return; // deja que el toque burbujee y abra la billetera
+                                    // Cada tarjeta abre su propia edición, sin excepción (incluida
+                                    // la de Monedero); la billetera se cierra tocando la bolsa.
                                     e.stopPropagation();
-                                    // La tarjeta de enfrente (la que ya se veía con la billetera
-                                    // cerrada) sirve para guardar/cerrar; el resto abre su edición.
-                                    if (esFrente) setWalletOpenMap((m) => ({ ...m, [persona]: false }));
-                                    else openWalletDetail(l);
+                                    openWalletDetail(l);
                                   }}
                                 >
                                   <div className="wallet-mini-card-top">
@@ -4762,10 +4762,13 @@ function LibroDiario() {
                                       <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
                                       {l.tipo !== 'efectivo' && <span className="wallet-mini-card-type">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>}
                                     </div>
-                                    {esFrente && open ? <Icon name="ChevronDown" size={16} style={{ opacity: 0.85, flexShrink: 0 }} /> : <span className="wallet-mini-card-dot" />}
+                                    <span className="wallet-mini-card-dot" />
                                   </div>
-                                  <div className="wallet-mini-card-foot">
-                                    {l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}
+                                  <div>
+                                    <div className="wallet-mini-card-amount">{fmt(l.monto)}</div>
+                                    <div className="wallet-mini-card-foot">
+                                      {l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -4779,10 +4782,19 @@ function LibroDiario() {
                                 <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
                                 <div className="wallet-pocket-label">Saldo disponible</div>
                               </div>
+                              {open && (
+                                <button
+                                  className="wallet-pocket-close"
+                                  onClick={(e) => { e.stopPropagation(); setWalletOpenMap((m) => ({ ...m, [persona]: false })); }}
+                                  aria-label="Cerrar billetera"
+                                >
+                                  <Icon name="ChevronDown" size={16} />
+                                </button>
+                              )}
                             </div>
                           </div>
                           <div className="wallet-pocket-hint">
-                            {open ? 'Toca una tarjeta para editarla · toca la de enfrente para guardar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
+                            {open ? 'Toca una tarjeta para editarla · toca la flecha o la bolsa para guardar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
                           </div>
                         </>
                       )}
