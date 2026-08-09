@@ -850,10 +850,10 @@ function LibroDiario() {
   // en Resumen. Se capturan a mano y se suman solos cuando registras un
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
-  // Abre/cierra la "bolsa" de la pila de tarjetas (estilo billetera) de la
-  // pestaña Tarjetas: al tocarla, las tarjetas se abanican y se revela el
-  // saldo total (oculto por defecto, por privacidad al mostrar la pantalla).
-  const [walletOpen, setWalletOpen] = useState(false);
+  // Abre/cierra la "bolsa" de cada persona en la pila de tarjetas (estilo
+  // billetera) de la pestaña Tarjetas: al tocarla, sus tarjetas se abanican
+  // y se revela el saldo de esa persona (oculto por defecto, por privacidad).
+  const [walletOpenMap, setWalletOpenMap] = useState({});
   // Controla el giro 3D (flip) de la vista previa de tarjeta en los modales
   // de alta/edición, activado al capturar el número/CLABE de la tarjeta.
   const [cardPreviewFlippedNew, setCardPreviewFlippedNew] = useState(false);
@@ -3124,7 +3124,7 @@ function LibroDiario() {
   const [locError, setLocError] = useState('');
   // Número de tarjeta capturado solo para auto-detectar red y últimos 4
   // dígitos; nunca se persiste completo (no guardamos el PAN por seguridad).
-  const [locIdentificador, setLocIdentificador] = useState('');
+  const [locCardNumber, setLocCardNumber] = useState('');
 
   // Traspaso: mover dinero entre dos ubicaciones propias (ej. Banco -> Efectivo).
   // No es un ingreso ni un gasto: una cuenta baja y la otra sube por el mismo monto.
@@ -3136,7 +3136,7 @@ function LibroDiario() {
 
   const openNewLocation = (personaDefault) => {
     setLocForm({ persona: personaDefault || profile?.name || '', tipo: 'efectivo', nombre: '', monto: '', esCredito: false, limite: '', diaCorte: '', diaPago: '', ultimos4: '', red: '', clabe: '', montoAPagar: '', prestamoId: '' });
-    setLocIdentificador('');
+    setLocCardNumber('');
     setLocError('');
     setCardPreviewFlippedNew(false);
     setSheet({ type: 'new-location' });
@@ -3180,8 +3180,11 @@ function LibroDiario() {
     if (!locForm.persona.trim()) return setLocError('Elige o escribe a quién pertenece.');
     if (locForm.tipo === 'tarjeta') {
       if (!locForm.nombre.trim()) return setLocError('Ponle un alias a la tarjeta (ej. Tarjeta de nómina).');
-      const idInfo = identifyByDigits(locIdentificador);
-      if (!idInfo.tipo) return setLocError('Captura tu CLABE (18 dígitos) o el número de tu tarjeta.');
+      const clabeDigits = locForm.clabe.replace(/\D/g, '');
+      const cardDigits = locCardNumber.replace(/\D/g, '');
+      if (clabeDigits.length !== 18 && cardDigits.length < 4) {
+        return setLocError('Captura tu CLABE (18 dígitos) o al menos los últimos 4 dígitos de tu número de tarjeta.');
+      }
     }
     const monto = toNumber(locForm.monto);
     const esCredito = locForm.tipo === 'tarjeta' && locForm.esCredito;
@@ -4013,7 +4016,7 @@ function LibroDiario() {
         .wallet-scene { position: relative; width: 100%; max-width: 280px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease; cursor: pointer; }
         .wallet-scene.fanned { transform: translateY(-4px); }
         .wallet-shell { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 240px; height: 150px; background: #3b1f0e; border-radius: 22px 22px 60px 60px; box-shadow: inset 0 20px 30px rgba(0,0,0,0.4), inset 0 5px 12px rgba(0,0,0,0.3); z-index: 1; }
-        .wallet-mini-card { position: absolute; left: 50%; transform: translate(-50%, 0); width: 220px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+        .wallet-mini-card { position: absolute; left: 50%; transform: translate(-50%, 0); width: 220px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; }
         @keyframes wallet-mini-drop { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translate(-50%, 0); } }
         .wallet-mini-0 { bottom: 68px; z-index: 2; animation-delay: 0.04s; }
         .wallet-mini-1 { bottom: 48px; z-index: 3; animation-delay: 0.1s; }
@@ -4675,35 +4678,57 @@ function LibroDiario() {
         ) : tab === 'tarjetas' ? (
           <>
             {(() => {
-              const tarjetasFan = moneyLocations.filter((l) => l.tipo === 'tarjeta').slice(0, 3);
-              if (tarjetasFan.length === 0) return null;
+              const walletGroups = moneyLocationsByPerson
+                .map(([persona, locs]) => ({
+                  persona,
+                  tarjetas: locs.filter((l) => l.tipo === 'tarjeta').slice(0, 3),
+                  disponible: locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0),
+                }))
+                .filter((g) => g.tarjetas.length > 0);
+              if (walletGroups.length === 0) return null;
               return (
-                <>
-                  <div className={`wallet-scene ${walletOpen ? 'fanned' : ''}`} onClick={() => setWalletOpen((v) => !v)}>
-                    <div className="wallet-shell" />
-                    {tarjetasFan.map((l, i) => (
-                      <div key={l.id} className={`wallet-mini-card wallet-mini-${i}`} style={{ background: cardBg(l) }}>
-                        <div className="wallet-mini-card-top">
-                          <span className="wallet-mini-card-name">{l.nombre || 'Tarjeta'}</span>
-                          <span className="wallet-mini-card-dot" />
+                <div style={{ marginBottom: 6 }}>
+                  {walletGroups.map(({ persona, tarjetas, disponible }) => {
+                    const open = !!walletOpenMap[persona];
+                    return (
+                      <div key={persona} style={{ marginBottom: 18 }}>
+                        <div className="person-section-header">
+                          <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
+                          <span>{persona}</span>
                         </div>
-                        <div className="wallet-mini-card-foot">{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</div>
+                        <div className={`wallet-scene ${open ? 'fanned' : ''}`} onClick={() => setWalletOpenMap((m) => ({ ...m, [persona]: !m[persona] }))}>
+                          <div className="wallet-shell" />
+                          {tarjetas.map((l, i) => (
+                            <div
+                              key={l.id}
+                              className={`wallet-mini-card wallet-mini-${i}`}
+                              style={{ background: cardBg(l) }}
+                              onClick={(e) => { e.stopPropagation(); openWalletDetail(l); }}
+                            >
+                              <div className="wallet-mini-card-top">
+                                <span className="wallet-mini-card-name">{l.nombre || 'Tarjeta'}</span>
+                                <span className="wallet-mini-card-dot" />
+                              </div>
+                              <div className="wallet-mini-card-foot">{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</div>
+                            </div>
+                          ))}
+                          <div className="wallet-pocket">
+                            <svg viewBox="0 0 280 160" fill="none">
+                              <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
+                              <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
+                            </svg>
+                            <div className="wallet-pocket-body">
+                              <div className="wallet-pocket-balance-hidden">••••••</div>
+                              <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
+                              <div className="wallet-pocket-label">Saldo disponible</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="wallet-pocket-hint">Toca la billetera para {open ? 'ocultar el saldo' : 'ver el saldo'} · toca una tarjeta para editarla</div>
                       </div>
-                    ))}
-                    <div className="wallet-pocket">
-                      <svg viewBox="0 0 280 160" fill="none">
-                        <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
-                        <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
-                      </svg>
-                      <div className="wallet-pocket-body">
-                        <div className="wallet-pocket-balance-hidden">••••••</div>
-                        <div className="wallet-pocket-balance-real">{fmt(moneyLocationsDisponible)}</div>
-                        <div className="wallet-pocket-label">Saldo disponible</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="wallet-pocket-hint">Toca la billetera para {walletOpen ? 'ocultar' : 'ver'} el saldo</div>
-                </>
+                    );
+                  })}
+                </div>
               );
             })()}
             <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 }}>
@@ -6298,13 +6323,6 @@ function LibroDiario() {
               <button className={locForm.tipo === 'tarjeta' ? 'active deposito' : ''} onClick={() => setLocForm((f) => ({ ...f, tipo: 'tarjeta' }))}><Icon name="CreditCard" size={14} /> Tarjeta</button>
             </div>
             {locForm.tipo === 'tarjeta' && (() => {
-              const idInfo = identifyByDigits(locIdentificador);
-              const bancoDisplay = idInfo.tipo === 'clabe'
-                ? (idInfo.bankName || 'CLABE no reconocida')
-                : idInfo.tipo === 'card'
-                  ? (idInfo.network ? `Red ${idInfo.network} detectada (banco no identificable solo con el número de tarjeta)` : 'Número de tarjeta no reconocido')
-                  : 'Ingresa tu CLABE o número de tarjeta';
-              const bancoOk = idInfo.tipo === 'clabe' ? !!idInfo.bankName : idInfo.tipo === 'card' ? !!idInfo.network : false;
               const previewBankInfo = getBankInfo(locForm);
               const previewNet = locForm.red || previewBankInfo?.network;
               const previewGradient = CARD_GRADIENTS[hashStr(locForm.nombre || 'nueva-tarjeta') % CARD_GRADIENTS.length];
@@ -6323,32 +6341,42 @@ function LibroDiario() {
                   <div className="card-live-flip-hint">La tarjeta gira mientras capturas el número o CLABE</div>
                   <div className="field-label">Nombre / alias</div>
                   <input className="text-input" placeholder="Ej. Tarjeta de nómina, Tarjeta principal..." value={locForm.nombre} onChange={(e) => setLocForm((f) => ({ ...f, nombre: e.target.value }))} />
-                  <div className="field-label">Clave interbancaria o número de tarjeta</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Tu CLABE (18 dígitos) o el número de tu tarjeta. Con eso identificamos el banco o la red automáticamente.</div>
+                  <div className="field-label">CLABE interbancaria (opcional)</div>
                   <input
                     className="text-input"
                     inputMode="numeric"
-                    maxLength={23}
-                    placeholder="18 dígitos (CLABE) o número de tarjeta"
-                    value={formatCardNumberTyping(locIdentificador)}
+                    maxLength={18}
+                    placeholder="18 dígitos"
+                    value={locForm.clabe}
+                    onFocus={() => setCardPreviewFlippedNew(true)}
+                    onBlur={() => setCardPreviewFlippedNew(false)}
+                    onChange={(e) => setLocForm((f) => ({ ...f, clabe: e.target.value.replace(/\D/g, '').slice(0, 18) }))}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                    {previewBankInfo ? `Banco identificado: ${previewBankInfo.name}.` : 'Escribe el nombre de tu banco o captura tu CLABE para identificarlo automáticamente.'}
+                  </div>
+                  <div className="field-label">Número de tarjeta (opcional)</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Solo para detectar la red (Visa/Mastercard/Amex) y los últimos 4 dígitos; no se guarda el número completo.</div>
+                  <input
+                    className="text-input"
+                    inputMode="numeric"
+                    maxLength={19}
+                    placeholder="•••• •••• •••• ••••"
+                    value={formatCardNumberTyping(locCardNumber)}
                     onFocus={() => setCardPreviewFlippedNew(true)}
                     onBlur={() => setCardPreviewFlippedNew(false)}
                     onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
-                      setLocIdentificador(digits);
-                      const info = identifyByDigits(digits);
-                      setLocForm((f) => ({
-                        ...f,
-                        clabe: info.tipo === 'clabe' ? digits : '',
-                        ultimos4: digits.length >= 4 ? digits.slice(-4) : '',
-                        red: info.tipo === 'card' ? (info.network || '') : '',
-                      }));
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
+                      setLocCardNumber(digits);
+                      const net = detectCardNetwork(digits);
+                      setLocForm((f) => ({ ...f, ultimos4: digits.length >= 4 ? digits.slice(-4) : f.ultimos4, red: net || f.red }));
                     }}
                   />
-                  <div className="field-label">Banco</div>
-                  <div className="text-input" style={{ display: 'flex', alignItems: 'center', minHeight: 20, color: bancoOk ? 'var(--income)' : 'var(--ink-soft)', background: 'var(--paper-dim)', cursor: 'default' }}>
-                    {bancoDisplay}
-                  </div>
+                  {locCardNumber.length >= 2 && (
+                    <div style={{ fontSize: 11, color: detectCardNetwork(locCardNumber) ? 'var(--income)' : 'var(--ink-soft)', margin: '-6px 0 12px' }}>
+                      {detectCardNetwork(locCardNumber) ? `Red detectada: ${detectCardNetwork(locCardNumber)}.` : 'No se reconoce la red con estos dígitos.'}
+                    </div>
+                  )}
                   <div className="field-label">{locForm.esCredito ? 'Gastado en el ciclo actual (opcional)' : 'Monto actual (opcional)'}</div>
                   <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={locForm.monto} onChange={(e) => setLocForm((f) => ({ ...f, monto: formatAmountTyping(e.target.value) }))} /></div>
                   <div className="field-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 14px' }}>
