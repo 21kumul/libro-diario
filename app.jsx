@@ -4023,11 +4023,12 @@ function LibroDiario() {
         .wallet-mini-card { position: absolute; left: 50%; width: 200px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease; animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; }
         @keyframes wallet-mini-drop { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translate(-50%, 0); } }
         .wallet-mini-card:hover { filter: brightness(1.06); }
-        .wallet-mini-card-top { display: flex; justify-content: space-between; align-items: flex-start; }
-        .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; }
+        .wallet-mini-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+        .wallet-mini-card-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .wallet-mini-card-name { font-size: 12.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .wallet-mini-card-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.22); flex-shrink: 0; }
         .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
-        .wallet-mini-card-type { font-family: var(--sans); font-weight: 700; letter-spacing: 0.4px; opacity: 1; }
+        .wallet-mini-card-type { font-family: var(--sans); font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; background: rgba(255,255,255,0.24); padding: 2px 6px; border-radius: 6px; flex-shrink: 0; }
         .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 5; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
         .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
@@ -4690,14 +4691,20 @@ function LibroDiario() {
                   const open = !!walletOpenMap[persona];
                   // Geometría del abanico: en reposo las tarjetas están casi
                   // encimadas (solo se asoma un filo, tope fijo para que no
-                  // se vean "ya salidas" aunque haya muchas tarjetas); al
-                  // abrir la billetera se reparten en columna con más espacio
-                  // entre ellas (para que el dedo tenga un objetivo de toque
-                  // cómodo, no solo una rendija de unos pocos píxeles).
-                  const restGap = n > 1 ? Math.min(7, 30 / (n - 1)) : 0;
+                  // Geometría del abanico: en reposo, sin importar cuántas
+                  // tarjetas haya, solo se asoman como máximo 2 detrás de la
+                  // de enfrente (el resto queda perfectamente escondida
+                  // debajo, a la misma altura) — así nunca se ve "ya salida".
+                  // Al abrir, se reparten en columna con más espacio entre
+                  // ellas para que el dedo tenga un objetivo de toque cómodo,
+                  // y la tarjeta de enfrente deja una franja de la bolsa
+                  // libre abajo para poder volver a tocarla y guardarlas.
+                  const maxPeek = 2;
+                  const peekGap = 6;
                   const fanGap = 44;
-                  const restBottom = (i) => 20 + (n - 1 - i) * restGap;
-                  const fannedBottom = (i) => 24 + (n - 1 - i) * fanGap;
+                  const fanBase = 46;
+                  const restBottom = (i) => 20 + Math.min(n - 1 - i, maxPeek) * peekGap;
+                  const fannedBottom = (i) => fanBase + (n - 1 - i) * fanGap;
                   const sceneHeightRest = restBottom(0) + 116 + 24;
                   const sceneHeightFanned = fannedBottom(0) + 116 + 24;
                   const sceneHeight = Math.max(210, open ? sceneHeightFanned : sceneHeightRest);
@@ -4722,6 +4729,7 @@ function LibroDiario() {
                             <div className="wallet-shell" />
                             {todos.map((l, i) => {
                               const hovered = walletHoverId === l.id;
+                              const esFrente = i === n - 1; // la tarjeta que ya se ve cuando está cerrada
                               let transform;
                               if (open) {
                                 const delta = fannedBottom(i) - restBottom(i);
@@ -4740,19 +4748,24 @@ function LibroDiario() {
                                   style={{ background: cardBg(l), bottom: restBottom(i), zIndex: i + 2, transform, animationDelay: `${i * 0.05}s` }}
                                   onMouseEnter={() => setWalletHoverId(l.id)}
                                   onMouseLeave={() => setWalletHoverId((id) => (id === l.id ? null : id))}
-                                  onClick={(e) => { if (open) { e.stopPropagation(); openWalletDetail(l); } }}
+                                  onClick={(e) => {
+                                    if (!open) return; // deja que el toque burbujee y abra la billetera
+                                    e.stopPropagation();
+                                    // La tarjeta de enfrente (la que ya se veía con la billetera
+                                    // cerrada) sirve para guardar/cerrar; el resto abre su edición.
+                                    if (esFrente) setWalletOpenMap((m) => ({ ...m, [persona]: false }));
+                                    else openWalletDetail(l);
+                                  }}
                                 >
                                   <div className="wallet-mini-card-top">
-                                    <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
-                                    <span className="wallet-mini-card-dot" />
+                                    <div className="wallet-mini-card-title-row">
+                                      <span className="wallet-mini-card-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
+                                      {l.tipo !== 'efectivo' && <span className="wallet-mini-card-type">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>}
+                                    </div>
+                                    {esFrente && open ? <Icon name="ChevronDown" size={16} style={{ opacity: 0.85, flexShrink: 0 }} /> : <span className="wallet-mini-card-dot" />}
                                   </div>
                                   <div className="wallet-mini-card-foot">
-                                    {l.tipo === 'efectivo' ? 'Efectivo' : (
-                                      <>
-                                        <span className="wallet-mini-card-type">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                                        {l.ultimos4 ? ` · •••• ${l.ultimos4}` : ''}
-                                      </>
-                                    )}
+                                    {l.tipo === 'efectivo' ? 'Efectivo' : (l.ultimos4 ? `•••• ${l.ultimos4}` : '')}
                                   </div>
                                 </div>
                               );
@@ -4769,7 +4782,7 @@ function LibroDiario() {
                             </div>
                           </div>
                           <div className="wallet-pocket-hint">
-                            {open ? 'Toca una tarjeta para editarla · toca la billetera para guardar y cerrar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
+                            {open ? 'Toca una tarjeta para editarla · toca la de enfrente para guardar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
                           </div>
                         </>
                       )}
