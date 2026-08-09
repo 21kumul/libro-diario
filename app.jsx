@@ -4037,6 +4037,16 @@ function LibroDiario() {
         .wallet-scene.fanned .wallet-pocket-balance-real { opacity: 1; transform: translate(-50%, 0); }
         .wallet-pocket-label { font-size: 10px; color: #a0734e; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
         .wallet-pocket-hint { text-align: center; font-size: 11px; color: var(--ink-soft); margin: 0 0 18px; font-style: italic; }
+        /* Lista completa de tarjetas de una persona, que aparece debajo de su
+           billetera al tocarla (mismo diseño de tarjeta que ya usa el resto
+           de la app: banco, tipo, monto, ahorro). */
+        @keyframes wallet-fulllist-in { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+        .wallet-fulllist-expand { animation: wallet-fulllist-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .wallet-fulllist-expand .wallet-card { animation: wallet-fulllist-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+        .wallet-fulllist-expand .wallet-card:nth-child(2) { animation-delay: 0.05s; }
+        .wallet-fulllist-expand .wallet-card:nth-child(3) { animation-delay: 0.1s; }
+        .wallet-fulllist-expand .wallet-card:nth-child(4) { animation-delay: 0.15s; }
+        .wallet-fulllist-expand .wallet-card:nth-child(n+5) { animation-delay: 0.2s; }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
         .compromiso-card.clickable:active { background: var(--paper-dim); }
@@ -4677,60 +4687,6 @@ function LibroDiario() {
           </>
         ) : tab === 'tarjetas' ? (
           <>
-            {(() => {
-              const walletGroups = moneyLocationsByPerson
-                .map(([persona, locs]) => ({
-                  persona,
-                  tarjetas: locs.filter((l) => l.tipo === 'tarjeta').slice(0, 3),
-                  disponible: locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0),
-                }))
-                .filter((g) => g.tarjetas.length > 0);
-              if (walletGroups.length === 0) return null;
-              return (
-                <div style={{ marginBottom: 6 }}>
-                  {walletGroups.map(({ persona, tarjetas, disponible }) => {
-                    const open = !!walletOpenMap[persona];
-                    return (
-                      <div key={persona} style={{ marginBottom: 18 }}>
-                        <div className="person-section-header">
-                          <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
-                          <span>{persona}</span>
-                        </div>
-                        <div className={`wallet-scene ${open ? 'fanned' : ''}`} onClick={() => setWalletOpenMap((m) => ({ ...m, [persona]: !m[persona] }))}>
-                          <div className="wallet-shell" />
-                          {tarjetas.map((l, i) => (
-                            <div
-                              key={l.id}
-                              className={`wallet-mini-card wallet-mini-${i}`}
-                              style={{ background: cardBg(l) }}
-                              onClick={(e) => { e.stopPropagation(); openWalletDetail(l); }}
-                            >
-                              <div className="wallet-mini-card-top">
-                                <span className="wallet-mini-card-name">{l.nombre || 'Tarjeta'}</span>
-                                <span className="wallet-mini-card-dot" />
-                              </div>
-                              <div className="wallet-mini-card-foot">{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</div>
-                            </div>
-                          ))}
-                          <div className="wallet-pocket">
-                            <svg viewBox="0 0 280 160" fill="none">
-                              <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
-                              <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
-                            </svg>
-                            <div className="wallet-pocket-body">
-                              <div className="wallet-pocket-balance-hidden">••••••</div>
-                              <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
-                              <div className="wallet-pocket-label">Saldo disponible</div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="wallet-pocket-hint">Toca la billetera para {open ? 'ocultar el saldo' : 'ver el saldo'} · toca una tarjeta para editarla</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
             <div className="totals-subhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 }}>
               <span>¿Dónde está el dinero?</span>
             </div>
@@ -4738,106 +4694,147 @@ function LibroDiario() {
               <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Usa el botón + para agregar.</div>
             ) : (
               <>
-                {moneyLocationsByPerson.map(([persona, locs]) => (
-                  <div key={persona} style={{ marginBottom: 18 }}>
-                    <div className="person-section-header">
-                      <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
-                      <span>{persona}</span>
-                    </div>
-                    {locs.filter((l) => l.tipo === 'tarjeta').map((l) => {
-                      const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
-                      const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
-                      const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
-                      const bg = cardBg(l);
-                      const bankInfo = getBankInfo(l);
-                      const net = l.red || bankInfo?.network;
-                      const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
-                      const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
-                      return (
-                        <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
-                          <div className="wallet-card-top">
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                              {bankInfo?.name && <span className="bank-monogram"><Icon name="Landmark" size={14} /></span>}
-                              <div>
-                                <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
-                                <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
-                                {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                {moneyLocationsByPerson.map(([persona, locs]) => {
+                  const tarjetas = locs.filter((l) => l.tipo === 'tarjeta');
+                  const efectivos = locs.filter((l) => l.tipo === 'efectivo');
+                  const miniTarjetas = tarjetas.slice(0, 3);
+                  const disponible = locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
+                  const open = !!walletOpenMap[persona];
+                  return (
+                    <div key={persona} style={{ marginBottom: 18 }}>
+                      <div className="person-section-header">
+                        <div className="person-avatar" style={{ background: colorForName(persona) }}>{persona.charAt(0).toUpperCase()}</div>
+                        <span>{persona}</span>
+                      </div>
+                      {tarjetas.length > 0 && (
+                        <>
+                          <div className={`wallet-scene ${open ? 'fanned' : ''}`} onClick={() => setWalletOpenMap((m) => ({ ...m, [persona]: !m[persona] }))}>
+                            <div className="wallet-shell" />
+                            {miniTarjetas.map((l, i) => (
+                              <div key={l.id} className={`wallet-mini-card wallet-mini-${i}`} style={{ background: cardBg(l) }}>
+                                <div className="wallet-mini-card-top">
+                                  <span className="wallet-mini-card-name">{l.nombre || 'Tarjeta'}</span>
+                                  <span className="wallet-mini-card-dot" />
+                                </div>
+                                <div className="wallet-mini-card-foot">{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</div>
                               </div>
+                            ))}
+                            <div className="wallet-pocket">
+                              <svg viewBox="0 0 280 160" fill="none">
+                                <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
+                                <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
+                              </svg>
+                              <div className="wallet-pocket-body">
+                                <div className="wallet-pocket-balance-hidden">••••••</div>
+                                <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
+                                <div className="wallet-pocket-label">Saldo disponible</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="wallet-pocket-hint">
+                            Toca la billetera para {open ? 'ocultar' : 'ver'} {tarjetas.length > 1 ? `las ${tarjetas.length} tarjetas` : 'la tarjeta'} y el saldo
+                          </div>
+                        </>
+                      )}
+                      {tarjetas.length > 0 && open && (
+                        <div className="wallet-fulllist-expand">
+                          {tarjetas.map((l) => {
+                            const pct = l.esCredito && l.limite ? Math.max(0, Math.min(100, (l.monto / l.limite) * 100)) : null;
+                            const diasCorte = l.esCredito ? diasHasta(l.diaCorte) : null;
+                            const diasPago = l.esCredito ? diasHasta(l.diaPago) : null;
+                            const bg = cardBg(l);
+                            const bankInfo = getBankInfo(l);
+                            const net = l.red || bankInfo?.network;
+                            const sobregirada = l.esCredito && l.limite && l.monto > l.limite + 0.01;
+                            const prestamoLigado = l.esCredito && l.prestamoId ? deudas.find((d) => d.id === l.prestamoId) : null;
+                            return (
+                              <div key={l.id} className="wallet-card" style={{ background: bg, ...(sobregirada ? { boxShadow: '0 0 0 2px var(--expense), var(--shadow-card)' } : {}) }} onClick={() => openWalletDetail(l)}>
+                                <div className="wallet-card-top">
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                    {bankInfo?.name && <span className="bank-monogram"><Icon name="Landmark" size={14} /></span>}
+                                    <div>
+                                      <div className="wallet-card-name">{l.nombre || 'Tarjeta'}</div>
+                                      <span className="wallet-card-pill">{l.esCredito ? 'CRÉDITO' : 'DÉBITO'}</span>
+                                      {sobregirada && <span className="wallet-card-pill" style={{ background: 'var(--expense)', marginLeft: 5 }}>SOBREGIRADA</span>}
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div className="wallet-card-amount">{fmt(l.monto)}</div>
+                                    {l.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
+                                  </div>
+                                </div>
+                                {!l.esCredito && reservedForLocation(l.id) > 0.01 && (
+                                  <div className="wallet-card-footrow" style={{ marginTop: l.esCredito ? 0 : 10 }}>
+                                    <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
+                                    <span>{fmt(reservedForLocation(l.id))}</span>
+                                  </div>
+                                )}
+                                {l.esCredito && (
+                                  <div className="wallet-card-body">
+                                    <div className="wallet-card-limitrow">
+                                      <span>Uso del límite</span>
+                                      <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
+                                    </div>
+                                    <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
+                                    <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
+                                      <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
+                                    </div>
+                                    {l.montoAPagar > 0 && (
+                                      <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
+                                        <span>Monto a pagar</span>
+                                        <span>{fmt(l.montoAPagar)}</span>
+                                      </div>
+                                    )}
+                                    {prestamoLigado && (
+                                      <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
+                                        <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
+                                        <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                      {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
+                                      {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
+                                    </div>
+                                  </div>
+                                )}
+                                {(l.ultimos4 || net) && (
+                                  <div className="wallet-card-footrow">
+                                    <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
+                                    {/mastercard/i.test(net || '') && <span className="net-glyph"><span className="net-circle net-circle-a" /><span className="net-circle net-circle-b" /></span>}
+                                    {/visa/i.test(net || '') && <span className="net-glyph net-glyph-visa" />}
+                                    {/amex|american express/i.test(net || '') && <span className="net-glyph net-glyph-amex"><Icon name="CreditCard" size={12} /></span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {efectivos.map((l) => (
+                        <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
+                          <div className="wallet-card-top">
+                            <div>
+                              <div className="wallet-card-name">Monedero</div>
+                              <span className="wallet-card-pill">EFECTIVO</span>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                               <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                              {l.esCredito && <div className="wallet-card-caption">Gastos del mes (ciclo)</div>}
                             </div>
                           </div>
-                          {!l.esCredito && reservedForLocation(l.id) > 0.01 && (
-                            <div className="wallet-card-footrow" style={{ marginTop: l.esCredito ? 0 : 10 }}>
+                          <div className="wallet-card-footrow">
+                            <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
+                          </div>
+                          {reservedForLocation(l.id) > 0.01 && (
+                            <div className="wallet-card-footrow">
                               <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
                               <span>{fmt(reservedForLocation(l.id))}</span>
                             </div>
                           )}
-                          {l.esCredito && (
-                            <div className="wallet-card-body">
-                              <div className="wallet-card-limitrow">
-                                <span>Uso del límite</span>
-                                <span>{l.limite ? `${pct.toFixed(1)}%` : '---%'}</span>
-                              </div>
-                              <div className="wallet-progress-track"><div className="wallet-progress-fill" style={{ width: `${Math.min(pct || 0, 100)}%`, background: sobregirada ? 'var(--expense)' : '#fff' }} /></div>
-                              <div className="wallet-card-limitrow" style={{ marginBottom: l.montoAPagar || prestamoLigado ? 6 : 12 }}>
-                                <span>Límite: {l.limite ? fmt(l.limite) : '····'}</span>
-                              </div>
-                              {l.montoAPagar > 0 && (
-                                <div className="wallet-card-limitrow" style={{ marginBottom: 6, fontWeight: 700 }}>
-                                  <span>Monto a pagar</span>
-                                  <span>{fmt(l.montoAPagar)}</span>
-                                </div>
-                              )}
-                              {prestamoLigado && (
-                                <div className="wallet-card-limitrow" style={{ marginBottom: 12, fontSize: 10.5, opacity: 0.9 }}>
-                                  <span><Icon name="Landmark" size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />Préstamo: {prestamoLigado.name}</span>
-                                  <span>{prestamoLigado.liquidada ? 'Liquidado' : fmt(prestamoLigado.pendiente)}</span>
-                                </div>
-                              )}
-                              <div style={{ display: 'flex', gap: 8 }}>
-                                {l.diaCorte && <span className="wallet-pill-btn"><Icon name="CalendarCheck" size={12} /> Corte en {diasCorte} día{diasCorte !== 1 ? 's' : ''}</span>}
-                                {l.diaPago && <span className="wallet-pill-btn"><Icon name="CreditCard" size={12} /> Pago en {diasPago} día{diasPago !== 1 ? 's' : ''}</span>}
-                              </div>
-                            </div>
-                          )}
-                          {(l.ultimos4 || net) && (
-                            <div className="wallet-card-footrow">
-                              <span>{l.ultimos4 ? `•••• ${l.ultimos4}` : ''}</span>
-                              {/mastercard/i.test(net || '') && <span className="net-glyph"><span className="net-circle net-circle-a" /><span className="net-circle net-circle-b" /></span>}
-                              {/visa/i.test(net || '') && <span className="net-glyph net-glyph-visa" />}
-                              {/amex|american express/i.test(net || '') && <span className="net-glyph net-glyph-amex"><Icon name="CreditCard" size={12} /></span>}
-                            </div>
-                          )}
                         </div>
-                      );
-                    })}
-                    {locs.filter((l) => l.tipo === 'efectivo').map((l) => (
-                      <div key={l.id} className="wallet-card wallet-card-cash" onClick={() => openWalletDetail(l)}>
-                        <div className="wallet-card-top">
-                          <div>
-                            <div className="wallet-card-name">Monedero</div>
-                            <span className="wallet-card-pill">EFECTIVO</span>
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div className="wallet-card-amount">{fmt(l.monto)}</div>
-                          </div>
-                        </div>
-                        <div className="wallet-card-footrow">
-                          <span><Icon name="Banknote" size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />Efectivo disponible</span>
-                        </div>
-                        {reservedForLocation(l.id) > 0.01 && (
-                          <div className="wallet-card-footrow">
-                            <span><Icon name="PiggyBank" size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Apartado para ahorro</span>
-                            <span>{fmt(reservedForLocation(l.id))}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                      ))}
+                    </div>
+                  );
+                })}
                 <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
                   <div>
                     <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsDisponible)}</div>
@@ -7313,4 +7310,51 @@ function LibroDiario() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<LibroDiario />);
+// Red de seguridad: como esta app compila el JSX en el propio navegador (sin
+// paso de build), cualquier error de ejecución no atrapado deja la pantalla
+// completamente en blanco y sin ningún aviso. Este componente atrapa esos
+// errores dentro del árbol de React y muestra una pantalla de recuperación
+// en vez de dejar la app "congelada" en blanco.
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('Libro·Diario: error de renderizado', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center', fontFamily: 'system-ui, -apple-system, sans-serif', background: '#EFEFF2', color: '#2A2A28' }}>
+          <div style={{ fontSize: 34 }}>😕</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Algo salió mal</div>
+          <div style={{ fontSize: 13, color: '#6B6A62', maxWidth: 280, lineHeight: 1.5 }}>
+            Libro·Diario tuvo un error inesperado. Tus datos están a salvo (viven en tu dispositivo y en la nube); solo hace falta recargar.
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ marginTop: 6, padding: '11px 26px', borderRadius: 999, border: 'none', background: '#1E3D32', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+          >
+            Recargar
+          </button>
+          {this.state.error && (
+            <div style={{ fontSize: 10.5, color: '#9A9990', marginTop: 10, maxWidth: 300, wordBreak: 'break-word' }}>
+              {String(this.state.error?.message || this.state.error)}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <AppErrorBoundary>
+    <LibroDiario />
+  </AppErrorBoundary>
+);
