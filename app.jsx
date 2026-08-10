@@ -4017,10 +4017,10 @@ function LibroDiario() {
            Inspirado en la wallet UI de Aduok Code: tarjetas dentro de una
            "bolsa" de piel dibujada en SVG, que se abanican al tocar y revelan
            el saldo total con una animación de opacidad/traslación. */
-        .wallet-scene { position: relative; width: 100%; max-width: 300px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease, height 0.35s ease; cursor: pointer; }
+        .wallet-scene { position: relative; width: 100%; max-width: 300px; height: 210px; margin: 2px auto 16px; isolation: isolate; transition: transform 0.3s ease, height 0.35s ease; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
         .wallet-scene.fanned { transform: translateY(-4px); }
         .wallet-shell { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 260px; height: 150px; background: #3b1f0e; border-radius: 22px 22px 60px 60px; box-shadow: inset 0 20px 30px rgba(0,0,0,0.4), inset 0 5px 12px rgba(0,0,0,0.3); z-index: 1; }
-        .wallet-mini-card { position: absolute; left: 50%; width: 200px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease; animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; }
+        .wallet-mini-card { position: absolute; left: 50%; width: 200px; height: 116px; border-radius: 16px; padding: 14px 16px; color: #fff; box-shadow: 0 8px 18px rgba(0,0,0,0.25); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease; animation: wallet-mini-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
         @keyframes wallet-mini-drop { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translate(-50%, 0); } }
         .wallet-mini-card:hover { filter: brightness(1.06); }
         .wallet-mini-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -4691,21 +4691,21 @@ function LibroDiario() {
                   const n = todos.length;
                   const disponible = locs.filter((l) => !l.esCredito).reduce((s, l) => s + (l.monto || 0), 0);
                   const open = !!walletOpenMap[persona];
-                  // Geometría del abanico: en reposo las tarjetas están casi
-                  // encimadas (solo se asoma un filo, tope fijo para que no
                   // Geometría del abanico: en reposo, sin importar cuántas
                   // tarjetas haya, solo se asoman como máximo 2 detrás de la
                   // de enfrente (el resto queda perfectamente escondida
                   // debajo, a la misma altura) — así nunca se ve "ya salida".
-                  // Al abrir, se reparten en columna con más espacio entre
-                  // ellas para que el dedo tenga un objetivo de toque cómodo,
-                  // y la tarjeta de enfrente deja una franja de la bolsa
-                  // libre abajo para poder volver a tocarla y guardarlas.
+                  // La base de reposo (restBase) deja libre la parte baja de
+                  // la bolsa para que el "SALDO DISPONIBLE" siempre se vea,
+                  // incluso con la billetera cerrada. Al abrir, se reparten
+                  // en columna con más espacio entre ellas para que el dedo
+                  // tenga un objetivo de toque cómodo.
                   const maxPeek = 2;
                   const peekGap = 6;
                   const fanGap = 44;
                   const fanBase = 46;
-                  const restBottom = (i) => 20 + Math.min(n - 1 - i, maxPeek) * peekGap;
+                  const restBase = 60;
+                  const restBottom = (i) => restBase + Math.min(n - 1 - i, maxPeek) * peekGap;
                   const fannedBottom = (i) => fanBase + (n - 1 - i) * fanGap;
                   const sceneHeightRest = restBottom(0) + 116 + 24;
                   const sceneHeightFanned = fannedBottom(0) + 116 + 24;
@@ -4778,6 +4778,8 @@ function LibroDiario() {
                                 <path d="M0 20C0 10 5 10 10 10C20 10 25 25 40 25 L240 25C255 25 260 10 270 10C275 10 280 10 280 20 L280 120C280 155 260 160 240 160 L40 160C20 160 0 155 0 120Z" fill="#3b1f0e" />
                                 <path d="M8 22C8 16 12 16 15 16C23 16 27 29 40 29 L240 29C253 29 257 16 265 16C268 16 272 16 272 22 L272 120C272 150 255 152 240 152 L40 152C25 152 8 152 8 120Z" stroke="#6b3a1f" strokeWidth="1.5" strokeDasharray="6 4" />
                               </svg>
+                              {/* La base de reposo (restBase) de las tarjetas deja esta franja
+                                  siempre libre, así que el monto nunca queda tapado. */}
                               <div className="wallet-pocket-body">
                                 <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
                                 <div className="wallet-pocket-label">Saldo disponible</div>
