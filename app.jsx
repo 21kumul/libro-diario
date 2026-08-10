@@ -4032,11 +4032,16 @@ function LibroDiario() {
         .wallet-mini-card-type { font-family: var(--sans); font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; background: rgba(255,255,255,0.24); padding: 2px 6px; border-radius: 6px; flex-shrink: 0; }
         .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 50; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
-        .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
+        .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; pointer-events: auto; cursor: default; }
         .wallet-pocket-balance-real { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 20px; letter-spacing: 1px; white-space: nowrap; }
         .wallet-pocket-label { font-size: 10px; color: #a0734e; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
         .wallet-pocket-close { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.14); border: none; color: #e8c9a0; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer; }
         .wallet-pocket-hint { text-align: center; font-size: 11px; color: var(--ink-soft); margin: 0 0 18px; font-style: italic; }
+        .wallet-summary-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 300px; margin: 8px auto 0; }
+        .wallet-summary-chip { display: flex; align-items: center; gap: 5px; background: var(--paper-dim); border: 1px solid var(--line); border-radius: 20px; padding: 5px 10px 5px 8px; cursor: pointer; color: var(--ink-soft); }
+        .wallet-summary-chip:hover { filter: brightness(1.08); }
+        .wallet-summary-chip-name { font-size: 11px; font-weight: 600; color: var(--ink); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .wallet-summary-chip-amount { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--income); }
         .compromiso-card.selectable { cursor: pointer; }
         .compromiso-card.clickable { cursor: pointer; }
         .compromiso-card.clickable:active { background: var(--paper-dim); }
@@ -4684,6 +4689,20 @@ function LibroDiario() {
               <div className="empty-state" style={{ padding: '16px 10px' }}>Registra cuánto efectivo o saldo en tarjeta tiene cada quien. Usa el botón + para agregar.</div>
             ) : (
               <>
+                <div className="cxp-total-row" style={{ paddingTop: 0, marginBottom: 4 }}>
+                  <div>
+                    <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsDisponible)}</div>
+                    <div className="cxp-total-label">Disponible real (efectivo y débito)</div>
+                  </div>
+                </div>
+                {moneyLocationsDeuda > 0.01 && (
+                  <div className="cxp-total-row" style={{ paddingTop: 6, marginBottom: 10, borderBottom: '1px dashed var(--line)', paddingBottom: 14 }}>
+                    <div>
+                      <div className="cxp-total-amount" style={{ fontSize: 15, color: 'var(--expense)' }}>{fmt(moneyLocationsDeuda)}</div>
+                      <div className="cxp-total-label">Debes en tarjetas de crédito</div>
+                    </div>
+                  </div>
+                )}
                 {moneyLocationsByPerson.map(([persona, locs]) => {
                   const tarjetas = locs.filter((l) => l.tipo === 'tarjeta');
                   const efectivos = locs.filter((l) => l.tipo === 'efectivo');
@@ -4704,7 +4723,7 @@ function LibroDiario() {
                   const peekGap = 6;
                   const fanGap = 44;
                   const fanBase = 46;
-                  const restBase = 60;
+                  const restBase = 74;
                   const restBottom = (i) => restBase + Math.min(n - 1 - i, maxPeek) * peekGap;
                   const fannedBottom = (i) => fanBase + (n - 1 - i) * fanGap;
                   const sceneHeightRest = restBottom(0) + 116 + 24;
@@ -4780,7 +4799,7 @@ function LibroDiario() {
                               </svg>
                               {/* La base de reposo (restBase) de las tarjetas deja esta franja
                                   siempre libre, así que el monto nunca queda tapado. */}
-                              <div className="wallet-pocket-body">
+                              <div className="wallet-pocket-body" onClick={(e) => e.stopPropagation()}>
                                 <div className="wallet-pocket-balance-real">{fmt(disponible)}</div>
                                 <div className="wallet-pocket-label">Saldo disponible</div>
                               </div>
@@ -4795,6 +4814,19 @@ function LibroDiario() {
                               )}
                             </div>
                           </div>
+                          <div className="wallet-summary-chips">
+                            {todos.map((l) => (
+                              <div
+                                key={l.id}
+                                className="wallet-summary-chip"
+                                onClick={(e) => { e.stopPropagation(); openWalletDetail(l); }}
+                              >
+                                <Icon name={l.tipo === 'efectivo' ? 'Wallet' : 'CreditCard'} size={11} />
+                                <span className="wallet-summary-chip-name">{l.tipo === 'efectivo' ? 'Monedero' : (l.nombre || 'Tarjeta')}</span>
+                                <span className="wallet-summary-chip-amount" style={l.esCredito ? { color: 'var(--expense)' } : undefined}>{fmt(l.monto)}</span>
+                              </div>
+                            ))}
+                          </div>
                           <div className="wallet-pocket-hint">
                             {open ? 'Toca una tarjeta para editarla · toca la flecha o la bolsa para guardar' : `Toca la billetera para ver ${n > 1 ? `las ${n} tarjetas` : 'la tarjeta'}`}
                           </div>
@@ -4803,20 +4835,6 @@ function LibroDiario() {
                     </div>
                   );
                 })}
-                <div className="cxp-total-row" style={{ paddingTop: 14, borderTop: '1px dashed var(--line)', marginTop: 10 }}>
-                  <div>
-                    <div className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(moneyLocationsDisponible)}</div>
-                    <div className="cxp-total-label">Disponible real (efectivo y débito)</div>
-                  </div>
-                </div>
-                {moneyLocationsDeuda > 0.01 && (
-                  <div className="cxp-total-row" style={{ paddingTop: 6 }}>
-                    <div>
-                      <div className="cxp-total-amount" style={{ fontSize: 15, color: 'var(--expense)' }}>{fmt(moneyLocationsDeuda)}</div>
-                      <div className="cxp-total-label">Debes en tarjetas de crédito</div>
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </>
