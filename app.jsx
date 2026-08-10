@@ -4030,7 +4030,7 @@ function LibroDiario() {
         .wallet-mini-card-foot { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; opacity: 0.9; }
         .wallet-mini-card-amount { font-family: var(--mono); font-size: 16px; font-weight: 700; margin-bottom: 2px; }
         .wallet-mini-card-type { font-family: var(--sans); font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; background: rgba(255,255,255,0.24); padding: 2px 6px; border-radius: 6px; flex-shrink: 0; }
-        .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 5; pointer-events: none; }
+        .wallet-pocket { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 280px; height: 134px; z-index: 50; pointer-events: none; }
         .wallet-pocket svg { width: 100%; height: 100%; display: block; }
         .wallet-pocket-body { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 0); text-align: center; width: 200px; }
         .wallet-pocket-balance-real { font-family: var(--mono); font-weight: 700; color: #e8c9a0; font-size: 20px; letter-spacing: 1px; white-space: nowrap; }
