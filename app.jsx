@@ -3663,6 +3663,11 @@ function LibroDiario() {
     <div className={`ledger-app ${darkMode ? 'dark' : ''}`}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+        @property --nav-border-angle {
+          syntax: "<angle>";
+          inherits: false;
+          initial-value: -75deg;
+        }
         html, body { background: var(--paper-dim); }
         .ledger-app {
           --paper: #FAFAFA; --paper-dim: #EFEFF2; --ink: #1C1C1E; --ink-soft: #6E6E73;
@@ -3703,7 +3708,8 @@ function LibroDiario() {
         .appearance-dot { position: absolute; bottom: 10%; right: 10%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #C97B53; z-index: 1; }
         .appearance-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
         .appearance-opt.active .appearance-label { color: var(--gold); }
-        .ledger-app.dark .bottom-nav { background: rgba(28,31,28,0.72); border-color: rgba(255,255,255,0.08); box-shadow: 0 10px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
+        .ledger-app.dark .bottom-nav { background: linear-gradient(-75deg, rgba(255,255,255,0.03), rgba(255,255,255,0.12), rgba(255,255,255,0.03)), rgba(28,31,28,0.68); box-shadow: inset 0 0.09em 0.09em rgba(0,0,0,0.3), inset 0 -0.09em 0.09em rgba(255,255,255,0.08), 0 10px 28px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.06); }
+        .ledger-app.dark .bottom-nav::after { background: conic-gradient(from var(--nav-border-angle) at 50% 50%, rgba(0,0,0,0.5), rgba(0,0,0,0) 5% 40%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 60% 95%, rgba(0,0,0,0.5)), linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.14)); }
         .ledger-app.dark .nav-highlight { background: rgba(255,255,255,0.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.3); }
         .ledger-app.dark .nav-popover { background: rgba(28,31,28,0.92); border-color: rgba(255,255,255,0.1); }
         /* El verde de marca (var(--green)) se queda fijo a propósito (es el
@@ -3834,16 +3840,43 @@ function LibroDiario() {
         }
         .bottom-nav-shell.nav-compact-shell { left: 44px; right: 44px; }
         .bottom-nav {
-          background: rgba(250,250,250,0.82);
+          position: relative;
+          background: linear-gradient(-75deg, rgba(255,255,255,0.10), rgba(255,255,255,0.55), rgba(255,255,255,0.10)), rgba(250,250,250,0.55);
           -webkit-backdrop-filter: blur(22px) saturate(180%);
           backdrop-filter: blur(22px) saturate(180%);
-          border: 1px solid rgba(255,255,255,0.55);
+          border: none;
           border-radius: 999px;
           display: flex; align-items: center;
           padding: 4px;
-          box-shadow: 0 10px 28px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.6);
-          transition: padding 0.3s ease;
+          box-shadow:
+            inset 0 0.09em 0.09em rgba(0,0,0,0.05),
+            inset 0 -0.09em 0.09em rgba(255,255,255,0.6),
+            0 10px 28px rgba(0,0,0,0.16),
+            inset 0 0 0 1px rgba(255,255,255,0.25);
+          transition: padding 0.3s ease, box-shadow 0.3s ease, --nav-border-angle 500ms ease;
           -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+        }
+        .bottom-nav::after {
+          content: '';
+          position: absolute;
+          z-index: 3;
+          inset: -1px;
+          border-radius: 999px;
+          padding: 1px;
+          box-sizing: border-box;
+          background:
+            conic-gradient(from var(--nav-border-angle) at 50% 50%,
+              rgba(0,0,0,0.35), rgba(0,0,0,0) 5% 40%, rgba(0,0,0,0.35) 50%, rgba(0,0,0,0) 60% 95%, rgba(0,0,0,0.35)),
+            linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.55));
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
+          pointer-events: none;
+          transition: --nav-border-angle 500ms ease;
+        }
+        .bottom-nav:has(.nav-btn:active, .nav-fab-btn:active) { --nav-border-angle: -125deg; }
+        @media (hover: none) and (pointer: coarse) {
+          .bottom-nav::after, .bottom-nav:has(.nav-btn:active, .nav-fab-btn:active)::after { --nav-border-angle: -75deg; }
         }
         .bottom-nav.nav-compact { padding-top: 5px; padding-bottom: 5px; }
         .bottom-nav.nav-compact .nav-btn { font-size: 8px; padding: 5px 3px; gap: 2px; }
