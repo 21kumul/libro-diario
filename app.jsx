@@ -6964,6 +6964,14 @@ function LibroDiario() {
                   </div>
                   <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
                 </button>
+                <button className="settings-menu-row" onClick={() => window.open('https://github.com/21kumul/libro-diario/blob/main/MANUAL.md', '_blank')}>
+                  <div className="settings-menu-icon" style={{ background: 'var(--income)' }}><Icon name="Share2" size={17} color="#fff" /></div>
+                  <div className="settings-menu-mid">
+                    <div className="settings-menu-title">Manual de usuario</div>
+                    <div className="settings-menu-sub">Cómo funciona cada parte de la app · se abre en GitHub</div>
+                  </div>
+                  <Icon name="ChevronRight" size={16} color="var(--ink-soft)" />
+                </button>
               </>
             )}
 
