@@ -5107,7 +5107,21 @@ function LibroDiario() {
                     <span style={{ color: 'var(--income)' }}>{fmt(estadoResultadoMes.totalIngresos)}</span>
                   </div>
 
-                  <div className="er-group-title" style={{ color: 'var(--expense)', marginTop: 14 }}>{GRUPO_LABEL.gastos}</div>
+                  <div
+                    className="er-group-title er-group-title-link"
+                    style={{ color: 'var(--expense)', marginTop: 14, cursor: 'pointer' }}
+                    onClick={() => {
+                      setFilterTipo('gasto');
+                      setFilterCat('todas');
+                      setFilterAutor('todos');
+                      setSearchQuery('');
+                      setSearchMonth(chartMonth === currentPeriodKey ? '' : chartMonth);
+                      setMovsRevealed(true);
+                      goTab('movimientos');
+                    }}
+                  >
+                    {GRUPO_LABEL.gastos} <Icon name="ChevronRight" size={13} style={{ verticalAlign: -2 }} />
+                  </div>
                   {estadoResultadoMes.gastos.length === 0 ? (
                     <div className="er-empty">Sin gastos en este mes.</div>
                   ) : estadoResultadoMes.gastos.map((r) => (
