@@ -1203,6 +1203,7 @@ function LibroDiario() {
   const [adelantoError, setAdelantoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
+  const [porCobrarAmount, setPorCobrarAmount] = useState('');
   const [txPickerOpen, setTxPickerOpen] = useState(null); // 'cat' | 'persona' | 'cuenta' | null
   const [catalogExpandedId, setCatalogExpandedId] = useState(null);
   const [subItemDraft, setSubItemDraft] = useState('');
@@ -3331,14 +3332,14 @@ function LibroDiario() {
     persist({ profilePhotos: next });
   };
 
-  const markPersonPaid = (name) => {
-    let collected = 0;
+  const markPersonPaid = (name, receivedAmount) => {
+    let owed = 0;
     const key = name.trim().toLowerCase();
     const nextTx = transactions.map((t) => {
       if (!t.shared) return t;
       let changed = false;
       const parts = t.shared.participants.map((p) => {
-        if (!p.paid && p.name.trim().toLowerCase() === key) { changed = true; collected += p.amount; return { ...p, paid: true }; }
+        if (!p.paid && p.name.trim().toLowerCase() === key) { changed = true; owed += p.amount; return { ...p, paid: true }; }
         return p;
       });
       return changed ? { ...t, shared: { ...t.shared, participants: parts } } : t;
@@ -3355,16 +3356,24 @@ function LibroDiario() {
         if (tx?.shared) return p; // esto ya se contó y liquidó arriba
         let pChanged = false;
         const participants = p.participants.map((pp) => {
-          if (!pp.paid && pp.name.trim().toLowerCase() === key) { pChanged = true; changed = true; collected += pp.amount; return { ...pp, paid: true }; }
+          if (!pp.paid && pp.name.trim().toLowerCase() === key) { pChanged = true; changed = true; owed += pp.amount; return { ...pp, paid: true }; }
           return pp;
         });
         return pChanged ? { ...p, participants } : p;
       });
       return changed ? { ...c, payments } : c;
     });
-    const withIncome = collected > 0
-      ? [...nextTx, { id: uid(), type: 'ingreso', category: 'cobranza', amount: collected, note: `Cobro compartido de ${name}`, date: todayStr(), autor: profile?.name || 'Familia' }]
-      : nextTx;
+    // Lo normal es cobrar exactamente lo que se le debía (owed). Pero si
+    // recibiste más de eso (ej. redondeaste el cobro), el excedente no es
+    // "recuperar tu dinero" — es una entrada nueva, así que se separa como
+    // ingreso extra en vez de mezclarse con la cobranza.
+    const amt = receivedAmount != null && receivedAmount > 0 ? receivedAmount : owed;
+    const base = Math.min(amt, owed);
+    const excess = Math.max(0, amt - owed);
+    const extraTx = [];
+    if (base > 0) extraTx.push({ id: uid(), type: 'ingreso', category: 'cobranza', amount: base, note: `Cobro compartido de ${name}`, date: todayStr(), autor: profile?.name || 'Familia' });
+    if (excess > 0.005) extraTx.push({ id: uid(), type: 'ingreso', category: 'otros_ing', amount: excess, note: `Excedente al cobrarle a ${name}`, date: todayStr(), autor: profile?.name || 'Familia' });
+    const withIncome = extraTx.length ? [...nextTx, ...extraTx] : nextTx;
     persist({ transactions: withIncome, compromisos: nextCompromisos });
   };
 
@@ -4387,7 +4396,7 @@ function LibroDiario() {
                   <button className="mini-abonar" onClick={() => goTab('movimientos')}>Ver en Movimientos</button>
                 </div>
                 {pendingByPerson.map((p) => (
-                  <div className="person-row" key={p.name} onClick={() => setSheet({ type: 'por-cobrar-detalle', name: p.name })} style={{ cursor: 'pointer' }}>
+                  <div className="person-row" key={p.name} onClick={() => { setPorCobrarAmount(''); setSheet({ type: 'por-cobrar-detalle', name: p.name }); }} style={{ cursor: 'pointer' }}>
                     <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
                     <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''} · toca para ver el detalle</div></div>
                     <div className="person-amount">{fmt(p.total)}</div>
@@ -4582,7 +4591,7 @@ function LibroDiario() {
               <div className="card">
                 <div className="card-title">Por cobrar (gastos compartidos)</div>
                 {pendingByPerson.map((p) => (
-                  <div className="person-row" key={p.name} onClick={() => setSheet({ type: 'por-cobrar-detalle', name: p.name })} style={{ cursor: 'pointer' }}>
+                  <div className="person-row" key={p.name} onClick={() => { setPorCobrarAmount(''); setSheet({ type: 'por-cobrar-detalle', name: p.name }); }} style={{ cursor: 'pointer' }}>
                     <div className="person-avatar">{p.name.charAt(0).toUpperCase()}</div>
                     <div className="person-mid"><div className="person-name">{p.name}</div><div className="person-count">{p.count} pendiente{p.count !== 1 ? 's' : ''} · toca para ver el detalle</div></div>
                     <div className="person-amount">{fmt(p.total)}</div>
@@ -5516,6 +5525,16 @@ function LibroDiario() {
                       <div className="participant-row" key={p.id}>
                         <input className="text-input" placeholder="Nombre" value={p.name} onChange={(e) => updateEditParticipant(p.id, { name: e.target.value })} />
                         <input className="text-input amount-mini" type="text" inputMode="decimal" placeholder="$0" value={p.amount} onChange={(e) => updateEditParticipant(p.id, { amount: formatAmountTyping(e.target.value) })} />
+                        <button
+                          type="button"
+                          onClick={() => updateEditParticipant(p.id, { paid: !p.paid })}
+                          title={p.paid ? 'Marcar como pendiente' : 'Marcar como ya me pagó'}
+                          style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', padding: '4px 2px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+                        >
+                          {p.paid
+                            ? <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--income)' }}><Icon name="CheckCircle2" size={13} /> Recibido</span>
+                            : <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}><Icon name="Circle" size={13} /> Pendiente</span>}
+                        </button>
                         <button className="remove-participant" onClick={() => removeEditParticipant(p.id)}><Icon name="X" size={15} /></button>
                       </div>
                     ))}
@@ -6005,7 +6024,29 @@ function LibroDiario() {
                     <span className="totals-subhead" style={{ margin: 0 }}>Total pendiente</span>
                     <span className="cxp-total-amount" style={{ fontSize: 18 }}>{fmt(total)}</span>
                   </div>
-                  <button className="save-btn" onClick={() => { markPersonPaid(sheet.name); setSheet(null); }}><Icon name="CheckCircle2" size={16} /> Marcar todo pagado ({fmt(total)})</button>
+                  <div className="field-label">¿Cuánto te dio realmente?</div>
+                  <div className="amount-input-wrap" style={{ marginBottom: 4 }}>
+                    <span className="amount-currency">$</span>
+                    <input
+                      className="amount-input"
+                      style={{ fontSize: 20 }}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder={total.toFixed(2)}
+                      value={porCobrarAmount}
+                      onChange={(e) => setPorCobrarAmount(formatAmountTyping(e.target.value))}
+                    />
+                  </div>
+                  {(() => {
+                    const given = porCobrarAmount ? toNumber(porCobrarAmount) : total;
+                    const excess = given - total;
+                    return excess > 0.5 ? (
+                      <div style={{ fontSize: 11.5, color: 'var(--income)', margin: '0 0 12px' }}>
+                        Te dio {fmt(excess)} de más — se anota aparte como ingreso extra, no como cobranza.
+                      </div>
+                    ) : <div style={{ marginBottom: 12 }} />;
+                  })()}
+                  <button className="save-btn" onClick={() => { markPersonPaid(sheet.name, porCobrarAmount ? toNumber(porCobrarAmount) : null); setSheet(null); }}><Icon name="CheckCircle2" size={16} /> Marcar todo pagado</button>
                 </>
               )}
             </div>
