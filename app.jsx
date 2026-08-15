@@ -36,6 +36,9 @@ const INGRESO_CATS = [
   { id: 'otros_ing', label: 'Otros', icon: 'PlusCircle', color: '#8FC1A9' },
 ];
 
+const CAT_ICON_CHOICES = ['ShoppingBag', 'Home', 'Zap', 'Motorbike', 'Utensils', 'HeartPulse', 'Landmark', 'CreditCard', 'Package', 'Truck', 'PiggyBank', 'Banknote', 'Sparkles', 'Bell', 'Wallet', 'Users', 'Calculator', 'BarChart3', 'MoreHorizontal', 'RefreshCw'];
+const CAT_COLOR_CHOICES = ['#2F7D5C', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#C15B72', '#8C6BA6', '#5F8A4C', '#7A4E3A'];
+
 const GASTO_CATS = [
   { id: 'renta', label: 'Renta', icon: 'Home', color: '#B0432E' },
   { id: 'servicios', label: 'Servicios', icon: 'Zap', color: '#C9A227' },
@@ -850,6 +853,8 @@ function LibroDiario() {
   // en Resumen. Se capturan a mano y se suman solos cuando registras un
   // ingreso y eliges a cuál de estas ubicaciones cayó.
   const [moneyLocations, setMoneyLocations] = useState([]);
+  const [customCategories, setCustomCategories] = useState([]); // categorías extra creadas por la familia
+  const [categoryMeta, setCategoryMeta] = useState({}); // { [catId]: { description, subItems: [] } } — aplica a categorías propias y a las de fábrica
   // Abre/cierra la "bolsa" de cada persona en la pila de tarjetas (estilo
   // billetera) de la pestaña Tarjetas: al tocarla, sus tarjetas se abanican
   // y se revela el saldo de esa persona (oculto por defecto, por privacidad).
@@ -1166,7 +1171,7 @@ function LibroDiario() {
   const [filterCat, setFilterCat] = useState('todas');
   const [filterTipo, setFilterTipo] = useState('todas');
 
-  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+  const [txForm, setTxForm] = useState({ type: 'gasto', amount: '', category: '', subcategory: '', servicio: '', persona: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
   const [txError, setTxError] = useState('');
 
   const [editTxForm, setEditTxForm] = useState({ id: null, type: 'gasto', amount: '', category: '', subcategory: '', note: '', date: todayStr(), locationId: '', shared: false, participants: [] });
@@ -1198,6 +1203,11 @@ function LibroDiario() {
   const [adelantoError, setAdelantoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
+  const [catalogExpandedId, setCatalogExpandedId] = useState(null);
+  const [subItemDraft, setSubItemDraft] = useState('');
+  const [catLabelDraft, setCatLabelDraft] = useState('');
+  const [newCatDraft, setNewCatDraft] = useState({ type: 'gasto', label: '', icon: 'ShoppingBag', color: '#5F8A4C' });
+  const [newCatError, setNewCatError] = useState('');
   const [budgetAmount, setBudgetAmount] = useState('');
   const [budgetSavingsChoices, setBudgetSavingsChoices] = useState([]);
   // Normaliza budgetSavingsLinks[catId], que en datos viejos guardaba un solo
@@ -1219,7 +1229,7 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml, bg, pp, pn, bsl] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg, pp, pn, bsl, cc, cm] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
@@ -1230,6 +1240,8 @@ function LibroDiario() {
         window.storage.get('profilePhotos', true),
         window.storage.get('personPins', true),
         window.storage.get('budgetSavingsLinks', true),
+        window.storage.get('customCategories', true),
+        window.storage.get('categoryMeta', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -1250,6 +1262,8 @@ function LibroDiario() {
       setMoneyLocations(ml.status === 'fulfilled' && ml.value ? JSON.parse(ml.value.value) : []);
       setBudgets(bg.status === 'fulfilled' && bg.value ? JSON.parse(bg.value.value) : {});
       setBudgetSavingsLinks(bsl.status === 'fulfilled' && bsl.value ? JSON.parse(bsl.value.value) : {});
+      setCustomCategories(cc.status === 'fulfilled' && cc.value ? JSON.parse(cc.value.value) : []);
+      setCategoryMeta(cm.status === 'fulfilled' && cm.value ? JSON.parse(cm.value.value) : {});
       setProfilePhotos(pp.status === 'fulfilled' && pp.value ? JSON.parse(pp.value.value) : {});
       setPersonPins(pn.status === 'fulfilled' && pn.value ? JSON.parse(pn.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
@@ -1366,6 +1380,8 @@ function LibroDiario() {
     if (patch.moneyLocations) { setMoneyLocations(patch.moneyLocations); moneyLocationsRef.current = patch.moneyLocations; }
     if (patch.budgets) { setBudgets(patch.budgets); budgetsRef.current = patch.budgets; }
     if (patch.budgetSavingsLinks) setBudgetSavingsLinks(patch.budgetSavingsLinks);
+    if (patch.customCategories) setCustomCategories(patch.customCategories);
+    if (patch.categoryMeta) setCategoryMeta(patch.categoryMeta);
     if (patch.profilePhotos) setProfilePhotos(patch.profilePhotos);
     if (patch.personPins) setPersonPins(patch.personPins);
     if (patch.familia) setFamilia(patch.familia);
@@ -1378,6 +1394,8 @@ function LibroDiario() {
       if (patch.moneyLocations) jobs.push(mergeAndWrite('moneyLocations', patch.moneyLocations, baseline.moneyLocations, setMoneyLocations, moneyLocationsRef));
       if (patch.budgets) jobs.push(window.storage.set('budgets', JSON.stringify(patch.budgets), true));
       if (patch.budgetSavingsLinks) jobs.push(window.storage.set('budgetSavingsLinks', JSON.stringify(patch.budgetSavingsLinks), true));
+      if (patch.customCategories) jobs.push(window.storage.set('customCategories', JSON.stringify(patch.customCategories), true));
+      if (patch.categoryMeta) jobs.push(window.storage.set('categoryMeta', JSON.stringify(patch.categoryMeta), true));
       if (patch.profilePhotos) jobs.push(window.storage.set('profilePhotos', JSON.stringify(patch.profilePhotos), true));
       if (patch.personPins) jobs.push(window.storage.set('personPins', JSON.stringify(patch.personPins), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
@@ -1586,7 +1604,7 @@ function LibroDiario() {
 
   const openAddTxFromConcilia = (row) => {
     const type = row.amount < 0 ? 'gasto' : 'ingreso';
-    setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', servicio: '', persona: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setSheet({ type: 'add-tx' });
   };
 
@@ -2228,7 +2246,7 @@ function LibroDiario() {
 
   // ---------- actions ----------
   const openAddTx = (type) => {
-    setTxForm({ type, amount: '', category: '', subcategory: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setTxForm({ type, amount: '', category: '', subcategory: '', servicio: '', persona: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setTxError('');
     setSheet({ type: 'add-tx' });
   };
@@ -2415,7 +2433,7 @@ function LibroDiario() {
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: finalCategory, subcategory: links.length === 1 ? links[0].c.id : null, note: finalNote, date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
+    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: finalCategory, subcategory: links.length === 1 ? links[0].c.id : null, servicio: txForm.servicio || null, note: finalNote, date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
     const finalizeTx = () => { persist(patch); setSheet(null); };
     if (locationId) {
@@ -3577,8 +3595,50 @@ function LibroDiario() {
     setTimeout(() => setCodeCopied(false), 1800);
   };
 
-  const catOptions = txForm.type === 'ingreso' ? INGRESO_CATS : GASTO_CATS;
-  const editCatOptions = editTxForm.type === 'ingreso' ? INGRESO_CATS : GASTO_CATS;
+  const allGastoCats = useMemo(() => [...GASTO_CATS, ...customCategories.filter((c) => c.type === 'gasto')], [customCategories]);
+  const allIngresoCats = useMemo(() => [...INGRESO_CATS, ...customCategories.filter((c) => c.type === 'ingreso')], [customCategories]);
+  const catOptions = txForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
+  const editCatOptions = editTxForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
+  const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
+  const isCustomCat = (id) => customCategories.some((c) => c.id === id);
+  const cuentaOfAny = (catId) => CUENTA_CONTABLE[catId] || {
+    codigo: allIngresoCats.some((c) => c.id === catId) ? '4900' : '5900',
+    nombre: catByIdAny(catId).label,
+    grupo: allIngresoCats.some((c) => c.id === catId) ? 'ingresos' : 'gastos',
+  };
+  const submitNewCategory = () => {
+    const label = newCatDraft.label.trim();
+    if (!label) return setNewCatError('Ponle un nombre a la categoría.');
+    const id = 'custom_' + uid();
+    setNewCatError('');
+    addCustomCategory({ id, type: newCatDraft.type, label, icon: newCatDraft.icon, color: newCatDraft.color });
+    setNewCatDraft({ type: newCatDraft.type, label: '', icon: newCatDraft.icon, color: newCatDraft.color });
+  };
+  const metaFor = (id) => categoryMeta[id] || { description: '', subItems: [] };
+  const addCustomCategory = (cat) => {
+    persist({ customCategories: [...customCategories, cat] });
+  };
+  const removeCustomCategory = (id) => {
+    const { [id]: _drop, ...restMeta } = categoryMeta;
+    persist({ customCategories: customCategories.filter((c) => c.id !== id), categoryMeta: restMeta });
+  };
+  const updateCustomCategoryLabel = (id, label) => {
+    persist({ customCategories: customCategories.map((c) => c.id === id ? { ...c, label } : c) });
+  };
+  const updateCategoryDescription = (id, description) => {
+    persist({ categoryMeta: { ...categoryMeta, [id]: { ...metaFor(id), description } } });
+  };
+  const addCategorySubItem = (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const current = metaFor(id).subItems || [];
+    if (current.includes(trimmed)) return;
+    persist({ categoryMeta: { ...categoryMeta, [id]: { ...metaFor(id), subItems: [...current, trimmed] } } });
+  };
+  const removeCategorySubItem = (id, name) => {
+    const current = metaFor(id).subItems || [];
+    persist({ categoryMeta: { ...categoryMeta, [id]: { ...metaFor(id), subItems: current.filter((s) => s !== name) } } });
+  };
   const addParticipant = () => setTxForm((f) => ({ ...f, participants: [...f.participants, { id: uid(), name: '', amount: '' }] }));
   const updateParticipant = (id, patch) => setTxForm((f) => ({ ...f, participants: f.participants.map((p) => p.id === id ? { ...p, ...patch } : p) }));
   const removeParticipant = (id) => setTxForm((f) => ({ ...f, participants: f.participants.filter((p) => p.id !== id) }));
@@ -3918,6 +3978,15 @@ function LibroDiario() {
         .type-toggle button.active.deposito { background: var(--income); color: white; }
         .type-toggle button.active.retiro { background: var(--expense); color: white; }
         .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-soft); font-weight: 600; margin: 14px 0 8px 0; }
+        .field-row { display: flex; gap: 10px; }
+        .field-row > div { flex: 1; min-width: 0; }
+        .cat-manage-link { background: none; border: none; color: var(--income); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 0; }
+        .cat-icon-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+        .cat-icon-choice { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper-dim); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .cat-icon-choice.selected { border-color: transparent; }
+        .cat-color-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+        .cat-color-choice { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+        .cat-color-choice.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--paper); }
         .amount-input-wrap { display: flex; align-items: baseline; gap: 6px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
         .amount-currency { font-family: var(--mono); font-size: 22px; color: var(--ink-soft); }
         .amount-input { border: none; background: none; font-family: var(--mono); font-size: 32px; font-weight: 700; width: 100%; color: var(--ink); outline: none; }
@@ -4317,7 +4386,7 @@ function LibroDiario() {
             )}
             <div className="card">
               <div className="card-title">Presupuestos · {new Date().toLocaleDateString('es-MX', { month: 'long' })}</div>
-              {GASTO_CATS.map((c) => {
+              {allGastoCats.map((c) => {
                 const linkedSavingsIds = savingsLinksFor(c.id);
                 const linkedSavingsAccs = linkedSavingsIds.map((id) => savings.find((a) => a.id === id)).filter(Boolean);
                 const linkedTargetSum = linkedSavingsAccs.reduce((s, a) => s + (a.target || 0), 0);
@@ -4487,7 +4556,7 @@ function LibroDiario() {
                       <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
                         <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
                         <div className="tx-mid">
-                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
                           <div className="tx-note">{t.note}{t.note && ' · '}<span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
                         </div>
                         <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
@@ -5143,32 +5212,62 @@ function LibroDiario() {
             </div>
             <div className="field-label">Monto *</div>
             <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" type="text" inputMode="decimal" placeholder="0.00" value={txForm.amount} onChange={(e) => setTxForm((f) => ({ ...f, amount: formatAmountTyping(e.target.value) }))} autoFocus /></div>
-            <div className="field-label">Categoría *</div>
-            <div className="cat-grid">
-              {catOptions.map((c) => { return (
-                <div key={c.id} className={`cat-choice ${txForm.category === c.id ? 'selected' : ''}`} onClick={() => setTxForm((f) => ({ ...f, category: c.id, subcategory: '' }))}>
-                  <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
-                </div>
-              ); })}
+            <div className="field-row" style={{ alignItems: 'flex-end' }}>
+              <span className="field-label" style={{ margin: 0, flex: 1 }}>Categoría *</span>
+              <button type="button" className="cat-manage-link" onClick={() => setSheet({ type: 'catalogo-cuentas' })}><Icon name="Settings" size={11} /> Gestionar categorías</button>
             </div>
-            {(txForm.type === 'ingreso' || txForm.type === 'gasto') && (
+            <div className="field-row">
+              <div>
+                <select className="text-input" value={txForm.category} onChange={(e) => setTxForm((f) => ({ ...f, category: e.target.value, subcategory: '', servicio: '' }))}>
+                  <option value="">Elegir categoría…</option>
+                  {catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                {(() => {
+                  const pickList = txForm.type === 'ingreso' ? moneyLocations : moneyLocationsForGasto();
+                  const personas = [...new Set(pickList.map((l) => l.persona))];
+                  return (
+                    <select
+                      className="text-input"
+                      value={txForm.persona}
+                      onChange={(e) => setTxForm((f) => ({ ...f, persona: e.target.value, locationId: '' }))}
+                      disabled={moneyLocations.length === 0}
+                    >
+                      <option value="">{txForm.type === 'ingreso' ? '¿Dónde cae?' : '¿Quién paga?'}</option>
+                      {personas.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  );
+                })()}
+              </div>
+            </div>
+            {moneyLocations.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
+                Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
+              </div>
+            ) : txForm.persona && (() => {
+              const pickList = txForm.type === 'ingreso' ? moneyLocations : moneyLocationsForGasto();
+              const cuentas = pickList.filter((l) => l.persona === txForm.persona);
+              return (
+                <>
+                  <div className="field-label">{txForm.type === 'ingreso' ? 'Cuenta / monedero donde cae *' : 'Cuenta / monedero de donde sale *'}</div>
+                  <select className="text-input" style={{ marginBottom: 12 }} value={txForm.locationId} onChange={(e) => setTxForm((f) => ({ ...f, locationId: e.target.value }))}>
+                    <option value="">Elegir cuenta…</option>
+                    {cuentas.map((l) => (
+                      <option key={l.id} value={l.id}>{l.tipo === 'tarjeta' ? `${l.nombre || 'Tarjeta'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero'}</option>
+                    ))}
+                  </select>
+                </>
+              );
+            })()}
+            {txForm.category && (metaFor(txForm.category).subItems || []).length > 0 && (
               <>
-                <div className="field-label">{txForm.type === 'ingreso' ? '¿Dónde cae este dinero? *' : '¿De dónde sale este dinero? *'}</div>
-                {moneyLocations.length === 0 ? (
-                  <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-4px 0 12px' }}>
-                    Todavía no tienes ubicaciones de dinero. Créalas primero desde la pestaña Tarjetas para poder guardar este movimiento.
-                  </div>
-                ) : (
-                  <div>
-                    {renderLocationPicker(
-                      txForm.type === 'ingreso'
-                        ? moneyLocations
-                        : moneyLocationsForGasto(),
-                      txForm.locationId,
-                      (id) => setTxForm((f) => ({ ...f, locationId: f.locationId === id ? '' : id }))
-                    )}
-                  </div>
-                )}
+                <div className="field-label">Servicio específico (opcional)</div>
+                <div className="subcat-row">
+                  {metaFor(txForm.category).subItems.map((s) => (
+                    <button key={s} type="button" className={`subcat-chip ${txForm.servicio === s ? 'selected' : ''}`} onClick={() => setTxForm((f) => ({ ...f, servicio: f.servicio === s ? '' : s }))}>{s}</button>
+                  ))}
+                </div>
               </>
             )}
             {(txForm.type === 'gasto' || txForm.type === 'ingreso') && txForm.category && (() => {
@@ -5247,50 +5346,7 @@ function LibroDiario() {
                 </>
               );
             })()}
-            {!txForm.links.length && (
-              <div className="toggle-row">
-                <span className="toggle-row-label"><Icon name="Repeat" size={14} /> ¿Es un {txForm.type === 'gasto' ? 'gasto' : 'ingreso'} fijo nuevo (recurrente)?</span>
-                <button className={`switch ${txForm.fijo ? 'on' : ''}`} onClick={() => setTxForm((f) => ({ ...f, fijo: !f.fijo, fijoTarget: 'new' }))} />
-              </div>
-            )}
-            {txForm.fijo && !txForm.links.length && (
-              <>
-                <div className="field-label">Nombre del {txForm.type === 'gasto' ? 'gasto' : 'ingreso'} fijo</div>
-                <input className="text-input" placeholder={txForm.type === 'gasto' ? 'Ej. Renta, Internet...' : 'Ej. Nómina, comisiones...'} value={txForm.fijoName} onChange={(e) => setTxForm((f) => ({ ...f, fijoName: e.target.value }))} />
-                <div className="field-label">Monto total {txForm.type === 'gasto' ? 'del gasto' : 'del ingreso'} fijo (mensual)</div>
-                <div className="amount-input-wrap"><span className="amount-currency">$</span><input className="amount-input" style={{ fontSize: 22 }} type="text" inputMode="decimal" placeholder={txForm.amount || '0.00'} value={txForm.fijoAmount} onChange={(e) => setTxForm((f) => ({ ...f, fijoAmount: formatAmountTyping(e.target.value) }))} /></div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -8, marginBottom: 12 }}>Déjalo en blanco si el monto de arriba ya cubre el total mensual.</div>
-                <div className="field-label">Recordarme cada mes el día (opcional)</div>
-                <input className="text-input" type="date" value={dayToDateInput(txForm.fijoNotifyDay)} onChange={(e) => setTxForm((f) => ({ ...f, fijoNotifyDay: dateInputToDay(e.target.value) }))} />
-                {(() => {
-                  const paidAmt = toNumber(txForm.amount);
-                  const totalAmt = txForm.fijoAmount ? toNumber(txForm.fijoAmount) : paidAmt;
-                  let feedback = null;
-                  if (totalAmt > 0 && paidAmt > 0) {
-                    const restante = totalAmt - paidAmt;
-                    feedback = restante <= 0.005
-                      ? { ok: true, text: `Con este pago, ${txForm.type === 'gasto' ? 'esta cuenta queda al día' : 'este ingreso queda registrado completo'} este mes.` }
-                      : { ok: false, text: `Aún faltan ${fmt(restante)} para completar el ${txForm.type === 'gasto' ? 'pago' : 'ingreso'} de este mes.` };
-                  }
-                  return (
-                    <>
-                      <div className="account-info-box">
-                        <div className="name">{txForm.fijoName.trim() || `Nombre del ${txForm.type === 'gasto' ? 'gasto' : 'ingreso'} fijo`}</div>
-                        <div className="meta">
-                          <span>Monto total: {fmt(totalAmt)}</span>
-                          <span>Día de pago: {txForm.fijoNotifyDay || 'sin definir'}</span>
-                        </div>
-                      </div>
-                      {feedback && (
-                        <div className={`account-feedback ${feedback.ok ? 'ok' : 'pending'}`}>
-                          <Icon name={feedback.ok ? 'CheckCircle2' : 'Bell'} size={13} style={{ marginRight: 5, verticalAlign: 'middle' }} /> {feedback.text}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </>
-            )}
+
             <div className="field-label">Nota *</div>
             <input className="text-input" type="text" placeholder="Ej. Netflix, gasolina..." value={txForm.note} onChange={(e) => setTxForm((f) => ({ ...f, note: e.target.value }))} />
             <div className="field-label">Fecha *</div>
@@ -6052,7 +6108,7 @@ function LibroDiario() {
             <div className="field-label">Categoría (opcional)</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '-2px 0 6px' }}>Para agrupar varias cuentas de ahorro bajo un mismo gasto — ej. AT&T e Internet ambas como "Servicios".</div>
             <div className="cat-grid">
-              {GASTO_CATS.map((c) => (
+              {allGastoCats.map((c) => (
                 <div key={c.id} className={`cat-choice ${savForm.category === c.id ? 'selected' : ''}`} onClick={() => setSavForm((f) => ({ ...f, category: f.category === c.id ? '' : c.id }))}>
                   <div className="cat-choice-icon" style={{ background: c.color }}><Icon name={c.icon} size={15} /></div><span className="cat-choice-label">{c.label}</span>
                 </div>
@@ -6205,7 +6261,7 @@ function LibroDiario() {
                           <div className="tx-row" key={t.id} style={{ cursor: 'default' }}>
                             <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
                             <div className="tx-mid">
-                              <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}</div>
+                              <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}</div>
                               <div className="tx-note">{t.note}{t.note && ' · '}{dateLabel}</div>
                             </div>
                             <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
@@ -7125,6 +7181,7 @@ function LibroDiario() {
                 <button className="danger-btn neutral" onClick={() => { setSettingsOpen(false); setSheet({ type: 'catalogo-cuentas' }); }}>
                   <Icon name="List" size={14} /> Catálogo de cuentas contables
                 </button>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '4px 2px 0' }}>Aquí también puedes crear categorías nuevas y editar las que ya tienes (descripción y servicios como Netflix, Spotify, etc.).</div>
                 <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 14 }}>
                   {transactions.length} movimiento{transactions.length !== 1 ? 's' : ''} · {compromisos.length} compromiso{compromisos.length !== 1 ? 's' : ''} · {savings.length} cuenta{savings.length !== 1 ? 's' : ''} de ahorro. Visibles para toda la familia.
                   {saving && <span className="saving-dot"> · guardando…</span>}
@@ -7163,23 +7220,130 @@ function LibroDiario() {
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Catálogo de cuentas contables</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
-              Todas las cuentas contables que Libro·Diario ya usa para clasificar tus movimientos, agrupadas como un catálogo contable normal.
+              Toca una categoría de ingreso o gasto para agregarle una descripción o "servicios" (ej. Netflix, Spotify dentro de Servicios). También puedes crear categorías nuevas abajo.
             </div>
-            {Object.entries(
-              CATALOGO_COMPLETO.reduce((acc, c) => { (acc[c.grupo] = acc[c.grupo] || []).push(c); return acc; }, {})
-            ).map(([grupo, cuentas]) => (
-              <div key={grupo} style={{ marginBottom: 16 }}>
-                <div className="er-group-title" style={{ color: 'var(--ink-soft)' }}>{grupo}</div>
-                {cuentas.map((c) => (
-                  <div className="er-row" key={c.codigo + c.nombre} style={{ alignItems: 'flex-start' }}>
-                    <span className="er-cuenta">
-                      <span className="er-codigo">{c.codigo}</span> {c.nombre}
-                      {c.nota && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{c.nota}</div>}
-                    </span>
-                  </div>
-                ))}
+
+            <div style={{ marginBottom: 16 }}>
+              <div className="er-group-title" style={{ color: 'var(--ink-soft)' }}>1000/2000 Activo · Pasivo</div>
+              {CATALOGO_ACTIVO_PASIVO.map((c) => (
+                <div className="er-row" key={c.codigo + c.nombre} style={{ alignItems: 'flex-start' }}>
+                  <span className="er-cuenta">
+                    <span className="er-codigo">{c.codigo}</span> {c.nombre}
+                    {c.nota && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{c.nota}</div>}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {[
+              { title: '4000 Cuentas de ingreso', cats: allIngresoCats },
+              { title: '5000/6000 Costos y gastos', cats: allGastoCats },
+            ].map(({ title, cats }) => (
+              <div key={title} style={{ marginBottom: 16 }}>
+                <div className="er-group-title" style={{ color: 'var(--ink-soft)' }}>{title}</div>
+                {cats.map((c) => {
+                  const cuenta = cuentaOfAny(c.id);
+                  const meta = metaFor(c.id);
+                  const expanded = catalogExpandedId === c.id;
+                  const custom = isCustomCat(c.id);
+                  return (
+                    <div key={c.id} style={{ borderBottom: '1px dashed var(--line)' }}>
+                      <div
+                        className="er-row"
+                        style={{ alignItems: 'center', cursor: 'pointer', borderBottom: 'none' }}
+                        onClick={() => {
+                          if (expanded) { setCatalogExpandedId(null); return; }
+                          setCatalogExpandedId(c.id);
+                          setCatLabelDraft(c.label);
+                          setSubItemDraft('');
+                        }}
+                      >
+                        <div className="cat-choice-icon" style={{ background: c.color, width: 28, height: 28, flexShrink: 0 }}><Icon name={c.icon} size={14} /></div>
+                        <span className="er-cuenta" style={{ flex: 1 }}>
+                          <span className="er-codigo">{cuenta.codigo}</span> {c.label}
+                          {meta.subItems && meta.subItems.length > 0 && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{meta.subItems.join(' · ')}</div>}
+                        </span>
+                        <Icon name={expanded ? 'ChevronUp' : 'ChevronDown'} size={15} color="var(--ink-soft)" />
+                      </div>
+                      {expanded && (
+                        <div style={{ padding: '2px 2px 14px' }}>
+                          {custom && (
+                            <>
+                              <div className="field-label" style={{ margin: '6px 0 6px' }}>Nombre</div>
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                                <input className="text-input" value={catLabelDraft} onChange={(e) => setCatLabelDraft(e.target.value)} />
+                                <button className="icon-btn" style={{ background: 'var(--green)', flexShrink: 0 }} onClick={() => updateCustomCategoryLabel(c.id, catLabelDraft.trim() || c.label)}><Icon name="Check" size={14} /></button>
+                              </div>
+                            </>
+                          )}
+                          <div className="field-label" style={{ margin: '6px 0 6px' }}>Descripción (opcional)</div>
+                          <input
+                            className="text-input"
+                            style={{ marginBottom: 10 }}
+                            placeholder="Ej. Todo lo relacionado a consultas, medicinas y seguros"
+                            defaultValue={meta.description}
+                            onBlur={(e) => updateCategoryDescription(c.id, e.target.value)}
+                          />
+                          <div className="field-label" style={{ margin: '6px 0 6px' }}>Servicios / conceptos dentro de esta categoría</div>
+                          {(meta.subItems || []).length > 0 && (
+                            <div className="subcat-row">
+                              {meta.subItems.map((s) => (
+                                <button key={s} type="button" className="subcat-chip selected" onClick={() => removeCategorySubItem(c.id, s)}>{s} <Icon name="X" size={11} /></button>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 6, marginBottom: custom ? 12 : 4 }}>
+                            <input
+                              className="text-input"
+                              placeholder="Ej. Netflix, Spotify…"
+                              value={subItemDraft}
+                              onChange={(e) => setSubItemDraft(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { addCategorySubItem(c.id, subItemDraft); setSubItemDraft(''); } }}
+                            />
+                            <button className="icon-btn" style={{ background: 'var(--green)', flexShrink: 0 }} onClick={() => { addCategorySubItem(c.id, subItemDraft); setSubItemDraft(''); }}><Icon name="Plus" size={14} /></button>
+                          </div>
+                          {custom && (
+                            <button
+                              className="danger-btn"
+                              style={{ marginTop: 0 }}
+                              onClick={() => askConfirm(`¿Eliminar la categoría "${c.label}"? Los movimientos ya guardados con esta categoría no se borran.`, () => { setCatalogExpandedId(null); removeCustomCategory(c.id); })}
+                            >
+                              <Icon name="Trash2" size={13} /> Eliminar categoría
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))}
+
+            <div className="card" style={{ marginTop: 4 }}>
+              <div className="card-title">Nueva categoría</div>
+              <div className="type-toggle" style={{ marginBottom: 12 }}>
+                <button className={newCatDraft.type === 'gasto' ? 'active gasto' : ''} onClick={() => setNewCatDraft((f) => ({ ...f, type: 'gasto' }))}><Icon name="ArrowDownRight" size={13} /> Gasto</button>
+                <button className={newCatDraft.type === 'ingreso' ? 'active ingreso' : ''} onClick={() => setNewCatDraft((f) => ({ ...f, type: 'ingreso' }))}><Icon name="ArrowUpRight" size={13} /> Ingreso</button>
+              </div>
+              <div className="field-label" style={{ marginTop: 0 }}>Nombre *</div>
+              <input className="text-input" placeholder="Ej. Salud, Mascotas…" value={newCatDraft.label} onChange={(e) => setNewCatDraft((f) => ({ ...f, label: e.target.value }))} />
+              <div className="field-label">Ícono</div>
+              <div className="cat-icon-picker">
+                {CAT_ICON_CHOICES.map((ic) => (
+                  <button key={ic} type="button" className={`cat-icon-choice ${newCatDraft.icon === ic ? 'selected' : ''}`} style={{ background: newCatDraft.icon === ic ? newCatDraft.color : undefined }} onClick={() => setNewCatDraft((f) => ({ ...f, icon: ic }))}>
+                    <Icon name={ic} size={15} color={newCatDraft.icon === ic ? '#fff' : 'var(--ink-soft)'} />
+                  </button>
+                ))}
+              </div>
+              <div className="field-label">Color</div>
+              <div className="cat-color-picker">
+                {CAT_COLOR_CHOICES.map((col) => (
+                  <button key={col} type="button" className={`cat-color-choice ${newCatDraft.color === col ? 'selected' : ''}`} style={{ background: col }} onClick={() => setNewCatDraft((f) => ({ ...f, color: col }))} />
+                ))}
+              </div>
+              {newCatError && <div className="form-error">{newCatError}</div>}
+              <button className="save-btn" style={{ marginTop: 12 }} onClick={submitNewCategory}><Icon name="PlusCircle" size={16} /> Agregar categoría</button>
+            </div>
           </div>
         </div>
       )}
