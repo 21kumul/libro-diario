@@ -1203,6 +1203,7 @@ function LibroDiario() {
   const [adelantoError, setAdelantoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
+  const [txPickerOpen, setTxPickerOpen] = useState(null); // 'cat' | 'persona' | 'cuenta' | null
   const [catalogExpandedId, setCatalogExpandedId] = useState(null);
   const [subItemDraft, setSubItemDraft] = useState('');
   const [catLabelDraft, setCatLabelDraft] = useState('');
@@ -3987,6 +3988,16 @@ function LibroDiario() {
         .cat-color-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
         .cat-color-choice { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
         .cat-color-choice.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--paper); }
+        .picker-catcher { position: fixed; inset: 0; z-index: 20; }
+        .select-wrap { position: relative; }
+        .select-btn { width: 100%; display: flex; align-items: center; gap: 7px; border: none; border-radius: 12px; padding: 9px 10px; font-family: var(--sans); font-size: 13px; font-weight: 600; background: var(--paper-dim); color: var(--ink); box-sizing: border-box; cursor: pointer; text-align: left; }
+        .select-btn:disabled { opacity: 0.5; cursor: default; }
+        .select-btn-icon { width: 22px; height: 22px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .select-btn-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .select-btn-label.placeholder { color: var(--ink-soft); font-weight: 500; }
+        .select-popover { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 21; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.18); padding: 6px; max-height: 240px; overflow-y: auto; animation: navPopIn 0.16s ease-out; }
+        .select-popover-item { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; background: none; border: none; color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 8px; border-radius: 10px; cursor: pointer; }
+        .select-popover-item:active { background: var(--paper-dim); }
         .amount-input-wrap { display: flex; align-items: baseline; gap: 6px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
         .amount-currency { font-family: var(--mono); font-size: 22px; color: var(--ink-soft); }
         .amount-input { border: none; background: none; font-family: var(--mono); font-size: 32px; font-weight: 700; width: 100%; color: var(--ink); outline: none; }
@@ -5216,27 +5227,54 @@ function LibroDiario() {
               <span className="field-label" style={{ margin: 0, flex: 1 }}>Categoría *</span>
               <button type="button" className="cat-manage-link" onClick={() => setSheet({ type: 'catalogo-cuentas' })}><Icon name="Settings" size={11} /> Gestionar categorías</button>
             </div>
+            {txPickerOpen && <div className="picker-catcher" onClick={() => setTxPickerOpen(null)} />}
             <div className="field-row">
-              <div>
-                <select className="text-input" value={txForm.category} onChange={(e) => setTxForm((f) => ({ ...f, category: e.target.value, subcategory: '', servicio: '' }))}>
-                  <option value="">Elegir categoría…</option>
-                  {catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+              <div className="select-wrap">
+                <button type="button" className="select-btn" onClick={() => setTxPickerOpen(txPickerOpen === 'cat' ? null : 'cat')}>
+                  {txForm.category ? (
+                    <>
+                      <span className="select-btn-icon" style={{ background: catByIdAny(txForm.category).color }}><Icon name={catByIdAny(txForm.category).icon} size={13} color="#fff" /></span>
+                      <span className="select-btn-label">{catByIdAny(txForm.category).label}</span>
+                    </>
+                  ) : <span className="select-btn-label placeholder">Elegir categoría…</span>}
+                  <Icon name="ChevronDown" size={14} color="var(--ink-soft)" style={{ flexShrink: 0 }} />
+                </button>
+                {txPickerOpen === 'cat' && (
+                  <div className="select-popover">
+                    {catOptions.map((c) => (
+                      <button key={c.id} type="button" className="select-popover-item" onClick={() => { setTxForm((f) => ({ ...f, category: c.id, subcategory: '', servicio: '' })); setTxPickerOpen(null); }}>
+                        <span className="select-btn-icon" style={{ background: c.color }}><Icon name={c.icon} size={13} color="#fff" /></span>
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
+              <div className="select-wrap">
                 {(() => {
                   const pickList = txForm.type === 'ingreso' ? moneyLocations : moneyLocationsForGasto();
                   const personas = [...new Set(pickList.map((l) => l.persona))];
                   return (
-                    <select
-                      className="text-input"
-                      value={txForm.persona}
-                      onChange={(e) => setTxForm((f) => ({ ...f, persona: e.target.value, locationId: '' }))}
-                      disabled={moneyLocations.length === 0}
-                    >
-                      <option value="">{txForm.type === 'ingreso' ? '¿Dónde cae?' : '¿Quién paga?'}</option>
-                      {personas.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
+                    <>
+                      <button type="button" className="select-btn" disabled={moneyLocations.length === 0} onClick={() => setTxPickerOpen(txPickerOpen === 'persona' ? null : 'persona')}>
+                        {txForm.persona ? (
+                          <>
+                            {avatarNode(txForm.persona, 20, 10)}
+                            <span className="select-btn-label">{txForm.persona}</span>
+                          </>
+                        ) : <span className="select-btn-label placeholder">{txForm.type === 'ingreso' ? '¿Dónde cae?' : '¿Quién paga?'}</span>}
+                        <Icon name="ChevronDown" size={14} color="var(--ink-soft)" style={{ flexShrink: 0 }} />
+                      </button>
+                      {txPickerOpen === 'persona' && (
+                        <div className="select-popover">
+                          {personas.map((p) => (
+                            <button key={p} type="button" className="select-popover-item" onClick={() => { setTxForm((f) => ({ ...f, persona: p, locationId: '' })); setTxPickerOpen(null); }}>
+                              {avatarNode(p, 20, 10)} {p}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
@@ -5248,15 +5286,32 @@ function LibroDiario() {
             ) : txForm.persona && (() => {
               const pickList = txForm.type === 'ingreso' ? moneyLocations : moneyLocationsForGasto();
               const cuentas = pickList.filter((l) => l.persona === txForm.persona);
+              const selectedCuenta = cuentas.find((l) => l.id === txForm.locationId);
+              const cuentaLabel = (l) => l.tipo === 'tarjeta' ? `${l.nombre || 'Tarjeta'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero';
               return (
                 <>
                   <div className="field-label">{txForm.type === 'ingreso' ? 'Cuenta / monedero donde cae *' : 'Cuenta / monedero de donde sale *'}</div>
-                  <select className="text-input" style={{ marginBottom: 12 }} value={txForm.locationId} onChange={(e) => setTxForm((f) => ({ ...f, locationId: e.target.value }))}>
-                    <option value="">Elegir cuenta…</option>
-                    {cuentas.map((l) => (
-                      <option key={l.id} value={l.id}>{l.tipo === 'tarjeta' ? `${l.nombre || 'Tarjeta'}${l.esCredito != null ? ` · ${l.esCredito ? 'Crédito' : 'Débito'}` : ''}` : 'Monedero'}</option>
-                    ))}
-                  </select>
+                  <div className="select-wrap" style={{ marginBottom: 12 }}>
+                    <button type="button" className="select-btn" style={{ width: '100%' }} onClick={() => setTxPickerOpen(txPickerOpen === 'cuenta' ? null : 'cuenta')}>
+                      {selectedCuenta ? (
+                        <>
+                          <span className="select-btn-icon" style={{ background: selectedCuenta.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={selectedCuenta.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={13} color="#fff" /></span>
+                          <span className="select-btn-label">{cuentaLabel(selectedCuenta)}</span>
+                        </>
+                      ) : <span className="select-btn-label placeholder">Elegir cuenta…</span>}
+                      <Icon name="ChevronDown" size={14} color="var(--ink-soft)" style={{ flexShrink: 0 }} />
+                    </button>
+                    {txPickerOpen === 'cuenta' && (
+                      <div className="select-popover">
+                        {cuentas.map((l) => (
+                          <button key={l.id} type="button" className="select-popover-item" onClick={() => { setTxForm((f) => ({ ...f, locationId: l.id })); setTxPickerOpen(null); }}>
+                            <span className="select-btn-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={13} color="#fff" /></span>
+                            {cuentaLabel(l)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               );
             })()}
