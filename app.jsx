@@ -643,6 +643,7 @@ const nextPeriodKey = (pk, dir = 1) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 const uid = () => Date.now() + Math.random();
+const dateStrOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 // "YYYY-MM" -> "julio 2026", para mostrar a qué mes corresponde cada pago
 // cuando se adelantan varios meses de un gasto fijo.
 const periodLabel = (pk) => {
@@ -3607,6 +3608,26 @@ function LibroDiario() {
 
   const allGastoCats = useMemo(() => [...GASTO_CATS, ...customCategories.filter((c) => c.type === 'gasto')], [customCategories]);
   const allIngresoCats = useMemo(() => [...INGRESO_CATS, ...customCategories.filter((c) => c.type === 'ingreso')], [customCategories]);
+  // Racha de captura diaria (tipo Duolingo): días consecutivos con al menos
+  // un movimiento registrado por la familia, terminando hoy o ayer (si hoy
+  // aún no has capturado nada, no se rompe la racha todavía).
+  const streakDays = useMemo(() => {
+    const days = new Set(transactions.map((t) => t.date));
+    let cursor = new Date();
+    let cursorStr = dateStrOf(cursor);
+    if (!days.has(cursorStr)) {
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    let count = 0;
+    while (days.has(cursorStr)) {
+      count += 1;
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    return count;
+  }, [transactions]);
+  const capturedToday = transactions.some((t) => t.date === todayStr());
   const catOptions = txForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
   const editCatOptions = editTxForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
   const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
@@ -4294,12 +4315,19 @@ function LibroDiario() {
         .avatar-upload-btn { position: relative; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
         .avatar-upload-badge { position: absolute; bottom: -2px; right: -2px; width: 15px; height: 15px; border-radius: 50%; background: var(--gold); color: var(--green); display: flex; align-items: center; justify-content: center; border: 2px solid var(--paper); }
         .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
+        .streak-badge { display: flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 4px 8px 4px 6px; border-radius: 999px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); }
+        .streak-badge.lit { background: rgba(230,168,63,0.18); color: var(--gold); }
       `}</style>
 
       <div className="masthead" ref={mastheadRef}>
         <div className="masthead-top">
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {streakDays > 0 && (
+              <div className={`streak-badge ${capturedToday ? 'lit' : ''}`} title={capturedToday ? `Llevas ${streakDays} día${streakDays === 1 ? '' : 's'} seguidos capturando` : `${streakDays} día${streakDays === 1 ? '' : 's'} — captura algo hoy para no perder la racha`}>
+                <Icon name="Zap" size={12} /> {streakDays}
+              </div>
+            )}
             {profile && <div title={profile.name}>{avatarNode(profile.name, 26)}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => { setSettingsSection(null); setSettingsOpen(true); }}><Icon name="Settings" size={16} /></button>
