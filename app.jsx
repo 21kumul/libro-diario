@@ -1204,6 +1204,11 @@ function LibroDiario() {
   const [adelantoError, setAdelantoError] = useState('');
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
+  const [quickText, setQuickText] = useState('');
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickError, setQuickError] = useState('');
+  const [quickListening, setQuickListening] = useState(false);
+  const quickRecognitionRef = useRef(null);
   const [porCobrarAmount, setPorCobrarAmount] = useState('');
   const [txPickerOpen, setTxPickerOpen] = useState(null); // 'cat' | 'persona' | 'cuenta' | null
   const [catalogExpandedId, setCatalogExpandedId] = useState(null);
@@ -1610,6 +1615,90 @@ function LibroDiario() {
     setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', servicio: '', persona: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setSheet({ type: 'add-tx' });
   };
+
+  // Captura rápida por texto o voz (estilo MonAi/NEKO): el usuario escribe o
+  // dicta algo como "café 45 efectivo" o "netflix 369 compartido con la
+  // familia" y la IA lo interpreta contra tus categorías y cuentas reales,
+  // dejando todo precargado en el formulario para que lo revises antes de
+  // guardar — nunca se guarda solo.
+  const toggleQuickListen = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setQuickError('Tu navegador no soporta dictado por voz aquí. Puedes escribirlo normal.'); return; }
+    if (quickListening) { quickRecognitionRef.current && quickRecognitionRef.current.stop(); return; }
+    const rec = new SR();
+    rec.lang = 'es-MX';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => setQuickText((prev) => (prev ? prev + ' ' : '') + e.results[0][0].transcript);
+    rec.onerror = () => setQuickListening(false);
+    rec.onend = () => setQuickListening(false);
+    quickRecognitionRef.current = rec;
+    setQuickListening(true);
+    rec.start();
+  };
+
+  const parseQuickEntry = async () => {
+    const texto = quickText.trim();
+    if (!texto) return;
+    setQuickBusy(true);
+    setQuickError('');
+    try {
+      const pickListGasto = moneyLocationsForGasto();
+      const pickListIngreso = moneyLocations;
+      const catalogo = {
+        gasto: allGastoCats.map((c) => ({ id: c.id, nombre: c.label })),
+        ingreso: allIngresoCats.map((c) => ({ id: c.id, nombre: c.label })),
+        personas: [...new Set(moneyLocations.map((l) => l.persona))],
+        cuentas_gasto: pickListGasto.map((l) => ({ id: l.id, persona: l.persona, tipo: l.tipo, nombre: l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero' })),
+        cuentas_ingreso: pickListIngreso.map((l) => ({ id: l.id, persona: l.persona, tipo: l.tipo, nombre: l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero' })),
+      };
+      const prompt = `Eres el asistente de captura de Libro·Diario, una app de finanzas familiares. El usuario escribió o dictó esto para registrar UN movimiento: "${texto}"
+
+Hoy es ${todayStr()} (formato YYYY-MM-DD).
+
+Catálogo disponible (usa SOLO estos ids, nunca inventes uno nuevo):
+${JSON.stringify(catalogo)}
+
+Responde ÚNICAMENTE un objeto JSON (sin texto extra, sin markdown, sin backticks) con esta forma exacta:
+{"tipo":"gasto"|"ingreso","monto":number|null,"categoria_id":string|null,"persona":string|null,"cuenta_id":string|null,"nota":string,"fecha":"YYYY-MM-DD","confianza":"alta"|"media"|"baja"}
+
+Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cuentas_ingreso si tipo=ingreso, y cuenta_id debe pertenecer a esa persona. Si el texto no aclara quién paga o en qué cuenta, deja persona y cuenta_id en null. "nota" es una descripción corta y natural (ej. "Café", "Gasolina"). Si no logras extraer el monto, deja monto en null y confianza en "baja".`;
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 500, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const data = await response.json();
+      const raw = (data.content || []).map((b) => b.text || '').join('').trim();
+      const clean = raw.replace(/^```json\s*|```$/g, '').trim();
+      const parsed = JSON.parse(clean);
+      if (!parsed.monto) {
+        setQuickError('No logré identificar el monto. Ajusta el texto (ej. "café 45 efectivo") o llena el formulario a mano.');
+      }
+      const tipo = parsed.tipo === 'ingreso' ? 'ingreso' : 'gasto';
+      const cuentaValida = (tipo === 'gasto' ? pickListGasto : pickListIngreso).find((l) => l.id === parsed.cuenta_id);
+      setTxForm((f) => ({
+        ...f,
+        type: tipo,
+        amount: parsed.monto ? formatAmountTyping(String(parsed.monto)) : f.amount,
+        category: parsed.categoria_id || f.category,
+        subcategory: '',
+        servicio: '',
+        persona: cuentaValida ? cuentaValida.persona : (parsed.persona || f.persona),
+        locationId: cuentaValida ? cuentaValida.id : '',
+        note: parsed.nota || f.note,
+        date: parsed.fecha || f.date,
+      }));
+      if (parsed.confianza === 'baja') {
+        setQuickError((prev) => prev || 'No estoy muy seguro de esta interpretación — revisa cada campo antes de guardar.');
+      }
+    } catch (e) {
+      setQuickError('No se pudo interpretar el texto. Revisa tu conexión e inténtalo de nuevo, o llena el formulario a mano.');
+    } finally {
+      setQuickBusy(false);
+    }
+  };
+
 
   // Escanea la foto de un ticket de compra: reconoce el negocio (para
   // adivinar la categoría — súper, gasolinera, comida, farmacia, etc.), el
@@ -4317,6 +4406,13 @@ function LibroDiario() {
         .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
         .streak-badge { display: flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 4px 8px 4px 6px; border-radius: 999px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); }
         .streak-badge.lit { background: rgba(230,168,63,0.18); color: var(--gold); }
+        .quick-entry-row { display: flex; gap: 6px; margin-bottom: 4px; }
+        .quick-entry-row .text-input { flex: 1; min-width: 0; }
+        .quick-mic-btn, .quick-go-btn { flex-shrink: 0; border: none; border-radius: 12px; background: var(--paper-dim); color: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 700; padding: 0 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .quick-mic-btn { width: 42px; padding: 0; }
+        .quick-mic-btn.listening { background: var(--expense); color: #fff; animation: navPopIn 0.9s ease-in-out infinite alternate; }
+        .quick-go-btn { background: var(--green); color: var(--on-accent); min-width: 52px; }
+        .quick-go-btn:disabled { opacity: 0.5; cursor: default; }
       `}</style>
 
       <div className="masthead" ref={mastheadRef}>
@@ -5255,6 +5351,24 @@ function LibroDiario() {
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Nuevo movimiento</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div className="field-label" style={{ marginTop: 0 }}>Captura rápida con IA</div>
+            <div className="quick-entry-row">
+              <input
+                className="text-input"
+                placeholder='Ej. "café 45 efectivo" o dicta con el micrófono'
+                value={quickText}
+                onChange={(e) => setQuickText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') parseQuickEntry(); }}
+                disabled={quickBusy}
+              />
+              <button type="button" className={`quick-mic-btn ${quickListening ? 'listening' : ''}`} onClick={toggleQuickListen} title="Dictar por voz">
+                <Icon name={quickListening ? 'RefreshCw' : 'Search'} size={15} />
+              </button>
+              <button type="button" className="quick-go-btn" disabled={quickBusy || !quickText.trim()} onClick={parseQuickEntry}>
+                {quickBusy ? <Icon name="RefreshCw" size={15} /> : 'Usar'}
+              </button>
+            </div>
+            {quickError && <div style={{ fontSize: 11.5, color: 'var(--expense)', margin: '-6px 0 12px' }}>{quickError}</div>}
             <input
               type="file" accept="image/*" capture="environment" ref={ticketInputRef} style={{ display: 'none' }}
               onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) handleTicketFile(f); }}
