@@ -988,6 +988,7 @@ function LibroDiario() {
   const [navCompact, setNavCompact] = useState(false);
   const contentRef = useRef(null);
   const ticketInputRef = useRef(null);
+  const receiptInputRef = useRef(null);
   const photoInputRef = useRef(null);
   // El panel verde se encoge de forma continua y proporcional a lo que
   // llevas scrolleado (no en un salto de golpe): se actualiza escribiendo
@@ -1205,6 +1206,14 @@ function LibroDiario() {
 
   const [savForm, setSavForm] = useState({ name: '', target: '', locationId: '', category: '' });
   const [quickText, setQuickText] = useState('');
+  const [pendingReceipt, setPendingReceipt] = useState(null); // dataURL del comprobante a guardar con el próximo movimiento
+  const [viewingReceipt, setViewingReceipt] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const editReceiptInputRef = useRef(null);
+  const importInputRef = useRef(null);
+  const [importRows, setImportRows] = useState([]);
+  const [importError, setImportError] = useState('');
+  const [importDefaultLoc, setImportDefaultLoc] = useState('');
   const [quickBusy, setQuickBusy] = useState(false);
   const [quickError, setQuickError] = useState('');
   const [quickListening, setQuickListening] = useState(false);
@@ -1613,6 +1622,7 @@ function LibroDiario() {
   const openAddTxFromConcilia = (row) => {
     const type = row.amount < 0 ? 'gasto' : 'ingreso';
     setTxForm({ type, amount: formatAmountTyping(String(Math.abs(row.amount))), category: '', subcategory: '', servicio: '', persona: '', note: row.concepto || '', date: row.date, shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
+    setPendingReceipt(null);
     setSheet({ type: 'add-tx' });
   };
 
@@ -1709,6 +1719,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     setTicketBusy(true);
     setTicketError('');
     setTicketProgress('Leyendo ticket…');
+    attachReceiptFile(file); // se adjunta en paralelo, no bloquea la lectura del texto
     try {
       const texto = await leerImagenConOcr(file, setTicketProgress);
       const { amount, category, note, date } = parseTicket(texto);
@@ -2340,6 +2351,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
   const openAddTx = (type) => {
     setTxForm({ type, amount: '', category: '', subcategory: '', servicio: '', persona: '', note: '', date: todayStr(), shared: false, participants: [], fijo: false, fijoTarget: 'new', fijoName: '', fijoNotifyDay: '', fijoAmount: '', locationId: '', links: [], linkAmounts: {}, linkParticipants: {} });
     setTxError('');
+    setPendingReceipt(null);
     setSheet({ type: 'add-tx' });
   };
 
@@ -2525,9 +2537,17 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     }
 
     const locationId = txForm.locationId || null;
-    const next = [...transactions, { id: uid(), type: txForm.type, amount: amt, category: finalCategory, subcategory: links.length === 1 ? links[0].c.id : null, servicio: txForm.servicio || null, note: finalNote, date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, autor: profile?.name || 'Familia' }];
+    const newTxId = uid();
+    const next = [...transactions, { id: newTxId, type: txForm.type, amount: amt, category: finalCategory, subcategory: links.length === 1 ? links[0].c.id : null, servicio: txForm.servicio || null, note: finalNote, date: txForm.date, shared, compromisoId, paymentId, compromisoIds, paymentIds, locationId, hasReceipt: !!pendingReceipt, autor: profile?.name || 'Familia' }];
     const patch = { transactions: next, compromisos: nextCompromisos };
-    const finalizeTx = () => { persist(patch); setSheet(null); };
+    const finalizeTx = () => {
+      persist(patch);
+      if (pendingReceipt) {
+        window.storage.set('receipt_' + newTxId, pendingReceipt, true).catch(() => {});
+        setPendingReceipt(null);
+      }
+      setSheet(null);
+    };
     if (locationId) {
       patch.moneyLocations = moneyLocations.map((l) => l.id === locationId ? { ...l, monto: (l.monto || 0) + locationDelta(txForm.type, amt) } : l);
       // Si este gasto deja el saldo por debajo de lo que tienes apartado
@@ -2683,11 +2703,42 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     setEditTxForm({
       id: t.id, type: t.type, amount: formatAmountTyping(String(t.amount)), category: t.category, subcategory: t.subcategory || '', note: t.note || '', date: t.date, locationId: t.locationId || '',
       shared: !!t.shared,
+      hasReceipt: !!t.hasReceipt,
       // Conserva quién ya te había pagado (paid) si el gasto ya venía compartido.
       participants: t.shared ? t.shared.participants.map((p) => ({ id: p.id || uid(), name: p.name, amount: formatAmountTyping(String(p.amount)), paid: !!p.paid })) : [],
     });
     setEditTxError('');
+    setViewingReceipt(null);
     setSheet({ type: 'edit-tx' });
+  };
+
+  const viewReceiptFor = async (txId) => {
+    setReceiptLoading(true);
+    try {
+      const r = await window.storage.get('receipt_' + txId, true);
+      setViewingReceipt(r?.value || null);
+    } catch (e) { setViewingReceipt(null); }
+    finally { setReceiptLoading(false); }
+  };
+  const attachReceiptToTx = async (txId, file) => {
+    if (!file) return;
+    setReceiptLoading(true);
+    try {
+      const b64 = await resizeReceiptImage(file);
+      await window.storage.set('receipt_' + txId, b64, true);
+      persist({ transactions: transactions.map((t) => t.id === txId ? { ...t, hasReceipt: true } : t) });
+      setEditTxForm((f) => ({ ...f, hasReceipt: true }));
+      setViewingReceipt(b64);
+    } catch (e) { /* si falla, no se adjunta */ }
+    finally { setReceiptLoading(false); }
+  };
+  const removeReceiptFromTx = (txId) => {
+    askConfirm('¿Quitar la foto del comprobante de este movimiento?', async () => {
+      try { await window.storage.delete('receipt_' + txId, true); } catch (e) { /* ya no existía */ }
+      persist({ transactions: transactions.map((t) => t.id === txId ? { ...t, hasReceipt: false } : t) });
+      setEditTxForm((f) => ({ ...f, hasReceipt: false }));
+      setViewingReceipt(null);
+    });
   };
 
   // Si el movimiento está vinculado a un compromiso (gasto/ingreso fijo o deuda),
@@ -3389,6 +3440,33 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     setSheet(null);
   };
 
+  // ---------- foto de comprobante ----------
+  // Igual que la foto de perfil: se reduce antes de guardar para que no
+  // pese. A diferencia del perfil, un ticket suele ser alto y angosto, así
+  // que aquí sí conservamos la proporción en vez de recortar a cuadrado.
+  const resizeReceiptImage = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const maxW = 900;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const attachReceiptFile = async (file) => {
+    if (!file) return;
+    try { setPendingReceipt(await resizeReceiptImage(file)); } catch (e) { /* si falla, simplemente no se adjunta */ }
+  };
   // ---------- foto de perfil ----------
   // Se guarda como dataURL (base64) compartido, así todos en la familia ven
   // la foto de los demás. Se reduce a 160x160 antes de guardarla para que no
@@ -3533,6 +3611,167 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
+
+  // Exporta todos tus movimientos a un .xlsx, con la cuenta contable, la
+  // persona y la cuenta de dinero de cada uno — pensado para abrirse en
+  // Excel/Google Sheets o mandarse tal cual a un contador.
+  const exportMovimientosExcel = () => {
+    if (typeof XLSX === 'undefined') { window.alert('No se pudo cargar el lector de Excel. Revisa tu conexión e intenta de nuevo.'); return; }
+    const rows = transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map((t) => {
+      const cat = catByIdAny(t.category);
+      const cuenta = cuentaOfAny(t.category);
+      const loc = moneyLocations.find((l) => l.id === t.locationId);
+      return {
+        Fecha: t.date,
+        Tipo: t.type === 'ingreso' ? 'Ingreso' : 'Gasto',
+        'Código contable': cuenta.codigo,
+        Categoría: cat.label,
+        Servicio: t.servicio || '',
+        Nota: t.note || '',
+        Persona: loc ? loc.persona : '',
+        Cuenta: loc ? (loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero') : '',
+        Monto: t.amount,
+        Compartido: t.shared ? 'Sí' : '',
+        Autor: t.autor || '',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 11 }, { wch: 8 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 18 }, { wch: 11 }, { wch: 10 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+    XLSX.writeFile(wb, `libro-diario-movimientos-${todayStr()}.xlsx`);
+  };
+
+  // Genera un PDF del Estado de Resultado de un mes usando la propia
+  // impresión del navegador (Guardar como PDF) — así no hace falta cargar
+  // ninguna librería extra de PDF, y el resultado se ve limpio.
+  const exportEstadoResultadoPDF = (month) => {
+    const w = window.open('', '_blank');
+    if (!w) { window.alert('Tu navegador bloqueó la ventana. Permite ventanas emergentes para exportar el PDF.'); return; }
+    const fila = (r) => `<tr><td>${r.codigo}</td><td>${r.nombre}</td><td class="monto">${fmt(r.value)}</td></tr>`;
+    const html = `<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8"><title>Estado de Resultado — ${periodLabel(month)}</title>
+      <style>
+        body { font-family: -apple-system, system-ui, sans-serif; color: #2A2A28; padding: 32px; max-width: 640px; margin: 0 auto; }
+        h1 { font-size: 18px; margin-bottom: 2px; } .sub { color: #6B6A62; font-size: 12px; margin-bottom: 24px; }
+        h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 6px; }
+        h2.ingresos { color: #2F7D5C; } h2.gastos { color: #B0432E; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        td { padding: 5px 4px; border-bottom: 1px solid #eee; }
+        td:first-child { color: #999; font-family: monospace; width: 50px; }
+        td.monto { text-align: right; font-family: monospace; }
+        .total { font-weight: 700; border-top: 1px solid #2A2A28; }
+        .utilidad { font-weight: 700; font-size: 15px; border-top: 2px solid #2A2A28; margin-top: 12px; padding-top: 10px; display: flex; justify-content: space-between; }
+        .footer { margin-top: 30px; font-size: 10px; color: #999; }
+      </style></head><body>
+      <h1>Libro·Diario — Estado de Resultado</h1>
+      <div class="sub">${periodLabel(month)}${familyName ? ' · ' + familyName : ''}</div>
+      <h2 class="ingresos">Ingresos</h2>
+      <table>${estadoResultadoMes.ingresos.map(fila).join('') || '<tr><td colspan="3">Sin ingresos en este mes.</td></tr>'}<tr class="total"><td colspan="2">Total ingresos</td><td class="monto">${fmt(estadoResultadoMes.totalIngresos)}</td></tr></table>
+      <h2 class="gastos">Costos y gastos</h2>
+      <table>${estadoResultadoMes.gastos.map(fila).join('') || '<tr><td colspan="3">Sin gastos en este mes.</td></tr>'}<tr class="total"><td colspan="2">Total costos y gastos</td><td class="monto">${fmt(estadoResultadoMes.totalGastos)}</td></tr></table>
+      <div class="utilidad"><span>Utilidad neta</span><span>${fmt(estadoResultadoMes.utilidad)}</span></div>
+      <div class="footer">Generado el ${new Date().toLocaleDateString('es-MX')} con Libro·Diario.</div>
+      </body></html>`;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
+  };
+
+  // ---------- importar movimientos desde Excel/CSV ----------
+  // Encuentra la columna correcta aunque el encabezado no sea exacto (ej.
+  // "Fecha del movimiento" también cuenta como columna de fecha).
+  const findCol = (row, candidates) => {
+    const keys = Object.keys(row);
+    for (const cand of candidates) {
+      const found = keys.find((k) => k.toLowerCase().trim().includes(cand));
+      if (found) return found;
+    }
+    return null;
+  };
+  const guessCategoryId = (texto, tipo) => {
+    if (!texto) return null;
+    const t = texto.toLowerCase().trim();
+    const pool = tipo === 'ingreso' ? allIngresoCats : allGastoCats;
+    const exact = pool.find((c) => c.label.toLowerCase() === t);
+    if (exact) return exact.id;
+    const partial = pool.find((c) => t.includes(c.label.toLowerCase()) || c.label.toLowerCase().includes(t));
+    return partial ? partial.id : null;
+  };
+  const handleImportFile = (file) => {
+    if (typeof XLSX === 'undefined') { setImportError('No se pudo cargar el lector de Excel. Revisa tu conexión e intenta de nuevo.'); return; }
+    setImportError('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!raw.length) { setImportError('El archivo no tiene filas de datos.'); return; }
+        const rows = raw.map((row) => {
+          const fCol = findCol(row, ['fecha']);
+          const mCol = findCol(row, ['monto', 'importe', 'cantidad', 'total']);
+          const tCol = findCol(row, ['tipo']);
+          const cCol = findCol(row, ['categor']);
+          const nCol = findCol(row, ['nota', 'concepto', 'descrip']);
+          let rawAmount = mCol ? row[mCol] : '';
+          const rawIsNegative = typeof rawAmount === 'number' ? rawAmount < 0 : /^\s*-/.test(String(rawAmount));
+          if (typeof rawAmount === 'string') rawAmount = rawAmount.replace(/[^0-9.\-]/g, '');
+          const amountNum = toNumber(String(rawAmount));
+          // Si hay columna "Tipo" explícita, se usa esa. Si no, pero el monto
+          // venía negativo (típico de exports bancarios), se infiere gasto;
+          // positivo se infiere ingreso. Sin ninguna señal, se asume gasto.
+          let type = 'gasto';
+          if (tCol) type = String(row[tCol]).toLowerCase().includes('ingr') ? 'ingreso' : 'gasto';
+          else if (mCol) type = rawIsNegative ? 'gasto' : (amountNum > 0 ? 'ingreso' : 'gasto');
+          let dateVal = fCol ? row[fCol] : '';
+          let dateStr = todayStr();
+          if (dateVal instanceof Date && !isNaN(dateVal)) dateStr = dateStrOf(dateVal);
+          else if (typeof dateVal === 'string' && dateVal.trim()) {
+            const m1 = dateVal.match(/(\d{4})-(\d{2})-(\d{2})/);
+            const m2 = dateVal.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (m1) dateStr = `${m1[1]}-${m1[2]}-${m1[3]}`;
+            else if (m2) dateStr = `${m2[3]}-${String(m2[2]).padStart(2, '0')}-${String(m2[1]).padStart(2, '0')}`;
+          }
+          const catText = cCol ? String(row[cCol]) : '';
+          const categoryId = guessCategoryId(catText, type);
+          return {
+            include: amountNum > 0,
+            date: dateStr,
+            type,
+            amount: Math.abs(amountNum),
+            category: categoryId || (type === 'ingreso' ? 'otros_ing' : 'otros_gas'),
+            categoryMatched: !!categoryId,
+            nota: nCol ? String(row[nCol]) : catText,
+          };
+        }).filter((r) => r.amount > 0);
+        if (!rows.length) { setImportError('No encontré filas con un monto válido. Revisa que exista una columna de Monto/Importe.'); return; }
+        setImportRows(rows);
+      } catch (err) {
+        setImportError('No se pudo leer ese archivo. Asegúrate de que sea un .xlsx, .xls o .csv válido.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  const confirmImportRows = () => {
+    const loc = moneyLocations.find((l) => l.id === importDefaultLoc);
+    if (!loc) return;
+    const selected = importRows.filter((r) => r.include);
+    if (!selected.length) return;
+    const newTx = selected.map((r) => ({
+      id: uid(), type: r.type, amount: r.amount, category: r.category, subcategory: null, servicio: null,
+      note: r.nota || '(importado)', date: r.date, shared: null, compromisoId: null, paymentId: null,
+      compromisoIds: null, paymentIds: null, locationId: loc.id, autor: profile?.name || 'Familia',
+    }));
+    const deltaTotal = newTx.reduce((s, t) => s + locationDelta(t.type, t.amount), 0);
+    persist({
+      transactions: [...transactions, ...newTx],
+      moneyLocations: moneyLocations.map((l) => l.id === loc.id ? { ...l, monto: (l.monto || 0) + deltaTotal } : l),
+    });
+    setImportRows([]);
+    setSheet(null);
+  };
+
   // Arma el link "Agregar a Google Calendar" para un evento de un solo día
   // (sin necesitar cuenta de API ni OAuth: es el mismo truco que usan los
   // botones "Add to Calendar" de cualquier página de eventos).
@@ -3657,11 +3896,43 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     });
   }, [compromisosView, notifPermission]);
 
+  // Revisa las categorías con presupuesto fijado: si el gasto del mes ya
+  // llegó al 90% o se pasó del 100%, avisa una sola vez por categoría, por
+  // mes, por umbral — para no repetir el aviso cada vez que abres la app.
+  const checkBudgetAlerts = useCallback(() => {
+    if (notifPermission !== 'granted') return;
+    const period = currentPeriodKey;
+    allGastoCats.forEach((c) => {
+      const budget = budgets[c.id];
+      if (!budget || budget <= 0) return;
+      const spent = gastoMesActualPorCategoria[c.id] || 0;
+      const pct = spent / budget;
+      const threshold = pct >= 1 ? 'over' : pct >= 0.9 ? 'near' : null;
+      if (!threshold) return;
+      const flagKey = `libroDiario:budgetAlert:${c.id}:${period}:${threshold}`;
+      if (localStorage.getItem(flagKey)) return;
+      const title = threshold === 'over' ? 'Libro·Diario — Presupuesto rebasado' : 'Libro·Diario — Presupuesto casi al límite';
+      const body = threshold === 'over'
+        ? `Ya te pasaste del presupuesto de ${c.label}: llevas ${fmt(spent)} de ${fmt(budget)}.`
+        : `Vas en ${Math.round(pct * 100)}% del presupuesto de ${c.label}: ${fmt(spent)} de ${fmt(budget)}.`;
+      const show = () => {
+        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+          navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, icon: 'icon-192.png', badge: 'icon-192.png' })).catch(() => new Notification(title, { body }));
+        } else {
+          new Notification(title, { body });
+        }
+      };
+      show();
+      try { localStorage.setItem(flagKey, '1'); } catch (e) { /* no pasa nada si no se puede guardar la bandera */ }
+    });
+  }, [allGastoCats, budgets, gastoMesActualPorCategoria, notifPermission, currentPeriodKey]);
+
   useEffect(() => {
     if (loading) return;
     checkFijoReminders();
-    const interval = setInterval(checkFijoReminders, 30 * 60 * 1000);
-    const onVisible = () => { if (document.visibilityState === 'visible') checkFijoReminders(); };
+    checkBudgetAlerts();
+    const interval = setInterval(() => { checkFijoReminders(); checkBudgetAlerts(); }, 30 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') { checkFijoReminders(); checkBudgetAlerts(); } };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
     return () => {
@@ -3669,7 +3940,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
-  }, [loading, checkFijoReminders]);
+  }, [loading, checkFijoReminders, checkBudgetAlerts]);
 
   const shareInvite = () => {
     const nombre = familyName ? ` de ${familyName}` : '';
@@ -4413,6 +4684,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
         .quick-mic-btn.listening { background: var(--expense); color: #fff; animation: navPopIn 0.9s ease-in-out infinite alternate; }
         .quick-go-btn { background: var(--green); color: var(--on-accent); min-width: 52px; }
         .quick-go-btn:disabled { opacity: 0.5; cursor: default; }
+        .import-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
       `}</style>
 
       <div className="masthead" ref={mastheadRef}>
@@ -4700,7 +4972,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
                       <div className="tx-row" key={t.id} onClick={() => openEditTx(t)}>
                         <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
                         <div className="tx-mid">
-                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
+                          <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}{t.hasReceipt && <Icon name="Copy" size={10} style={{ verticalAlign: -1, marginLeft: 4, opacity: 0.55 }} />}{t.shared && <span className="shared-badge">COMPARTIDO</span>}</div>
                           <div className="tx-note">{t.note}{t.note && ' · '}<span className="autor-tag" style={{ color: colorForName(t.autor || 'Familia') }}>{t.autor || 'Familia'}</span></div>
                         </div>
                         <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
@@ -5373,14 +5645,34 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
               type="file" accept="image/*" capture="environment" ref={ticketInputRef} style={{ display: 'none' }}
               onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) handleTicketFile(f); }}
             />
-            <button
-              className="save-btn"
-              style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', marginBottom: 14 }}
-              disabled={ticketBusy}
-              onClick={() => ticketInputRef.current && ticketInputRef.current.click()}
-            >
-              <Icon name={ticketBusy ? 'RefreshCw' : 'Search'} size={16} /> {ticketBusy ? (ticketProgress || 'Leyendo…') : 'Escanear ticket de compra'}
-            </button>
+            <input
+              type="file" accept="image/*" capture="environment" ref={receiptInputRef} style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) attachReceiptFile(f); }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <button
+                className="save-btn"
+                style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', margin: 0, flex: 1 }}
+                disabled={ticketBusy}
+                onClick={() => ticketInputRef.current && ticketInputRef.current.click()}
+              >
+                <Icon name={ticketBusy ? 'RefreshCw' : 'Search'} size={16} /> {ticketBusy ? (ticketProgress || 'Leyendo…') : 'Escanear ticket'}
+              </button>
+              <button
+                className="save-btn"
+                style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', margin: 0, flex: 1 }}
+                onClick={() => receiptInputRef.current && receiptInputRef.current.click()}
+              >
+                <Icon name="Copy" size={16} /> Adjuntar foto
+              </button>
+            </div>
+            {pendingReceipt && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: -6, marginBottom: 14, background: 'var(--paper-dim)', borderRadius: 12, padding: 8 }}>
+                <img src={pendingReceipt} alt="Comprobante" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)', flex: 1 }}>Comprobante listo — se guarda junto con este movimiento.</span>
+                <button type="button" onClick={() => setPendingReceipt(null)} style={{ background: 'none', border: 'none', color: 'var(--ink-soft)', cursor: 'pointer' }}><Icon name="X" size={16} /></button>
+              </div>
+            )}
             {ticketError && <div style={{ fontSize: 12, color: 'var(--expense)', marginTop: -8, marginBottom: 12 }}>{ticketError}</div>}
             <div className="type-toggle">
               <button className={txForm.type === 'ingreso' ? 'active ingreso' : ''} onClick={() => setTxForm((f) => ({ ...f, type: 'ingreso', category: '', shared: false }))}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
@@ -5609,6 +5901,32 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
           <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Editar movimiento</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <input
+              type="file" accept="image/*" capture="environment" ref={editReceiptInputRef} style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) attachReceiptToTx(editTxForm.id, f); }}
+            />
+            {editTxForm.hasReceipt ? (
+              <div style={{ marginBottom: 14 }}>
+                {viewingReceipt ? (
+                  <div style={{ position: 'relative' }}>
+                    <img src={viewingReceipt} alt="Comprobante" style={{ width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 14, background: 'var(--paper-dim)' }} />
+                    <button type="button" onClick={() => setViewingReceipt(null)} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: 999, width: 26, height: 26, color: '#fff', cursor: 'pointer' }}><Icon name="X" size={14} /></button>
+                  </div>
+                ) : (
+                  <button type="button" className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', margin: 0 }} disabled={receiptLoading} onClick={() => viewReceiptFor(editTxForm.id)}>
+                    <Icon name={receiptLoading ? 'RefreshCw' : 'Eye'} size={16} /> {receiptLoading ? 'Cargando…' : 'Ver comprobante'}
+                  </button>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button type="button" className="cat-manage-link" onClick={() => editReceiptInputRef.current && editReceiptInputRef.current.click()}><Icon name="Copy" size={11} /> Reemplazar foto</button>
+                  <button type="button" className="cat-manage-link" style={{ color: 'var(--expense)' }} onClick={() => removeReceiptFromTx(editTxForm.id)}><Icon name="Trash2" size={11} /> Quitar foto</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', marginBottom: 14 }} disabled={receiptLoading} onClick={() => editReceiptInputRef.current && editReceiptInputRef.current.click()}>
+                <Icon name={receiptLoading ? 'RefreshCw' : 'Copy'} size={16} /> {receiptLoading ? 'Guardando…' : 'Adjuntar foto del comprobante'}
+              </button>
+            )}
             <div className="type-toggle">
               <button className={editTxForm.type === 'ingreso' ? 'active ingreso' : ''} disabled style={{ opacity: editTxForm.type === 'ingreso' ? 1 : 0.45, cursor: 'default' }}><Icon name="ArrowUpRight" size={14} /> Ingreso</button>
               <button className={editTxForm.type === 'gasto' ? 'active gasto' : ''} disabled style={{ opacity: editTxForm.type === 'gasto' ? 1 : 0.45, cursor: 'default' }}><Icon name="ArrowDownRight" size={14} /> Gasto</button>
@@ -6513,7 +6831,7 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
                           <div className="tx-row" key={t.id} style={{ cursor: 'default' }}>
                             <div className="tx-icon" style={{ background: c.color }}><Icon name={c.icon} size={16} /></div>
                             <div className="tx-mid">
-                              <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}</div>
+                              <div className="tx-cat">{c.label}{t.subcategory && ` · ${subcatLabel(t.subcategory)}`}{!t.subcategory && t.servicio && ` · ${t.servicio}`}{t.hasReceipt && <Icon name="Copy" size={10} style={{ verticalAlign: -1, marginLeft: 4, opacity: 0.55 }} />}</div>
                               <div className="tx-note">{t.note}{t.note && ' · '}{dateLabel}</div>
                             </div>
                             <div className={`tx-amount ${t.type === 'ingreso' ? 'in' : 'out'}`}>{t.type === 'ingreso' ? '+' : '-'}{fmt(t.amount)}</div>
@@ -7466,8 +7784,86 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
                   <Icon name="RefreshCw" size={14} /> {backupBusy ? 'Restaurando…' : 'Importar respaldo'}
                 </button>
                 {backupMsg && <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{backupMsg}</div>}
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '14px 2px 4px', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>Excel y PDF</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '0 2px 8px' }}>El respaldo (.json) es para restaurar la app tal cual; esto es para abrir tus datos en Excel o mandarle un PDF a tu contador.</div>
+                <button className="danger-btn neutral" onClick={exportMovimientosExcel}>
+                  <Icon name="List" size={14} /> Exportar movimientos (.xlsx)
+                </button>
+                <button className="danger-btn neutral" onClick={() => exportEstadoResultadoPDF(chartMonth)}>
+                  <Icon name="List" size={14} /> Exportar Estado de Resultado (PDF) · {periodLabel(chartMonth)}
+                </button>
+                <button className="danger-btn neutral" onClick={() => { setImportRows([]); setImportError(''); setImportDefaultLoc(''); setSettingsOpen(false); setSheet({ type: 'importar-movimientos' }); }}>
+                  <Icon name="RefreshCw" size={14} /> Importar movimientos (.xlsx / .csv)
+                </button>
                 <button className="danger-btn" onClick={() => askConfirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)?', () => withUndo('Historial borrado', clearAll), { confirmLabel: 'Borrar todo' })}>
                   <Icon name="Trash2" size={14} /> Borrar todo el historial
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {sheet?.type === 'importar-movimientos' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Importar movimientos</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', margin: '-4px 0 14px' }}>
+              Sube un Excel o CSV con columnas como <b>Fecha, Tipo, Categoría, Nota, Monto</b> (los nombres de columna son flexibles, no necesitan ser exactos). Revisa la vista previa antes de importar — nada se guarda hasta que confirmes.
+            </div>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              ref={importInputRef}
+              style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
+            />
+            <button className="save-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)', border: '1px dashed var(--line)', marginBottom: 14 }} onClick={() => importInputRef.current?.click()}>
+              <Icon name="Search" size={16} /> Elegir archivo
+            </button>
+            {importError && <div style={{ fontSize: 12, color: 'var(--expense)', marginTop: -8, marginBottom: 14 }}>{importError}</div>}
+            {importRows.length > 0 && (
+              <>
+                <div className="field-label" style={{ marginTop: 0 }}>Cuenta destino para todo lo que importes *</div>
+                <div className="select-wrap" style={{ marginBottom: 12 }}>
+                  <button type="button" className="select-btn" style={{ width: '100%' }} onClick={() => setTxPickerOpen(txPickerOpen === 'import-cuenta' ? null : 'import-cuenta')}>
+                    {(() => {
+                      const loc = moneyLocations.find((l) => l.id === importDefaultLoc);
+                      return loc ? (
+                        <>
+                          <span className="select-btn-icon" style={{ background: loc.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={loc.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={13} color="#fff" /></span>
+                          <span className="select-btn-label">{loc.persona} — {loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero'}</span>
+                        </>
+                      ) : <span className="select-btn-label placeholder">Elegir cuenta…</span>;
+                    })()}
+                    <Icon name="ChevronDown" size={14} color="var(--ink-soft)" style={{ flexShrink: 0 }} />
+                  </button>
+                  {txPickerOpen === 'import-cuenta' && (
+                    <div className="select-popover">
+                      {moneyLocations.map((l) => (
+                        <button key={l.id} type="button" className="select-popover-item" onClick={() => { setImportDefaultLoc(l.id); setTxPickerOpen(null); }}>
+                          <span className="select-btn-icon" style={{ background: l.tipo === 'tarjeta' ? '#3E6EA5' : '#5F8A4C' }}><Icon name={l.tipo === 'tarjeta' ? 'CreditCard' : 'Wallet'} size={13} color="#fff" /></span>
+                          {l.persona} — {l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="field-label">Vista previa · {importRows.filter((r) => r.include).length} de {importRows.length} seleccionados</div>
+                <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 14 }}>
+                  {importRows.map((r, i) => (
+                    <div key={i} className="import-row" onClick={() => setImportRows((rows) => rows.map((x, xi) => xi === i ? { ...x, include: !x.include } : x))}>
+                      <Icon name={r.include ? 'CheckCircle2' : 'Circle'} size={16} color={r.include ? 'var(--income)' : 'var(--ink-soft)'} style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nota || '(sin nota)'}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{r.date} · {catByIdAny(r.category).label}{!r.categoryMatched && ' (sin coincidencia — se guardará en Otros)'}</div>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: r.type === 'ingreso' ? 'var(--income)' : 'var(--expense)', flexShrink: 0 }}>{r.type === 'ingreso' ? '+' : '−'}{fmt(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+                <button className="save-btn" disabled={!importDefaultLoc || importRows.filter((r) => r.include).length === 0} onClick={confirmImportRows}>
+                  <Icon name="CheckCircle2" size={16} /> Importar {importRows.filter((r) => r.include).length} movimiento{importRows.filter((r) => r.include).length !== 1 ? 's' : ''}
                 </button>
               </>
             )}
