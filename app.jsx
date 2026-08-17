@@ -856,6 +856,8 @@ function LibroDiario() {
   const [moneyLocations, setMoneyLocations] = useState([]);
   const [customCategories, setCustomCategories] = useState([]); // categorías extra creadas por la familia
   const [categoryMeta, setCategoryMeta] = useState({}); // { [catId]: { description, subItems: [] } } — aplica a categorías propias y a las de fábrica
+  const allGastoCats = useMemo(() => [...GASTO_CATS, ...customCategories.filter((c) => c.type === 'gasto')], [customCategories]);
+  const allIngresoCats = useMemo(() => [...INGRESO_CATS, ...customCategories.filter((c) => c.type === 'ingreso')], [customCategories]);
   // Abre/cierra la "bolsa" de cada persona en la pila de tarjetas (estilo
   // billetera) de la pestaña Tarjetas: al tocarla, sus tarjetas se abanican
   // y se revela el saldo de esa persona (oculto por defecto, por privacidad).
@@ -1647,66 +1649,60 @@ function LibroDiario() {
     rec.start();
   };
 
-  const parseQuickEntry = async () => {
+  // Captura rápida por texto o voz: interpreta lo que escribiste o dictaste
+  // buscando coincidencias contra TUS categorías, servicios y personas
+  // reales — sin depender de ningún servidor externo (por eso funciona sin
+  // conexión y sin necesitar una clave de API). No es tan lista como un
+  // modelo de lenguaje completo, pero cubre bien los casos típicos: "café 45
+  // efectivo", "netflix 369", "gasolina 500 tarjeta papá".
+  const parseQuickEntry = () => {
     const texto = quickText.trim();
     if (!texto) return;
-    setQuickBusy(true);
     setQuickError('');
-    try {
-      const pickListGasto = moneyLocationsForGasto();
-      const pickListIngreso = moneyLocations;
-      const catalogo = {
-        gasto: allGastoCats.map((c) => ({ id: c.id, nombre: c.label })),
-        ingreso: allIngresoCats.map((c) => ({ id: c.id, nombre: c.label })),
-        personas: [...new Set(moneyLocations.map((l) => l.persona))],
-        cuentas_gasto: pickListGasto.map((l) => ({ id: l.id, persona: l.persona, tipo: l.tipo, nombre: l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero' })),
-        cuentas_ingreso: pickListIngreso.map((l) => ({ id: l.id, persona: l.persona, tipo: l.tipo, nombre: l.tipo === 'tarjeta' ? (l.nombre || 'Tarjeta') : 'Monedero' })),
-      };
-      const prompt = `Eres el asistente de captura de Libro·Diario, una app de finanzas familiares. El usuario escribió o dictó esto para registrar UN movimiento: "${texto}"
-
-Hoy es ${todayStr()} (formato YYYY-MM-DD).
-
-Catálogo disponible (usa SOLO estos ids, nunca inventes uno nuevo):
-${JSON.stringify(catalogo)}
-
-Responde ÚNICAMENTE un objeto JSON (sin texto extra, sin markdown, sin backticks) con esta forma exacta:
-{"tipo":"gasto"|"ingreso","monto":number|null,"categoria_id":string|null,"persona":string|null,"cuenta_id":string|null,"nota":string,"fecha":"YYYY-MM-DD","confianza":"alta"|"media"|"baja"}
-
-Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cuentas_ingreso si tipo=ingreso, y cuenta_id debe pertenecer a esa persona. Si el texto no aclara quién paga o en qué cuenta, deja persona y cuenta_id en null. "nota" es una descripción corta y natural (ej. "Café", "Gasolina"). Si no logras extraer el monto, deja monto en null y confianza en "baja".`;
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 500, messages: [{ role: 'user', content: prompt }] }),
-      });
-      const data = await response.json();
-      const raw = (data.content || []).map((b) => b.text || '').join('').trim();
-      const clean = raw.replace(/^```json\s*|```$/g, '').trim();
-      const parsed = JSON.parse(clean);
-      if (!parsed.monto) {
-        setQuickError('No logré identificar el monto. Ajusta el texto (ej. "café 45 efectivo") o llena el formulario a mano.');
-      }
-      const tipo = parsed.tipo === 'ingreso' ? 'ingreso' : 'gasto';
-      const cuentaValida = (tipo === 'gasto' ? pickListGasto : pickListIngreso).find((l) => l.id === parsed.cuenta_id);
-      setTxForm((f) => ({
-        ...f,
-        type: tipo,
-        amount: parsed.monto ? formatAmountTyping(String(parsed.monto)) : f.amount,
-        category: parsed.categoria_id || f.category,
-        subcategory: '',
-        servicio: '',
-        persona: cuentaValida ? cuentaValida.persona : (parsed.persona || f.persona),
-        locationId: cuentaValida ? cuentaValida.id : '',
-        note: parsed.nota || f.note,
-        date: parsed.fecha || f.date,
-      }));
-      if (parsed.confianza === 'baja') {
-        setQuickError((prev) => prev || 'No estoy muy seguro de esta interpretación — revisa cada campo antes de guardar.');
-      }
-    } catch (e) {
-      setQuickError('No se pudo interpretar el texto. Revisa tu conexión e inténtalo de nuevo, o llena el formulario a mano.');
-    } finally {
-      setQuickBusy(false);
+    const montoMatch = texto.match(/\$?\s*(\d{1,3}(?:[,.]\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/);
+    const monto = montoMatch ? toNumber(montoMatch[1].replace(/,/g, '')) : null;
+    if (!monto) {
+      setQuickError('No logré identificar el monto. Intenta algo como "café 45 efectivo", o llena el formulario a mano.');
+      return;
     }
+    const lower = texto.toLowerCase();
+    const esIngreso = /\b(cobr|deposit|sueldo|nomina|nómina|ingreso|me pagaron|entr[oó])\b/.test(lower);
+    const type = esIngreso ? 'ingreso' : 'gasto';
+
+    const pool = type === 'ingreso' ? allIngresoCats : allGastoCats;
+    let categoryId = '';
+    let servicio = '';
+    for (const c of pool) {
+      if (lower.includes(c.label.toLowerCase())) { categoryId = c.id; break; }
+      const subItems = metaFor(c.id).subItems || [];
+      const hitSub = subItems.find((s) => lower.includes(s.toLowerCase()));
+      if (hitSub) { categoryId = c.id; servicio = hitSub; break; }
+    }
+
+    const pickList = type === 'ingreso' ? moneyLocations : moneyLocationsForGasto();
+    const personas = [...new Set(pickList.map((l) => l.persona))];
+    const personaHit = personas.find((p) => lower.includes(p.toLowerCase().split(' ')[0]));
+    let locationId = '';
+    if (personaHit) {
+      const cuentasDe = pickList.filter((l) => l.persona === personaHit);
+      if (cuentasDe.length === 1) locationId = cuentasDe[0].id;
+      if (/efectiv/.test(lower)) { const m = cuentasDe.find((l) => l.tipo === 'efectivo'); if (m) locationId = m.id; }
+      else if (/tarjeta|d[eé]bito|cr[eé]dito/.test(lower)) { const m = cuentasDe.find((l) => l.tipo === 'tarjeta'); if (m) locationId = m.id; }
+    }
+
+    const nota = texto.replace(montoMatch[0], '').trim() || texto;
+    setTxForm((f) => ({
+      ...f,
+      type,
+      amount: formatAmountTyping(String(monto)),
+      category: categoryId || f.category,
+      subcategory: '',
+      servicio,
+      persona: personaHit || f.persona,
+      locationId,
+      note: nota,
+    }));
+    if (!categoryId) setQuickError('No pude adivinar la categoría — revisa el resto de los campos antes de guardar.');
   };
 
 
@@ -3896,6 +3892,68 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
     });
   }, [compromisosView, notifPermission]);
 
+  const shareInvite = () => {
+    const nombre = familyName ? ` de ${familyName}` : '';
+    const msg = `*LIBRO DIARIO*\nhttps://21kumul.github.io/libro-diario/?codigo=${familyCode}\n🏦 Únete a mi Libro·Diario${nombre}.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const [codeCopied, setCodeCopied] = useState(false);
+  const copyFamilyCode = async (code) => {
+    const value = code || familyCode;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (e) {
+      // Si el navegador no deja usar el portapapeles (poco común), lo
+      // seleccionamos a mano como respaldo.
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      } catch (e2) { return; }
+    }
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 1800);
+  };
+
+  // Racha de captura diaria (tipo Duolingo): días consecutivos con al menos
+  // un movimiento registrado por la familia, terminando hoy o ayer (si hoy
+  // aún no has capturado nada, no se rompe la racha todavía).
+  const streakDays = useMemo(() => {
+    const days = new Set(transactions.map((t) => t.date));
+    let cursor = new Date();
+    let cursorStr = dateStrOf(cursor);
+    if (!days.has(cursorStr)) {
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    let count = 0;
+    while (days.has(cursorStr)) {
+      count += 1;
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    return count;
+  }, [transactions]);
+  const capturedToday = transactions.some((t) => t.date === todayStr());
+  const catOptions = txForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
+  const editCatOptions = editTxForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
+  const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
+  const isCustomCat = (id) => customCategories.some((c) => c.id === id);
+  const cuentaOfAny = (catId) => CUENTA_CONTABLE[catId] || {
+    codigo: allIngresoCats.some((c) => c.id === catId) ? '4900' : '5900',
+    nombre: catByIdAny(catId).label,
+    grupo: allIngresoCats.some((c) => c.id === catId) ? 'ingresos' : 'gastos',
+  };
+  const submitNewCategory = () => {
+    const label = newCatDraft.label.trim();
+    if (!label) return setNewCatError('Ponle un nombre a la categoría.');
+    const id = 'custom_' + uid();
+    setNewCatError('');
+    addCustomCategory({ id, type: newCatDraft.type, label, icon: newCatDraft.icon, color: newCatDraft.color });
+    setNewCatDraft({ type: newCatDraft.type, label: '', icon: newCatDraft.icon, color: newCatDraft.color });
+  };
+  const metaFor = (id) => categoryMeta[id] || { description: '', subItems: [] };
   // Revisa las categorías con presupuesto fijado: si el gasto del mes ya
   // llegó al 90% o se pasó del 100%, avisa una sola vez por categoría, por
   // mes, por umbral — para no repetir el aviso cada vez que abres la app.
@@ -3941,71 +3999,6 @@ Reglas: "persona" y "cuenta_id" deben salir de cuentas_gasto si tipo=gasto o cue
       window.removeEventListener('focus', onVisible);
     };
   }, [loading, checkFijoReminders, checkBudgetAlerts]);
-
-  const shareInvite = () => {
-    const nombre = familyName ? ` de ${familyName}` : '';
-    const msg = `*LIBRO DIARIO*\nhttps://21kumul.github.io/libro-diario/?codigo=${familyCode}\n🏦 Únete a mi Libro·Diario${nombre}.`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-  };
-
-  const [codeCopied, setCodeCopied] = useState(false);
-  const copyFamilyCode = async (code) => {
-    const value = code || familyCode;
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch (e) {
-      // Si el navegador no deja usar el portapapeles (poco común), lo
-      // seleccionamos a mano como respaldo.
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      } catch (e2) { return; }
-    }
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 1800);
-  };
-
-  const allGastoCats = useMemo(() => [...GASTO_CATS, ...customCategories.filter((c) => c.type === 'gasto')], [customCategories]);
-  const allIngresoCats = useMemo(() => [...INGRESO_CATS, ...customCategories.filter((c) => c.type === 'ingreso')], [customCategories]);
-  // Racha de captura diaria (tipo Duolingo): días consecutivos con al menos
-  // un movimiento registrado por la familia, terminando hoy o ayer (si hoy
-  // aún no has capturado nada, no se rompe la racha todavía).
-  const streakDays = useMemo(() => {
-    const days = new Set(transactions.map((t) => t.date));
-    let cursor = new Date();
-    let cursorStr = dateStrOf(cursor);
-    if (!days.has(cursorStr)) {
-      cursor.setDate(cursor.getDate() - 1);
-      cursorStr = dateStrOf(cursor);
-    }
-    let count = 0;
-    while (days.has(cursorStr)) {
-      count += 1;
-      cursor.setDate(cursor.getDate() - 1);
-      cursorStr = dateStrOf(cursor);
-    }
-    return count;
-  }, [transactions]);
-  const capturedToday = transactions.some((t) => t.date === todayStr());
-  const catOptions = txForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
-  const editCatOptions = editTxForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
-  const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
-  const isCustomCat = (id) => customCategories.some((c) => c.id === id);
-  const cuentaOfAny = (catId) => CUENTA_CONTABLE[catId] || {
-    codigo: allIngresoCats.some((c) => c.id === catId) ? '4900' : '5900',
-    nombre: catByIdAny(catId).label,
-    grupo: allIngresoCats.some((c) => c.id === catId) ? 'ingresos' : 'gastos',
-  };
-  const submitNewCategory = () => {
-    const label = newCatDraft.label.trim();
-    if (!label) return setNewCatError('Ponle un nombre a la categoría.');
-    const id = 'custom_' + uid();
-    setNewCatError('');
-    addCustomCategory({ id, type: newCatDraft.type, label, icon: newCatDraft.icon, color: newCatDraft.color });
-    setNewCatDraft({ type: newCatDraft.type, label: '', icon: newCatDraft.icon, color: newCatDraft.color });
-  };
-  const metaFor = (id) => categoryMeta[id] || { description: '', subItems: [] };
   const addCustomCategory = (cat) => {
     persist({ customCategories: [...customCategories, cat] });
   };
