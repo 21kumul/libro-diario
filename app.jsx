@@ -52,6 +52,53 @@ const GASTO_CATS = [
   { id: 'otros_gas', label: 'Otros', icon: 'MoreHorizontal', color: '#9C8672' },
 ];
 
+// Plantillas sugeridas al crear una categoría: pensadas para una familia
+// mexicana típica. Si la categoría del ejemplo ya existe (ej. "Servicios"),
+// tocarla solo le agrega los servicios sugeridos que aún no tenga, en vez de
+// crear un duplicado.
+const CATEGORY_TEMPLATES = [
+  {
+    title: 'Hogar y servicios', subtitle: 'Recibos que se pagan cada mes',
+    items: [
+      { label: 'Servicios', icon: 'Zap', color: '#C9A227', type: 'gasto', subItems: ['CFE', 'Agua', 'Gas', 'Internet', 'Telcel'] },
+      { label: 'Renta', icon: 'Home', color: '#B0432E', type: 'gasto', subItems: ['Renta', 'Mantenimiento', 'Predial'] },
+    ],
+  },
+  {
+    title: 'Entretenimiento y suscripciones', subtitle: 'Streaming y apps que se cobran solas',
+    items: [
+      { label: 'Entretenimiento', icon: 'Sparkles', color: '#8A4FA0', type: 'gasto', subItems: ['Netflix', 'Spotify', 'Disney+', 'HBO Max', 'Amazon Prime', 'YouTube Premium'] },
+      { label: 'Nube y software', icon: 'Share2', color: '#4E8A93', type: 'gasto', subItems: ['Google One', 'iCloud', 'Dropbox', 'Microsoft 365'] },
+    ],
+  },
+  {
+    title: 'Salud', subtitle: 'Consultas, medicinas y seguros',
+    items: [
+      { label: 'Salud', icon: 'HeartPulse', color: '#C15B72', type: 'gasto', subItems: ['Consulta médica', 'Farmacia', 'Seguro de gastos médicos', 'Dentista'] },
+    ],
+  },
+  {
+    title: 'Transporte', subtitle: 'Auto, moto y traslados',
+    items: [
+      { label: 'Transporte', icon: 'Motorbike', color: '#8C6239', type: 'gasto', subItems: ['Gasolina', 'Uber/DiDi', 'Verificación', 'Tenencia', 'Seguro de auto'] },
+    ],
+  },
+  {
+    title: 'Familia y cuidado personal', subtitle: 'Lo que no cabe en ningún lado más',
+    items: [
+      { label: 'Cuidado personal', icon: 'Users', color: '#C15B72', type: 'gasto', subItems: ['Estética', 'Ropa', 'Gimnasio'] },
+      { label: 'Mascotas', icon: 'Package', color: '#5A8F3C', type: 'gasto', subItems: ['Veterinario', 'Alimento', 'Estética canina'] },
+    ],
+  },
+  {
+    title: 'Educación', subtitle: 'Escuela y formación',
+    items: [
+      { label: 'Educación', icon: 'Landmark', color: '#3E6EA5', type: 'gasto', subItems: ['Colegiatura', 'Útiles', 'Uniformes'] },
+    ],
+  },
+];
+
+
 // Categorías exclusivas para las cuentas de CxP (gastos fijos, ingresos fijos
 // y préstamos): a partir de esta actualización, dar de alta una cuenta en CxP
 // solo permite clasificarla en una de estas 4 (el resto de categorías de
@@ -3954,6 +4001,25 @@ function LibroDiario() {
     setNewCatDraft({ type: newCatDraft.type, label: '', icon: newCatDraft.icon, color: newCatDraft.color });
   };
   const metaFor = (id) => categoryMeta[id] || { description: '', subItems: [] };
+  const addCategoryFromTemplate = (item) => {
+    const pool = item.type === 'ingreso' ? allIngresoCats : allGastoCats;
+    const existing = pool.find((c) => c.label.toLowerCase() === item.label.toLowerCase());
+    if (existing) {
+      const current = metaFor(existing.id).subItems || [];
+      const merged = [...new Set([...current, ...item.subItems])];
+      persist({ categoryMeta: { ...categoryMeta, [existing.id]: { ...metaFor(existing.id), subItems: merged } } });
+      setCatalogExpandedId(existing.id);
+      setCatLabelDraft(existing.label);
+    } else {
+      const id = 'custom_' + uid();
+      persist({
+        customCategories: [...customCategories, { id, type: item.type, label: item.label, icon: item.icon, color: item.color }],
+        categoryMeta: { ...categoryMeta, [id]: { description: '', subItems: item.subItems } },
+      });
+      setCatalogExpandedId(id);
+      setCatLabelDraft(item.label);
+    }
+  };
   // Revisa las categorías con presupuesto fijado: si el gasto del mes ya
   // llegó al 90% o se pasó del 100%, avisa una sola vez por categoría, por
   // mes, por umbral — para no repetir el aviso cada vez que abres la app.
@@ -5627,7 +5693,7 @@ function LibroDiario() {
                 disabled={quickBusy}
               />
               <button type="button" className={`quick-mic-btn ${quickListening ? 'listening' : ''}`} onClick={toggleQuickListen} title="Dictar por voz">
-                <Icon name={quickListening ? 'RefreshCw' : 'Search'} size={15} />
+                <Icon name="Mic" size={16} color={quickListening ? '#fff' : 'var(--ink)'} />
               </button>
               <button type="button" className="quick-go-btn" disabled={quickBusy || !quickText.trim()} onClick={parseQuickEntry}>
                 {quickBusy ? <Icon name="RefreshCw" size={15} /> : 'Usar'}
@@ -7967,6 +8033,32 @@ function LibroDiario() {
                 })}
               </div>
             ))}
+
+            <div className="card" style={{ marginTop: 4 }}>
+              <div className="card-title" style={{ marginBottom: 4 }}>Plantillas para tu familia</div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginBottom: 14 }}>
+                Toca una para agregarla con sus servicios ya listos (Netflix, CFE, etc.). Si ya tienes esa categoría, solo le suma los servicios que te falten — no la duplica.
+              </div>
+              {CATEGORY_TEMPLATES.map((grupo) => (
+                <div key={grupo.title} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{grupo.title}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 8 }}>{grupo.subtitle}</div>
+                  <div className="wallet-summary-chips" style={{ justifyContent: 'flex-start', margin: 0 }}>
+                    {grupo.items.map((item) => {
+                      const pool = item.type === 'ingreso' ? allIngresoCats : allGastoCats;
+                      const existing = pool.find((c) => c.label.toLowerCase() === item.label.toLowerCase());
+                      return (
+                        <button key={item.label} type="button" className="wallet-summary-chip" style={{ cursor: 'pointer' }} onClick={() => addCategoryFromTemplate(item)}>
+                          <span className="cat-choice-icon" style={{ background: existing ? existing.color : item.color, width: 18, height: 18, flexShrink: 0 }}><Icon name={existing ? existing.icon : item.icon} size={10} /></span>
+                          <span className="wallet-summary-chip-name">{item.label}</span>
+                          {existing && <Icon name="CheckCircle2" size={11} color="var(--income)" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
 
             <div className="card" style={{ marginTop: 4 }}>
               <div className="card-title">Nueva categoría</div>
