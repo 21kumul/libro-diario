@@ -1497,6 +1497,33 @@ function LibroDiario() {
     undoTimeoutRef.current = setTimeout(() => setUndoInfo(null), 6000);
     setUndoInfo({ message, snapshot });
   };
+  // Reinicio completo: a diferencia de "Borrar todo el historial" (que solo
+  // limpia movimientos/compromisos/ahorros), esto también borra tarjetas y
+  // monederos, presupuestos, categorías personalizadas y sus servicios — es
+  // decir, TODA la información capturada, como si la app fuera nueva. No
+  // toca el código de familia, los perfiles ni el aspecto: eso sigue igual.
+  const fullReset = async () => {
+    const snapshot = {
+      transactions: transactionsRef.current,
+      moneyLocations: moneyLocationsRef.current,
+      compromisos: compromisosRef.current,
+      savings: savingsRef.current,
+      budgets: budgetsRef.current,
+      customCategories,
+      categoryMeta,
+      budgetSavingsLinks,
+    };
+    const receiptIds = transactions.filter((t) => t.hasReceipt).map((t) => t.id);
+    await Promise.allSettled(receiptIds.map((id) => window.storage.delete('receipt_' + id, true)));
+    await persist({
+      transactions: [], compromisos: [], savings: [], moneyLocations: [],
+      budgets: {}, customCategories: [], categoryMeta: {}, budgetSavingsLinks: {},
+    });
+    setSettingsOpen(false);
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    undoTimeoutRef.current = setTimeout(() => setUndoInfo(null), 6000);
+    setUndoInfo({ message: 'Reinicio completo hecho', snapshot });
+  };
   const performUndo = () => {
     if (!undoInfo) return;
     if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
@@ -7856,6 +7883,10 @@ function LibroDiario() {
                 </button>
                 <button className="danger-btn" onClick={() => askConfirm('¿Borrar todo el historial (movimientos, compromisos y ahorros)?', () => withUndo('Historial borrado', clearAll), { confirmLabel: 'Borrar todo' })}>
                   <Icon name="Trash2" size={14} /> Borrar todo el historial
+                </button>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '4px 2px 0' }}>Borra movimientos, compromisos y ahorros. Tus tarjetas, presupuestos y categorías se quedan igual.</div>
+                <button className="danger-btn" style={{ marginTop: 14, borderColor: 'var(--expense)' }} onClick={() => askConfirm('¿Reiniciar TODO desde cero? Se borra: movimientos, compromisos, ahorros, tarjetas y monederos, presupuestos, y las categorías/servicios que hayas creado o editado. NO se borra: el código de familia, los perfiles ni el aspecto de la app. Esta acción se puede deshacer solo en los próximos segundos.', fullReset, { confirmLabel: 'Reiniciar todo' })}>
+                  <Icon name="RefreshCw" size={14} /> Reinicio completo (empezar de cero)
                 </button>
               </>
             )}
