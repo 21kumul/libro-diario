@@ -40,8 +40,12 @@ const CAT_ICON_CHOICES = ['ShoppingBag', 'Home', 'Zap', 'Motorbike', 'Utensils',
 const CAT_COLOR_CHOICES = ['#2F7D5C', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#C15B72', '#8C6BA6', '#5F8A4C', '#7A4E3A'];
 
 // ---------- avatares personalizados (estilo caricatura) ----------
-const AVATAR_SKIN_TONES = ['#FDE1C6', '#F3C39B', '#E8AC7E', '#C68863', '#9C6244', '#6B4230'];
-const AVATAR_HAIR_COLORS = ['#1B1B1B', '#4A2E1D', '#8C5A2B', '#D6A15A', '#B5432E', '#9C9C9C'];
+const AVATAR_SKIN_TONES = ['#FDE1C6', '#F7D3A8', '#F3C39B', '#E8AC7E', '#D9955E', '#C68863', '#A9714C', '#9C6244', '#7A4E36', '#6B4230'];
+const AVATAR_HAIR_COLORS = ['#1B1B1B', '#3A2A1E', '#4A2E1D', '#6B4226', '#8C5A2B', '#A9702E', '#D6A15A', '#E8C468', '#B5432E', '#8C3A3A', '#9C9C9C', '#E4E4E4'];
+const AVATAR_EYE_COLORS = ['#2A2A28', '#5A3A1E', '#8C5A2B', '#4E6B3A', '#3E6E6E', '#3E6EA5', '#8A4FA0', '#6B7280'];
+const AVATAR_GLASSES_COLORS = ['#2A2A28', '#3E6EA5', '#B0432E', '#5A8F3C', '#8A4FA0', '#C9A227'];
+const AVATAR_SHIRT_COLORS = ['#FFFFFF', '#2F7D5C', '#B0432E', '#3E6EA5', '#8A4FA0', '#C9A227', '#4E4E4E', '#C15B72'];
+const AVATAR_BG_COLORS = ['#FFFFFF', '#F3C1D0', '#C7E3D4', '#C6DCF0', '#EAD9F5', '#FBE3B8', '#D9D2C4', '#2A2A28'];
 const AVATAR_HAIRSTYLES = [
   { id: 'corto', label: 'Corto' },
   { id: 'rizado', label: 'Rizado' },
@@ -50,7 +54,33 @@ const AVATAR_HAIRSTYLES = [
   { id: 'coleta', label: 'Coleta' },
   { id: 'calvo', label: 'Rapado' },
 ];
-const AVATAR_DEFAULT = { skin: AVATAR_SKIN_TONES[1], hair: 'corto', hairColor: AVATAR_HAIR_COLORS[0], glasses: false };
+const AVATAR_EXPRESSIONS = [
+  { id: 'feliz', label: 'Feliz' },
+  { id: 'sorprendido', label: 'Sorprendido' },
+  { id: 'serio', label: 'Serio' },
+  { id: 'guino', label: 'Guiño' },
+];
+const AVATAR_GLASSES_STYLES = [
+  { id: 'ninguno', label: 'Ninguno' },
+  { id: 'redondos', label: 'Redondos' },
+  { id: 'cuadrados', label: 'Cuadrados' },
+];
+const AVATAR_FACIAL_HAIR = [
+  { id: 'ninguno', label: 'Ninguno' },
+  { id: 'bigote', label: 'Bigote' },
+  { id: 'candado', label: 'Candado' },
+  { id: 'barba', label: 'Barba' },
+];
+const AVATAR_HATS = [
+  { id: 'ninguno', label: 'Ninguno' },
+  { id: 'gorro', label: 'Gorro' },
+  { id: 'gorra', label: 'Gorra' },
+];
+const AVATAR_DEFAULT = {
+  skin: AVATAR_SKIN_TONES[2], hair: 'corto', hairColor: AVATAR_HAIR_COLORS[0], eyeColor: AVATAR_EYE_COLORS[0],
+  expression: 'feliz', glassesStyle: 'ninguno', glassesColor: AVATAR_GLASSES_COLORS[0],
+  facialHair: 'ninguno', facialHairColor: AVATAR_HAIR_COLORS[0], hat: 'ninguno', shirtColor: AVATAR_SHIRT_COLORS[0], bg: AVATAR_BG_COLORS[0],
+};
 // Dibuja el cabello según el estilo elegido; todo en el mismo sistema de
 // coordenadas de 100x100 que usa el resto de la cara.
 const drawAvatarHair = (style, color) => {
@@ -75,26 +105,101 @@ const drawAvatarHair = (style, color) => {
       return <path fill={color} d="M27 40 Q50 15 73 40 Q75 28 64 22 Q50 12 36 22 Q25 28 27 40 Z" />;
   }
 };
+const drawAvatarEye = (cx, expression, isRight, eyeColor) => {
+  if (expression === 'guino' && isRight) {
+    return <path key={cx} d={`M${cx - 5} 58 Q${cx} 61 ${cx + 5} 58`} stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />;
+  }
+  return (
+    <g key={cx}>
+      <circle cx={cx} cy="58" r="4.4" fill="#fff" />
+      <circle cx={cx} cy="58" r="3" fill={eyeColor} />
+      <circle cx={cx} cy="58" r="1.3" fill="#111" />
+    </g>
+  );
+};
+const drawAvatarMouth = (expression) => {
+  switch (expression) {
+    case 'sorprendido':
+      return <ellipse cx="50" cy="71" rx="3.4" ry="4.4" fill="#5A3A2E" />;
+    case 'serio':
+      return <line x1="44" y1="71" x2="56" y2="71" stroke="#2A2A28" strokeWidth="2" strokeLinecap="round" />;
+    case 'guino':
+    case 'feliz':
+    default:
+      return <path d="M43 70 Q50 74 57 70" stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />;
+  }
+};
+const drawAvatarGlasses = (style, color) => {
+  if (style === 'ninguno') return null;
+  if (style === 'cuadrados') {
+    return (
+      <g fill="none" stroke={color} strokeWidth="2.2">
+        <rect x="34" y="52" width="14" height="12" rx="3" />
+        <rect x="52" y="52" width="14" height="12" rx="3" />
+        <line x1="48" y1="58" x2="52" y2="58" />
+      </g>
+    );
+  }
+  return (
+    <g fill="none" stroke={color} strokeWidth="2.2">
+      <circle cx="41" cy="58" r="8" />
+      <circle cx="59" cy="58" r="8" />
+      <line x1="49" y1="58" x2="51" y2="58" />
+    </g>
+  );
+};
+const drawAvatarFacialHair = (style, color) => {
+  switch (style) {
+    case 'bigote':
+      return <path fill={color} d="M40 67 Q50 63 60 67 Q56 70 50 68 Q44 70 40 67 Z" />;
+    case 'candado':
+      return (
+        <g fill={color}>
+          <path d="M40 67 Q50 63 60 67 Q56 70 50 68 Q44 70 40 67 Z" />
+          <path d="M45 74 Q50 82 55 74 Q52 79 50 79 Q48 79 45 74 Z" />
+        </g>
+      );
+    case 'barba':
+      return <path fill={color} opacity="0.92" d="M28 62 Q28 84 50 88 Q72 84 72 62 Q72 74 64 78 Q60 68 58 70 Q54 80 50 80 Q46 80 42 70 Q40 68 36 78 Q28 74 28 62 Z" />;
+    default:
+      return null;
+  }
+};
+const drawAvatarHat = (style, color, skinShade) => {
+  if (style === 'gorro') {
+    return (
+      <g>
+        <path fill={color} d="M25 34 Q25 8 50 8 Q75 8 75 34 L75 40 Q50 30 25 40 Z" />
+        <rect x="24" y="32" width="52" height="8" rx="4" fill={color} opacity="0.75" />
+      </g>
+    );
+  }
+  if (style === 'gorra') {
+    return (
+      <g fill={color}>
+        <path d="M25 36 Q25 10 50 10 Q75 10 75 36 Q75 30 50 30 Q25 30 25 36 Z" />
+        <path d="M48 28 Q68 28 78 34 Q68 38 48 34 Z" />
+      </g>
+    );
+  }
+  return null;
+};
 const AvatarSVG = ({ cfg, size = 40 }) => {
   const c = { ...AVATAR_DEFAULT, ...cfg };
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" style={{ borderRadius: '50%', flexShrink: 0, background: '#fff' }}>
-      <circle cx="50" cy="50" r="49" fill="#fff" />
-      <path fill="#fff" stroke="#E4E1D6" strokeWidth="1" d="M22 92 Q22 66 50 66 Q78 66 78 92 Z" />
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ borderRadius: '50%', flexShrink: 0, background: c.bg }}>
+      <circle cx="50" cy="50" r="49" fill={c.bg} />
+      <path fill={c.shirtColor} stroke="#00000014" strokeWidth="1" d="M22 92 Q22 66 50 66 Q78 66 78 92 Z" />
       <circle cx="28" cy="60" r="6" fill={c.skin} />
       <circle cx="72" cy="60" r="6" fill={c.skin} />
       <ellipse cx="50" cy="56" rx="22" ry="26" fill={c.skin} />
       {drawAvatarHair(c.hair, c.hairColor)}
-      <circle cx="41" cy="58" r="2.6" fill="#2A2A28" />
-      <circle cx="59" cy="58" r="2.6" fill="#2A2A28" />
-      <path d="M43 70 Q50 74 57 70" stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />
-      {c.glasses && (
-        <g fill="none" stroke="#2A2A28" strokeWidth="2">
-          <circle cx="41" cy="58" r="8" />
-          <circle cx="59" cy="58" r="8" />
-          <line x1="49" y1="58" x2="51" y2="58" />
-        </g>
-      )}
+      {drawAvatarEye(41, c.expression, false, c.eyeColor)}
+      {drawAvatarEye(59, c.expression, true, c.eyeColor)}
+      {drawAvatarMouth(c.expression)}
+      {drawAvatarFacialHair(c.facialHair, c.facialHairColor)}
+      {drawAvatarGlasses(c.glassesStyle, c.glassesColor)}
+      {drawAvatarHat(c.hat, c.hairColor)}
     </svg>
   );
 };
@@ -3638,8 +3743,10 @@ function LibroDiario() {
 
   // ---------- avatar personalizado ----------
   const [avatarDraft, setAvatarDraft] = useState(AVATAR_DEFAULT);
+  const [avatarTab, setAvatarTab] = useState('piel');
   const openAvatarEditor = (name) => {
     setAvatarDraft(avatarConfigs[name] || AVATAR_DEFAULT);
+    setAvatarTab('piel');
     setSheet({ type: 'edit-avatar', name });
   };
   const saveAvatarConfig = (name) => {
@@ -4550,6 +4657,10 @@ function LibroDiario() {
         .cat-color-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
         .cat-color-choice { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
         .cat-color-choice.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--paper); }
+        .avatar-tab-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+        .avatar-tab-bar::-webkit-scrollbar { display: none; }
+        .avatar-tab { flex-shrink: 0; border: none; border-radius: 999px; padding: 7px 14px; font-family: var(--sans); font-size: 12px; font-weight: 700; background: var(--paper-dim); color: var(--ink-soft); cursor: pointer; }
+        .avatar-tab.active { background: var(--green); color: var(--on-accent); }
         .picker-catcher { position: fixed; inset: 0; z-index: 20; }
         .select-wrap { position: relative; }
         .select-btn { width: 100%; display: flex; align-items: center; gap: 7px; border: none; border-radius: 12px; padding: 9px 10px; font-family: var(--sans); font-size: 13px; font-weight: 600; background: var(--paper-dim); color: var(--ink); box-sizing: border-box; cursor: pointer; text-align: left; }
@@ -8057,49 +8168,165 @@ function LibroDiario() {
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Personalizar avatar</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
-              <AvatarSVG cfg={avatarDraft} size={110} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6, background: avatarDraft.bg, borderRadius: 20, padding: '14px 0' }}>
+              <AvatarSVG cfg={avatarDraft} size={120} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 18 }}>
-              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'corto' }))}>👦 Empezar como niño</button>
-              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'largo' }))}>👧 Empezar como niña</button>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, margin: '10px 0 16px' }}>
+              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'corto', hat: 'ninguno' }))}>👦 Empezar como niño</button>
+              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'largo', hat: 'ninguno' }))}>👧 Empezar como niña</button>
             </div>
 
-            <div className="field-label" style={{ marginTop: 0 }}>Tono de piel</div>
-            <div className="cat-color-picker" style={{ marginBottom: 4 }}>
-              {AVATAR_SKIN_TONES.map((tone) => (
-                <button key={tone} type="button" className={`cat-color-choice ${avatarDraft.skin === tone ? 'selected' : ''}`} style={{ background: tone, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, skin: tone }))} />
+            <div className="avatar-tab-bar">
+              {[
+                { id: 'piel', label: 'Piel' },
+                { id: 'ojos', label: 'Ojos' },
+                { id: 'cabello', label: 'Cabello' },
+                { id: 'lentes', label: 'Lentes' },
+                { id: 'vello', label: 'Vello facial' },
+                { id: 'gorro', label: 'Gorro' },
+                { id: 'ropa', label: 'Ropa' },
+                { id: 'fondo', label: 'Fondo' },
+              ].map((t) => (
+                <button key={t.id} type="button" className={`avatar-tab ${avatarTab === t.id ? 'active' : ''}`} onClick={() => setAvatarTab(t.id)}>{t.label}</button>
               ))}
             </div>
 
-            <div className="field-label">Peinado</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 4 }}>
-              {AVATAR_HAIRSTYLES.map((h) => (
-                <button
-                  key={h.id}
-                  type="button"
-                  onClick={() => setAvatarDraft((d) => ({ ...d, hair: h.id }))}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hair === h.id ? '2px solid var(--green)' : 'none' }}
-                >
-                  <AvatarSVG cfg={{ ...avatarDraft, hair: h.id }} size={48} />
-                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
-                </button>
-              ))}
-            </div>
+            {avatarTab === 'piel' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Tono de piel</div>
+                <div className="cat-color-picker" style={{ marginBottom: 4 }}>
+                  {AVATAR_SKIN_TONES.map((tone) => (
+                    <button key={tone} type="button" className={`cat-color-choice ${avatarDraft.skin === tone ? 'selected' : ''}`} style={{ background: tone, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, skin: tone }))} />
+                  ))}
+                </div>
+              </>
+            )}
 
-            <div className="field-label">Color de cabello</div>
-            <div className="cat-color-picker" style={{ marginBottom: 4 }}>
-              {AVATAR_HAIR_COLORS.map((col) => (
-                <button key={col} type="button" className={`cat-color-choice ${avatarDraft.hairColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, hairColor: col }))} />
-              ))}
-            </div>
+            {avatarTab === 'ojos' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Color de ojos</div>
+                <div className="cat-color-picker" style={{ marginBottom: 12 }}>
+                  {AVATAR_EYE_COLORS.map((col) => (
+                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.eyeColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, eyeColor: col }))} />
+                  ))}
+                </div>
+                <div className="field-label">Expresión</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {AVATAR_EXPRESSIONS.map((ex) => (
+                    <button key={ex.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, expression: ex.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.expression === ex.id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, expression: ex.id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{ex.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
-            <div className="toggle-row" style={{ marginTop: 10 }}>
-              <span className="toggle-row-label"><Icon name="Eye" size={14} /> Lentes</span>
-              <button className={`switch ${avatarDraft.glasses ? 'on' : ''}`} onClick={() => setAvatarDraft((d) => ({ ...d, glasses: !d.glasses }))} />
-            </div>
+            {avatarTab === 'cabello' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Peinado</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  {AVATAR_HAIRSTYLES.map((h) => (
+                    <button key={h.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, hair: h.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hair === h.id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, hair: h.id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="field-label">Color de cabello</div>
+                <div className="cat-color-picker">
+                  {AVATAR_HAIR_COLORS.map((col) => (
+                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.hairColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, hairColor: col }))} />
+                  ))}
+                </div>
+              </>
+            )}
 
-            <button className="save-btn" style={{ marginTop: 16 }} onClick={() => saveAvatarConfig(sheet.name)}><Icon name="Check" size={16} /> Guardar avatar</button>
+            {avatarTab === 'lentes' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Estilo</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  {AVATAR_GLASSES_STYLES.map((g) => (
+                    <button key={g.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, glassesStyle: g.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.glassesStyle === g.id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, glassesStyle: g.id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{g.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {avatarDraft.glassesStyle !== 'ninguno' && (
+                  <>
+                    <div className="field-label">Color de lentes</div>
+                    <div className="cat-color-picker">
+                      {AVATAR_GLASSES_COLORS.map((col) => (
+                        <button key={col} type="button" className={`cat-color-choice ${avatarDraft.glassesColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, glassesColor: col }))} />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {avatarTab === 'vello' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Vello facial</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  {AVATAR_FACIAL_HAIR.map((f) => (
+                    <button key={f.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, facialHair: f.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.facialHair === f.id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, facialHair: f.id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{f.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {avatarDraft.facialHair !== 'ninguno' && (
+                  <>
+                    <div className="field-label">Color</div>
+                    <div className="cat-color-picker">
+                      {AVATAR_HAIR_COLORS.map((col) => (
+                        <button key={col} type="button" className={`cat-color-choice ${avatarDraft.facialHairColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, facialHairColor: col }))} />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {avatarTab === 'gorro' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Gorro</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {AVATAR_HATS.map((h) => (
+                    <button key={h.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, hat: h.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hat === h.id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, hat: h.id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {avatarTab === 'ropa' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Color de playera</div>
+                <div className="cat-color-picker">
+                  {AVATAR_SHIRT_COLORS.map((col) => (
+                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.shirtColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32, border: col === '#FFFFFF' ? '1px solid var(--line)' : undefined }} onClick={() => setAvatarDraft((d) => ({ ...d, shirtColor: col }))} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {avatarTab === 'fondo' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Color de fondo</div>
+                <div className="cat-color-picker">
+                  {AVATAR_BG_COLORS.map((col) => (
+                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.bg === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32, border: col === '#FFFFFF' ? '1px solid var(--line)' : undefined }} onClick={() => setAvatarDraft((d) => ({ ...d, bg: col }))} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button className="save-btn" style={{ marginTop: 18 }} onClick={() => saveAvatarConfig(sheet.name)}><Icon name="Check" size={16} /> Guardar avatar</button>
             {avatarConfigs[sheet.name] && (
               <button className="danger-btn neutral" onClick={() => removeAvatarConfig(sheet.name)}><Icon name="Trash2" size={14} /> Quitar avatar personalizado</button>
             )}
