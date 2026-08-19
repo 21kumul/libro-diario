@@ -39,6 +39,67 @@ const INGRESO_CATS = [
 const CAT_ICON_CHOICES = ['ShoppingBag', 'Home', 'Zap', 'Motorbike', 'Utensils', 'HeartPulse', 'Landmark', 'CreditCard', 'Package', 'Truck', 'PiggyBank', 'Banknote', 'Sparkles', 'Bell', 'Wallet', 'Users', 'Calculator', 'BarChart3', 'MoreHorizontal', 'RefreshCw'];
 const CAT_COLOR_CHOICES = ['#2F7D5C', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#C15B72', '#8C6BA6', '#5F8A4C', '#7A4E3A'];
 
+// ---------- avatares personalizados (estilo caricatura) ----------
+const AVATAR_SKIN_TONES = ['#FDE1C6', '#F3C39B', '#E8AC7E', '#C68863', '#9C6244', '#6B4230'];
+const AVATAR_HAIR_COLORS = ['#1B1B1B', '#4A2E1D', '#8C5A2B', '#D6A15A', '#B5432E', '#9C9C9C'];
+const AVATAR_HAIRSTYLES = [
+  { id: 'corto', label: 'Corto' },
+  { id: 'rizado', label: 'Rizado' },
+  { id: 'largo', label: 'Largo' },
+  { id: 'afro', label: 'Chino' },
+  { id: 'coleta', label: 'Coleta' },
+  { id: 'calvo', label: 'Rapado' },
+];
+const AVATAR_DEFAULT = { skin: AVATAR_SKIN_TONES[1], hair: 'corto', hairColor: AVATAR_HAIR_COLORS[0], glasses: false };
+// Dibuja el cabello según el estilo elegido; todo en el mismo sistema de
+// coordenadas de 100x100 que usa el resto de la cara.
+const drawAvatarHair = (style, color) => {
+  switch (style) {
+    case 'rizado':
+      return <g fill={color}>{[22, 30, 38, 46, 54, 62, 70, 78].map((cx, i) => <circle key={cx} cx={cx} cy={30 - Math.abs(i - 3.5) * 2.4} r={8} />)}</g>;
+    case 'largo':
+      return <path fill={color} d="M24 44 Q22 16 50 14 Q78 16 76 44 L76 78 Q68 62 70 44 Q68 26 50 25 Q32 26 30 44 Q32 62 24 78 Z" />;
+    case 'afro':
+      return <circle fill={color} cx="50" cy="34" r="27" />;
+    case 'coleta':
+      return (
+        <g fill={color}>
+          <path d="M27 40 Q50 15 73 40 Q75 28 64 22 Q50 12 36 22 Q25 28 27 40 Z" />
+          <ellipse cx="78" cy="50" rx="6" ry="13" transform="rotate(25 78 50)" />
+        </g>
+      );
+    case 'calvo':
+      return null;
+    case 'corto':
+    default:
+      return <path fill={color} d="M27 40 Q50 15 73 40 Q75 28 64 22 Q50 12 36 22 Q25 28 27 40 Z" />;
+  }
+};
+const AvatarSVG = ({ cfg, size = 40 }) => {
+  const c = { ...AVATAR_DEFAULT, ...cfg };
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ borderRadius: '50%', flexShrink: 0, background: '#fff' }}>
+      <circle cx="50" cy="50" r="49" fill="#fff" />
+      <path fill="#fff" stroke="#E4E1D6" strokeWidth="1" d="M22 92 Q22 66 50 66 Q78 66 78 92 Z" />
+      <circle cx="28" cy="60" r="6" fill={c.skin} />
+      <circle cx="72" cy="60" r="6" fill={c.skin} />
+      <ellipse cx="50" cy="56" rx="22" ry="26" fill={c.skin} />
+      {drawAvatarHair(c.hair, c.hairColor)}
+      <circle cx="41" cy="58" r="2.6" fill="#2A2A28" />
+      <circle cx="59" cy="58" r="2.6" fill="#2A2A28" />
+      <path d="M43 70 Q50 74 57 70" stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />
+      {c.glasses && (
+        <g fill="none" stroke="#2A2A28" strokeWidth="2">
+          <circle cx="41" cy="58" r="8" />
+          <circle cx="59" cy="58" r="8" />
+          <line x1="49" y1="58" x2="51" y2="58" />
+        </g>
+      )}
+    </svg>
+  );
+};
+
+
 const GASTO_CATS = [
   { id: 'renta', label: 'Renta', icon: 'Home', color: '#B0432E' },
   { id: 'servicios', label: 'Servicios', icon: 'Zap', color: '#C9A227' },
@@ -920,6 +981,7 @@ function LibroDiario() {
   const [budgets, setBudgets] = useState({}); // { [categoriaId]: montoMensual }
   const [budgetSavingsLinks, setBudgetSavingsLinks] = useState({}); // { [categoriaId]: idDeCuentaDeAhorro }
   const [profilePhotos, setProfilePhotos] = useState({}); // { [nombreDeFamilia]: dataURL de la foto }
+  const [avatarConfigs, setAvatarConfigs] = useState({}); // { [nombreDeFamilia]: { skin, hair, hairColor, glasses } } — avatar caricaturesco en vez de foto
   const [personPins, setPersonPins] = useState({}); // { [nombreDeFamilia]: PIN de 4 dígitos (opcional) }
   const moneyLocationsByPerson = useMemo(() => {
     const map = {};
@@ -1295,7 +1357,7 @@ function LibroDiario() {
   // Trae lo último guardado por cualquier integrante de la familia (datos compartidos)
   const loadShared = useCallback(async () => {
     try {
-      const [t, c, s, f, fn, ml, bg, pp, pn, bsl, cc, cm] = await Promise.allSettled([
+      const [t, c, s, f, fn, ml, bg, pp, pn, bsl, cc, cm, ac] = await Promise.allSettled([
         window.storage.get('transactions', true),
         window.storage.get('compromisos', true),
         window.storage.get('savings', true),
@@ -1308,6 +1370,7 @@ function LibroDiario() {
         window.storage.get('budgetSavingsLinks', true),
         window.storage.get('customCategories', true),
         window.storage.get('categoryMeta', true),
+        window.storage.get('avatarConfigs', true),
       ]);
       const rawTx = t.status === 'fulfilled' && t.value ? JSON.parse(t.value.value) : [];
       const rawComp = c.status === 'fulfilled' && c.value ? JSON.parse(c.value.value) : [];
@@ -1330,6 +1393,7 @@ function LibroDiario() {
       setBudgetSavingsLinks(bsl.status === 'fulfilled' && bsl.value ? JSON.parse(bsl.value.value) : {});
       setCustomCategories(cc.status === 'fulfilled' && cc.value ? JSON.parse(cc.value.value) : []);
       setCategoryMeta(cm.status === 'fulfilled' && cm.value ? JSON.parse(cm.value.value) : {});
+      setAvatarConfigs(ac.status === 'fulfilled' && ac.value ? JSON.parse(ac.value.value) : {});
       setProfilePhotos(pp.status === 'fulfilled' && pp.value ? JSON.parse(pp.value.value) : {});
       setPersonPins(pn.status === 'fulfilled' && pn.value ? JSON.parse(pn.value.value) : {});
       setFamilia(f.status === 'fulfilled' && f.value ? JSON.parse(f.value.value) : []);
@@ -1448,6 +1512,7 @@ function LibroDiario() {
     if (patch.budgetSavingsLinks) setBudgetSavingsLinks(patch.budgetSavingsLinks);
     if (patch.customCategories) setCustomCategories(patch.customCategories);
     if (patch.categoryMeta) setCategoryMeta(patch.categoryMeta);
+    if (patch.avatarConfigs) setAvatarConfigs(patch.avatarConfigs);
     if (patch.profilePhotos) setProfilePhotos(patch.profilePhotos);
     if (patch.personPins) setPersonPins(patch.personPins);
     if (patch.familia) setFamilia(patch.familia);
@@ -1462,6 +1527,7 @@ function LibroDiario() {
       if (patch.budgetSavingsLinks) jobs.push(window.storage.set('budgetSavingsLinks', JSON.stringify(patch.budgetSavingsLinks), true));
       if (patch.customCategories) jobs.push(window.storage.set('customCategories', JSON.stringify(patch.customCategories), true));
       if (patch.categoryMeta) jobs.push(window.storage.set('categoryMeta', JSON.stringify(patch.categoryMeta), true));
+      if (patch.avatarConfigs) jobs.push(window.storage.set('avatarConfigs', JSON.stringify(patch.avatarConfigs), true));
       if (patch.profilePhotos) jobs.push(window.storage.set('profilePhotos', JSON.stringify(patch.profilePhotos), true));
       if (patch.personPins) jobs.push(window.storage.set('personPins', JSON.stringify(patch.personPins), true));
       if (patch.familia) jobs.push(window.storage.set('familia', JSON.stringify(patch.familia), true));
@@ -3570,6 +3636,24 @@ function LibroDiario() {
     persist({ profilePhotos: next });
   };
 
+  // ---------- avatar personalizado ----------
+  const [avatarDraft, setAvatarDraft] = useState(AVATAR_DEFAULT);
+  const openAvatarEditor = (name) => {
+    setAvatarDraft(avatarConfigs[name] || AVATAR_DEFAULT);
+    setSheet({ type: 'edit-avatar', name });
+  };
+  const saveAvatarConfig = (name) => {
+    persist({ avatarConfigs: { ...avatarConfigs, [name]: avatarDraft } });
+    if (profilePhotos[name]) removeProfilePhoto(name); // el avatar reemplaza a la foto, no conviven
+    setSheet(null);
+  };
+  const removeAvatarConfig = (name) => {
+    const next = { ...avatarConfigs };
+    delete next[name];
+    persist({ avatarConfigs: next });
+    setSheet(null);
+  };
+
   const markPersonPaid = (name, receivedAmount) => {
     let owed = 0;
     const key = name.trim().toLowerCase();
@@ -4165,6 +4249,8 @@ function LibroDiario() {
   // el circulito de siempre con su inicial y color.
   const avatarNode = (name, size = 26, fontSize) => profilePhotos[name]
     ? <img src={profilePhotos[name]} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    : avatarConfigs[name]
+    ? <AvatarSVG cfg={avatarConfigs[name]} size={size} />
     : <div className="mini-avatar" style={{ width: size, height: size, fontSize: fontSize || Math.round(size * 0.46), background: colorForName(name) }}>{name.charAt(0).toUpperCase()}</div>;
 
   const renderLocationPicker = (list, selectedId, onSelect) => {
@@ -7627,6 +7713,11 @@ function LibroDiario() {
                   </div>
                 )}
                 {nicknameError && <div className="form-error">{nicknameError}</div>}
+                {profile && (
+                  <button className="danger-btn neutral" style={{ marginTop: 10 }} onClick={() => openAvatarEditor(profile.name)}>
+                    <Icon name="Sparkles" size={14} /> {avatarConfigs[profile.name] ? 'Editar avatar personalizado' : 'Crear avatar personalizado'}
+                  </button>
+                )}
 
                 <div className="card-title" style={{ marginTop: 18 }}>PIN de acceso</div>
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10 }}>
@@ -7956,6 +8047,61 @@ function LibroDiario() {
                   <Icon name="CheckCircle2" size={16} /> Importar {importRows.filter((r) => r.include).length} movimiento{importRows.filter((r) => r.include).length !== 1 ? 's' : ''}
                 </button>
               </>
+            )}
+          </div>
+        </div>
+      )}
+      {sheet?.type === 'edit-avatar' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Personalizar avatar</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+              <AvatarSVG cfg={avatarDraft} size={110} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 18 }}>
+              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'corto' }))}>👦 Empezar como niño</button>
+              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'largo' }))}>👧 Empezar como niña</button>
+            </div>
+
+            <div className="field-label" style={{ marginTop: 0 }}>Tono de piel</div>
+            <div className="cat-color-picker" style={{ marginBottom: 4 }}>
+              {AVATAR_SKIN_TONES.map((tone) => (
+                <button key={tone} type="button" className={`cat-color-choice ${avatarDraft.skin === tone ? 'selected' : ''}`} style={{ background: tone, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, skin: tone }))} />
+              ))}
+            </div>
+
+            <div className="field-label">Peinado</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 4 }}>
+              {AVATAR_HAIRSTYLES.map((h) => (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => setAvatarDraft((d) => ({ ...d, hair: h.id }))}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hair === h.id ? '2px solid var(--green)' : 'none' }}
+                >
+                  <AvatarSVG cfg={{ ...avatarDraft, hair: h.id }} size={48} />
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="field-label">Color de cabello</div>
+            <div className="cat-color-picker" style={{ marginBottom: 4 }}>
+              {AVATAR_HAIR_COLORS.map((col) => (
+                <button key={col} type="button" className={`cat-color-choice ${avatarDraft.hairColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, hairColor: col }))} />
+              ))}
+            </div>
+
+            <div className="toggle-row" style={{ marginTop: 10 }}>
+              <span className="toggle-row-label"><Icon name="Eye" size={14} /> Lentes</span>
+              <button className={`switch ${avatarDraft.glasses ? 'on' : ''}`} onClick={() => setAvatarDraft((d) => ({ ...d, glasses: !d.glasses }))} />
+            </div>
+
+            <button className="save-btn" style={{ marginTop: 16 }} onClick={() => saveAvatarConfig(sheet.name)}><Icon name="Check" size={16} /> Guardar avatar</button>
+            {avatarConfigs[sheet.name] && (
+              <button className="danger-btn neutral" onClick={() => removeAvatarConfig(sheet.name)}><Icon name="Trash2" size={14} /> Quitar avatar personalizado</button>
             )}
           </div>
         </div>
