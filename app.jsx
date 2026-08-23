@@ -1836,6 +1836,151 @@ function LibroDiario() {
     [savings]
   );
 
+  // Racha de captura diaria (tipo Duolingo): días consecutivos con al menos
+  // un movimiento registrado por la familia, terminando hoy o ayer (si hoy
+  // aún no has capturado nada, no se rompe la racha todavía).
+  const streakDays = useMemo(() => {
+    const days = new Set(transactions.map((t) => t.date));
+    let cursor = new Date();
+    let cursorStr = dateStrOf(cursor);
+    if (!days.has(cursorStr)) {
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    let count = 0;
+    while (days.has(cursorStr)) {
+      count += 1;
+      cursor.setDate(cursor.getDate() - 1);
+      cursorStr = dateStrOf(cursor);
+    }
+    return count;
+  }, [transactions]);
+  const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
+
+  // ---------- Score de salud financiera (0-100), estilo Finno ----------
+  // 4 factores de 25 pts cada uno: flujo de caja, distribución de gastos,
+  // tasa de ahorro y fondo de emergencia. Todo se calcula con tus propios
+  // datos, sin ningún servicio externo.
+  const financialHealth = useMemo(() => {
+    const key = currentPeriodKey;
+    let ingresoMes = 0, gastoMes = 0;
+    const gastoPorCat = {};
+    transactions.forEach((t) => {
+      if (periodKey(t.date) !== key) return;
+      if (t.type === 'ingreso') ingresoMes += t.amount;
+      if (t.type === 'gasto') { gastoMes += t.amount; gastoPorCat[t.category] = (gastoPorCat[t.category] || 0) + t.amount; }
+    });
+    // 1) Flujo de caja: ¿te alcanza lo que ganas para lo que gastas?
+    let flujoScore = 12.5;
+    let flujoTxt = 'Aún no hay suficientes movimientos este mes para calcularlo.';
+    if (ingresoMes > 0 || gastoMes > 0) {
+      const neto = ingresoMes - gastoMes;
+      const ratio = ingresoMes > 0 ? neto / ingresoMes : -1;
+      flujoScore = Math.max(0, Math.min(25, 12.5 + ratio * 25));
+      flujoTxt = neto >= 0
+        ? `Este mes te sobran ${fmt(neto)} — vas bien.`
+        : `Este mes gastaste ${fmt(Math.abs(neto))} más de lo que ha entrado.`;
+    }
+    // 2) Distribución de gastos: que ninguna categoría se coma todo.
+    const catValues = Object.values(gastoPorCat);
+    const maxCat = catValues.length ? Math.max(...catValues) : 0;
+    const maxCatPct = gastoMes > 0 ? maxCat / gastoMes : 0;
+    const distScore = catValues.length === 0 ? 12.5 : Math.max(0, Math.min(25, 25 - Math.max(0, maxCatPct - 0.35) * 62.5));
+    const maxCatId = Object.entries(gastoPorCat).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const distTxt = catValues.length === 0
+      ? 'Sin gastos registrados este mes todavía.'
+      : maxCatPct > 0.5
+      ? `${catByIdAny(maxCatId).label} se está llevando ${Math.round(maxCatPct * 100)}% de tu gasto del mes.`
+      : 'Tu gasto está repartido de forma sana entre categorías.';
+    // 3) Tasa de ahorro: cuánto de lo que ganas se va directo a tus metas.
+    const ahorroMesNeto = savings.reduce((sum, acc) => sum + acc.movements.filter((m) => periodKey(m.date) === key).reduce((s, m) => s + (m.kind === 'deposito' ? m.amount : -m.amount), 0), 0);
+    const tasaAhorro = ingresoMes > 0 ? ahorroMesNeto / ingresoMes : 0;
+    const ahorroScore = Math.max(0, Math.min(25, (tasaAhorro / 0.2) * 25));
+    const ahorroTxt = ingresoMes === 0
+      ? 'Registra tus ingresos del mes para calcular tu tasa de ahorro.'
+      : tasaAhorro >= 0.2
+      ? `Estás apartando ${Math.round(tasaAhorro * 100)}% de tus ingresos — excelente ritmo.`
+      : `Apartaste ${Math.round(Math.max(0, tasaAhorro) * 100)}% de tus ingresos este mes. La meta recomendada es 20%.`;
+    // 4) Fondo de emergencia: ¿cuántos meses de gasto cubre tu ahorro total?
+    const gastoPromedio = (() => {
+      const last3 = [0, 1, 2].map((i) => {
+        const d = new Date(); d.setMonth(d.getMonth() - i);
+        const k = periodKey(dateStrOf(d));
+        return transactions.filter((t) => t.type === 'gasto' && periodKey(t.date) === k).reduce((s, t) => s + t.amount, 0);
+      }).filter((v) => v > 0);
+      return last3.length ? last3.reduce((a, b) => a + b, 0) / last3.length : gastoMes;
+    })();
+    const mesesCubiertos = gastoPromedio > 0 ? ahorradoTotal / gastoPromedio : 0;
+    const fondoScore = Math.max(0, Math.min(25, (mesesCubiertos / 3) * 25));
+    const fondoTxt = gastoPromedio === 0
+      ? 'Registra algunos gastos para calcular tu fondo de emergencia.'
+      : mesesCubiertos >= 3
+      ? `Tu ahorro cubriría ${mesesCubiertos.toFixed(1)} meses de gasto — ya tienes colchón.`
+      : `Tu ahorro cubriría ${mesesCubiertos.toFixed(1)} de los 3 meses recomendados de gasto.`;
+
+    const total = Math.round(flujoScore + distScore + ahorroScore + fondoScore);
+    const nivel = total >= 90 ? { label: 'Excelente', color: 'var(--income)' }
+      : total >= 70 ? { label: 'Saludable', color: 'var(--income)' }
+      : total >= 40 ? { label: 'En camino', color: 'var(--gold)' }
+      : { label: 'Necesita atención', color: 'var(--expense)' };
+
+    const factores = [
+      { id: 'flujo', label: 'Flujo de caja', score: Math.round(flujoScore), text: flujoTxt },
+      { id: 'distribucion', label: 'Distribución de gastos', score: Math.round(distScore), text: distTxt },
+      { id: 'ahorro', label: 'Tasa de ahorro', score: Math.round(ahorroScore), text: ahorroTxt },
+      { id: 'fondo', label: 'Fondo de emergencia', score: Math.round(fondoScore), text: fondoTxt },
+    ];
+    const consejos = factores.filter((f) => f.score < 15).map((f) => f.text);
+    return { total, nivel, factores, consejos };
+  }, [transactions, savings, ahorradoTotal, currentPeriodKey]);
+
+  // ---------- Detección de gastos recurrentes no dados de alta como fijos ----------
+  // Busca gastos con la misma categoría + nota parecida que se repiten en 2+
+  // meses distintos con montos similares, y que todavía no están ligados a
+  // ningún compromiso — candidatos claros a "esto se repite cada mes".
+  const [dismissedRecurring, setDismissedRecurring] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('libroDiario:dismissedRecurring') || '[]'); } catch (e) { return []; }
+  });
+  const dismissRecurring = (key) => {
+    const next = [...dismissedRecurring, key];
+    setDismissedRecurring(next);
+    try { localStorage.setItem('libroDiario:dismissedRecurring', JSON.stringify(next)); } catch (e) { /* ignorar */ }
+  };
+  const recurringSuggestions = useMemo(() => {
+    const groups = {};
+    transactions.forEach((t) => {
+      if (t.type !== 'gasto' || t.compromisoId) return;
+      const noteKey = (t.note || '').trim().toLowerCase().replace(/[0-9]/g, '').slice(0, 20);
+      if (!noteKey) return;
+      const key = `${t.category}::${noteKey}`;
+      (groups[key] = groups[key] || []).push(t);
+    });
+    return Object.entries(groups)
+      .map(([key, txs]) => {
+        const months = new Set(txs.map((t) => periodKey(t.date)));
+        const amounts = txs.map((t) => t.amount);
+        const avg = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+        const spread = Math.max(...amounts) - Math.min(...amounts);
+        return { key, txs, months: months.size, avg, spread, note: txs[txs.length - 1].note, category: txs[0].category };
+      })
+      .filter((g) => g.months >= 2 && g.spread / g.avg < 0.2 && !dismissedRecurring.includes(g.key))
+      .sort((a, b) => b.months - a.months)
+      .slice(0, 3);
+  }, [transactions, dismissedRecurring]);
+
+  // ---------- Logros ----------
+  const ACHIEVEMENTS = [
+    { id: 'racha7', label: 'Una semana seguida', icon: 'Zap', check: () => streakDays >= 7 },
+    { id: 'racha30', label: 'Un mes sin fallar', icon: 'Sparkles', check: () => streakDays >= 30 },
+    { id: 'mov50', label: '50 movimientos capturados', icon: 'List', check: () => transactions.length >= 50 },
+    { id: 'mov200', label: '200 movimientos capturados', icon: 'BarChart3', check: () => transactions.length >= 200 },
+    { id: 'meta1', label: 'Primera meta de ahorro', icon: 'PiggyBank', check: () => savings.length >= 1 },
+    { id: 'metacumplida', label: 'Meta de ahorro cumplida', icon: 'CheckCircle2', check: () => savings.some((s) => s.movements.reduce((sum, m) => sum + (m.kind === 'deposito' ? m.amount : -m.amount), 0) >= (s.target || Infinity)) },
+    { id: 'presupuesto', label: 'Primer presupuesto', icon: 'Calculator', check: () => Object.keys(budgets).length >= 1 },
+    { id: 'saludable', label: 'Salud financiera saludable', icon: 'HeartPulse', check: () => financialHealth.total >= 70 },
+  ];
+  const unlockedAchievements = useMemo(() => ACHIEVEMENTS.filter((a) => a.check()), [streakDays, transactions.length, savings, budgets, financialHealth.total]);
+
   const grouped = useMemo(() => {
     const groups = {};
     const base = searchMonth ? transactions.filter((t) => periodKey(t.date) === searchMonth) : filtered;
@@ -3901,6 +4046,33 @@ function LibroDiario() {
     XLSX.writeFile(wb, `libro-diario-movimientos-${todayStr()}.xlsx`);
   };
 
+  // Mismo contenido que el Excel, pero en texto plano .csv — útil para
+  // importarlo en herramientas que no abren .xlsx directamente.
+  const exportMovimientosCSV = () => {
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Fecha', 'Tipo', 'Código contable', 'Categoría', 'Servicio', 'Nota', 'Persona', 'Cuenta', 'Monto', 'Compartido', 'Autor'];
+    const rows = transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map((t) => {
+      const cat = catByIdAny(t.category);
+      const cuenta = cuentaOfAny(t.category);
+      const loc = moneyLocations.find((l) => l.id === t.locationId);
+      return [
+        t.date, t.type === 'ingreso' ? 'Ingreso' : 'Gasto', cuenta.codigo, cat.label, t.servicio || '', t.note || '',
+        loc ? loc.persona : '', loc ? (loc.tipo === 'tarjeta' ? (loc.nombre || 'Tarjeta') : 'Monedero') : '',
+        t.amount, t.shared ? 'Sí' : '', t.autor || '',
+      ].map(esc).join(',');
+    });
+    const csv = '\uFEFF' + [header.map(esc).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `libro-diario-movimientos-${todayStr()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
   // Genera un PDF del Estado de Resultado de un mes usando la propia
   // impresión del navegador (Guardar como PDF) — así no hace falta cargar
   // ninguna librería extra de PDF, y el resultado se ve limpio.
@@ -4179,29 +4351,9 @@ function LibroDiario() {
     setTimeout(() => setCodeCopied(false), 1800);
   };
 
-  // Racha de captura diaria (tipo Duolingo): días consecutivos con al menos
-  // un movimiento registrado por la familia, terminando hoy o ayer (si hoy
-  // aún no has capturado nada, no se rompe la racha todavía).
-  const streakDays = useMemo(() => {
-    const days = new Set(transactions.map((t) => t.date));
-    let cursor = new Date();
-    let cursorStr = dateStrOf(cursor);
-    if (!days.has(cursorStr)) {
-      cursor.setDate(cursor.getDate() - 1);
-      cursorStr = dateStrOf(cursor);
-    }
-    let count = 0;
-    while (days.has(cursorStr)) {
-      count += 1;
-      cursor.setDate(cursor.getDate() - 1);
-      cursorStr = dateStrOf(cursor);
-    }
-    return count;
-  }, [transactions]);
   const capturedToday = transactions.some((t) => t.date === todayStr());
   const catOptions = txForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
   const editCatOptions = editTxForm.type === 'ingreso' ? allIngresoCats : allGastoCats;
-  const catByIdAny = (id) => [...ALL_CATS, ...customCategories].find((c) => c.id === id) || { id, label: id, icon: 'MoreHorizontal', color: '#9C8672' };
   const isCustomCat = (id) => customCategories.some((c) => c.id === id);
   const cuentaOfAny = (catId) => CUENTA_CONTABLE[catId] || {
     codigo: allIngresoCats.some((c) => c.id === catId) ? '4900' : '5900',
@@ -4956,7 +5108,7 @@ function LibroDiario() {
         .avatar-upload-btn { position: relative; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
         .avatar-upload-badge { position: absolute; bottom: -2px; right: -2px; width: 15px; height: 15px; border-radius: 50%; background: var(--gold); color: var(--green); display: flex; align-items: center; justify-content: center; border: 2px solid var(--paper); }
         .you-badge { font-size: 9px; background: var(--green); color: var(--on-accent); padding: 2px 6px; border-radius: 5px; font-weight: 700; }
-        .streak-badge { display: flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 4px 8px 4px 6px; border-radius: 999px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); }
+        .streak-badge { display: flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 4px 8px 4px 6px; border-radius: 999px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.55); border: none; cursor: pointer; }
         .streak-badge.lit { background: rgba(230,168,63,0.18); color: var(--gold); }
         .quick-entry-row { display: flex; gap: 6px; margin-bottom: 4px; }
         .quick-entry-row .text-input { flex: 1; min-width: 0; }
@@ -4973,9 +5125,9 @@ function LibroDiario() {
           <span className="brand">Libro<span className="dot">•</span>Diario</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {streakDays > 0 && (
-              <div className={`streak-badge ${capturedToday ? 'lit' : ''}`} title={capturedToday ? `Llevas ${streakDays} día${streakDays === 1 ? '' : 's'} seguidos capturando` : `${streakDays} día${streakDays === 1 ? '' : 's'} — captura algo hoy para no perder la racha`}>
+              <button className={`streak-badge ${capturedToday ? 'lit' : ''}`} onClick={() => setSheet({ type: 'financial-health' })} title={capturedToday ? `Llevas ${streakDays} día${streakDays === 1 ? '' : 's'} seguidos capturando` : `${streakDays} día${streakDays === 1 ? '' : 's'} — captura algo hoy para no perder la racha`}>
                 <Icon name="Zap" size={12} /> {streakDays}
-              </div>
+              </button>
             )}
             {profile && <div title={profile.name}>{avatarNode(profile.name, 26)}</div>}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
@@ -5010,6 +5162,47 @@ function LibroDiario() {
           <div className="empty-state"><span className="eyebrow">Abriendo el libro…</span></div>
         ) : tab === 'resumen' ? (
           <>
+            <div className="card" style={{ cursor: 'pointer' }} onClick={() => setSheet({ type: 'financial-health' })}>
+              <div className="card-title" style={{ marginBottom: 10 }}>
+                <span>Salud financiera</span>
+                <Icon name="ChevronRight" size={15} color="var(--ink-soft)" />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ position: 'relative', width: 62, height: 62, flexShrink: 0 }}>
+                  <svg width="62" height="62" viewBox="0 0 62 62">
+                    <circle cx="31" cy="31" r="26" fill="none" stroke="var(--paper-dim)" strokeWidth="7" />
+                    <circle cx="31" cy="31" r="26" fill="none" stroke={financialHealth.nivel.color} strokeWidth="7" strokeDasharray={2 * Math.PI * 26} strokeDashoffset={2 * Math.PI * 26 * (1 - financialHealth.total / 100)} strokeLinecap="round" transform="rotate(-90 31 31)" />
+                  </svg>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>{financialHealth.total}</div>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: financialHealth.nivel.color }}>{financialHealth.nivel.label}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>Basado en flujo de caja, gastos, ahorro y fondo de emergencia</div>
+                </div>
+              </div>
+            </div>
+
+            {recurringSuggestions.length > 0 && (
+              <div className="card">
+                <div className="card-title" style={{ marginBottom: 8 }}>💡 Gastos que parecen repetirse</div>
+                {recurringSuggestions.map((g) => (
+                  <div key={g.key} className="mini-row" style={{ alignItems: 'flex-start' }}>
+                    <div className="savings-icon" style={{ width: 28, height: 28, background: catByIdAny(g.category).color, color: '#fff' }}>
+                      <Icon name={catByIdAny(g.category).icon} size={14} />
+                    </div>
+                    <div className="mini-row-mid">
+                      <div className="mini-row-name">{g.note || catByIdAny(g.category).label}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{g.months} meses seguidos · {fmt(g.avg)} aprox.</div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                        <button type="button" className="cat-manage-link" onClick={() => { setSheet({ type: 'new-compromiso' }); }}>Dar de alta como fijo</button>
+                        <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => dismissRecurring(g.key)}>No, gracias</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="card">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>¿Dónde está el dinero?</span>
@@ -8075,6 +8268,9 @@ function LibroDiario() {
                 <button className="danger-btn neutral" onClick={exportMovimientosExcel}>
                   <Icon name="List" size={14} /> Exportar movimientos (.xlsx)
                 </button>
+                <button className="danger-btn neutral" onClick={exportMovimientosCSV}>
+                  <Icon name="List" size={14} /> Exportar movimientos (.csv)
+                </button>
                 <button className="danger-btn neutral" onClick={() => exportEstadoResultadoPDF(chartMonth)}>
                   <Icon name="List" size={14} /> Exportar Estado de Resultado (PDF) · {periodLabel(chartMonth)}
                 </button>
@@ -8342,6 +8538,65 @@ function LibroDiario() {
             {avatarConfigs[sheet.name] && (
               <button className="danger-btn neutral" onClick={() => removeAvatarConfig(sheet.name)}><Icon name="Trash2" size={14} /> Quitar avatar personalizado</button>
             )}
+          </div>
+        </div>
+      )}
+      {sheet?.type === 'financial-health' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} style={sheetDragStyle}>
+            <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
+            <div className="sheet-header"><span className="sheet-title">Salud financiera</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 18px' }}>
+              <div style={{ position: 'relative', width: 120, height: 120 }}>
+                <svg width="120" height="120" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="50" fill="none" stroke="var(--paper-dim)" strokeWidth="12" />
+                  <circle cx="60" cy="60" r="50" fill="none" stroke={financialHealth.nivel.color} strokeWidth="12" strokeDasharray={2 * Math.PI * 50} strokeDashoffset={2 * Math.PI * 50 * (1 - financialHealth.total / 100)} strokeLinecap="round" transform="rotate(-90 60 60)" />
+                </svg>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 30, color: 'var(--ink)' }}>{financialHealth.total}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: financialHealth.nivel.color }}>{financialHealth.nivel.label}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="field-label" style={{ marginTop: 0 }}>Los 4 factores</div>
+            {financialHealth.factores.map((f) => (
+              <div key={f.id} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{f.label}</span>
+                  <span style={{ fontSize: 11.5, fontFamily: 'var(--mono)', color: 'var(--ink-soft)' }}>{f.score}/25</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--paper-dim)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(f.score / 25) * 100}%`, background: f.score >= 18 ? 'var(--income)' : f.score >= 10 ? 'var(--gold)' : 'var(--expense)', borderRadius: 3 }} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 3 }}>{f.text}</div>
+              </div>
+            ))}
+
+            {financialHealth.consejos.length > 0 && (
+              <>
+                <div className="field-label">Consejos para mejorar</div>
+                {financialHealth.consejos.map((c, i) => (
+                  <div key={i} style={{ fontSize: 12.5, color: 'var(--ink)', background: 'var(--paper-dim)', borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>💡 {c}</div>
+                ))}
+              </>
+            )}
+
+            <div className="field-label">Logros ({unlockedAchievements.length}/{ACHIEVEMENTS.length})</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {ACHIEVEMENTS.map((a) => {
+                const unlocked = unlockedAchievements.some((u) => u.id === a.id);
+                return (
+                  <div key={a.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: 70, opacity: unlocked ? 1 : 0.35 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: unlocked ? 'var(--gold)' : 'var(--paper-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: unlocked ? '#fff' : 'var(--ink-soft)' }}>
+                      <Icon name={a.icon} size={19} />
+                    </div>
+                    <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--ink-soft)', textAlign: 'center', lineHeight: 1.2 }}>{a.label}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
