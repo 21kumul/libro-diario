@@ -39,170 +39,168 @@ const INGRESO_CATS = [
 const CAT_ICON_CHOICES = ['ShoppingBag', 'Home', 'Zap', 'Motorbike', 'Utensils', 'HeartPulse', 'Landmark', 'CreditCard', 'Package', 'Truck', 'PiggyBank', 'Banknote', 'Sparkles', 'Bell', 'Wallet', 'Users', 'Calculator', 'BarChart3', 'MoreHorizontal', 'RefreshCw'];
 const CAT_COLOR_CHOICES = ['#2F7D5C', '#B0432E', '#C29B3E', '#3E6EA5', '#8A4FA0', '#5A8F3C', '#A85338', '#4E8A93', '#C15B72', '#8C6BA6', '#5F8A4C', '#7A4E3A'];
 
-// ---------- avatares personalizados (estilo caricatura) ----------
+// ---------- avatares personalizados (estilo "Avataaars", con licencia libre
+// para uso personal y comercial — mismo estilo de arte que usa Duolingo y
+// muchas otras apps). Las rutas SVG de abajo son el arte vectorial real de
+// esa librería, incrustado directo en la app para que funcione sin internet
+// y sin depender de ningún servidor externo. ----------
 const AVATAR_SKIN_TONES = ['#FDE1C6', '#F7D3A8', '#F3C39B', '#E8AC7E', '#D9955E', '#C68863', '#A9714C', '#9C6244', '#7A4E36', '#6B4230'];
 const AVATAR_HAIR_COLORS = ['#1B1B1B', '#3A2A1E', '#4A2E1D', '#6B4226', '#8C5A2B', '#A9702E', '#D6A15A', '#E8C468', '#B5432E', '#8C3A3A', '#9C9C9C', '#E4E4E4'];
-const AVATAR_EYE_COLORS = ['#2A2A28', '#5A3A1E', '#8C5A2B', '#4E6B3A', '#3E6E6E', '#3E6EA5', '#8A4FA0', '#6B7280'];
-const AVATAR_GLASSES_COLORS = ['#2A2A28', '#3E6EA5', '#B0432E', '#5A8F3C', '#8A4FA0', '#C9A227'];
-const AVATAR_SHIRT_COLORS = ['#FFFFFF', '#2F7D5C', '#B0432E', '#3E6EA5', '#8A4FA0', '#C9A227', '#4E4E4E', '#C15B72'];
+const AVATAR_ACCESSORY_COLORS = ['#2A2A28', '#3E6EA5', '#B0432E', '#5A8F3C', '#8A4FA0', '#C9A227'];
+const AVATAR_CLOTHES_COLORS = ['#FFFFFF', '#2F7D5C', '#B0432E', '#3E6EA5', '#8A4FA0', '#C9A227', '#4E4E4E', '#C15B72'];
 const AVATAR_BG_COLORS = ['#FFFFFF', '#F3C1D0', '#C7E3D4', '#C6DCF0', '#EAD9F5', '#FBE3B8', '#D9D2C4', '#2A2A28'];
-const AVATAR_HAIRSTYLES = [
-  { id: 'corto', label: 'Corto' },
-  { id: 'rizado', label: 'Rizado' },
-  { id: 'largo', label: 'Largo' },
-  { id: 'afro', label: 'Chino' },
-  { id: 'coleta', label: 'Coleta' },
-  { id: 'calvo', label: 'Rapado' },
-];
-const AVATAR_EXPRESSIONS = [
-  { id: 'feliz', label: 'Feliz' },
-  { id: 'sorprendido', label: 'Sorprendido' },
-  { id: 'serio', label: 'Serio' },
-  { id: 'guino', label: 'Guiño' },
-];
-const AVATAR_GLASSES_STYLES = [
-  { id: 'ninguno', label: 'Ninguno' },
-  { id: 'redondos', label: 'Redondos' },
-  { id: 'cuadrados', label: 'Cuadrados' },
-];
-const AVATAR_FACIAL_HAIR = [
-  { id: 'ninguno', label: 'Ninguno' },
-  { id: 'bigote', label: 'Bigote' },
-  { id: 'candado', label: 'Candado' },
-  { id: 'barba', label: 'Barba' },
-];
-const AVATAR_HATS = [
-  { id: 'ninguno', label: 'Ninguno' },
-  { id: 'gorro', label: 'Gorro' },
-  { id: 'gorra', label: 'Gorra' },
-];
+
+const AVATAR_BASE_SKIN = 'M140 36a56 56 0 0 0-56 56v6.17A12 12 0 0 0 74 110v14a12 12 0 0 0 10.3 11.88A56 56 0 0 0 116 180.6V199h-4a72 72 0 0 0-72 72v9h200v-9a72 72 0 0 0-72-72h-4v-18.38a56 56 0 0 0 31.7-44.73A12 12 0 0 0 206 124v-14a12 12 0 0 0-10-11.83V92a56 56 0 0 0-56-56';
+const AVATAR_BASE_SHADOW = 'M116 180.61v8a56 56 0 0 0 24 5.39 56 56 0 0 0 24-5.39v-8a56 56 0 0 1-24 5.39 56 56 0 0 1-24-5.39';
+
+const AVATAR_TOPS = {
+  ninguno: { label: 'Sin cabello', paths: [] },
+  theCaesar: { label: 'Rapado', paths: [{ d: 'M75 98c.35 1.49 1.67 1.22 2 0-.46-1.55 3.3-28.75 13-36 3.62-2.52 23-4.77 42.31-4.75 19.1 0 38.11 2.26 41.69 4.75 9.7 7.25 13.46 34.45 13 36 .33 1.22 1.65 1.49 2 0 .72-10.3 0-63.73-57-63S74.28 87.7 75 98', fill: 'HAIR' }] },
+  theCaesarAndSidePart: { label: 'Raya lateral', paths: [{ d: 'M77 98c-.33 1.22-1.65 1.49-2 0-.72-10.3 0-62.27 57-63s57.72 52.7 57 63c-.35 1.49-1.67 1.22-2 0 .46-1.55-3.3-28.75-13-36-1.76-1.22-7.25-2.39-14.64-3.26L163 50l-6.98 8.38c-7.03-.7-15.36-1.13-23.7-1.13C113 57.23 93.62 59.48 90 62c-9.7 7.25-13.46 34.45-13 36', fill: 'HAIR' }] },
+  bun: { label: 'Chongo', paths: [{ d: 'M150.12 28.28c3.06-2.97 4.88-6.71 4.88-10.78C155 7.84 144.7 0 132 0s-23 7.84-23 17.5c0 4.1 1.85 7.86 4.94 10.84q-1.48.33-2.9.69c-15.1 3.8-24.02 14.62-31.68 30.62a68 68 0 0 0-6.34 25.83 34 34 0 0 0 1.25 10.22c.33 1.2 2.15 5.39 2.65 2 .1-.66-.07-1.47-.24-2.27q-.2-.84-.26-1.6c-.08-1.56 0-3.15.1-4.72q.29-4.4 1.66-8.59c1.33-3.98 3.02-8.3 5.6-11.67.97-1.25 1.88-2.7 2.88-4.27 5.63-8.9 13.68-21.6 45.34-22.9 34.3-1.42 46.78 21.66 51.2 29.87q.58 1.06.98 1.75c2.67 4.53 2.78 9.75 2.9 14.91.05 2.71.1 5.41.54 8 .47 2.84 1.54 2.78 2.13.23 1-4.33 1.47-8.83 1.15-13.28-.72-10.05-4.4-36.45-24.6-48.15a66 66 0 0 0-16.18-6.73', fill: 'HAIR' }] },
+  shortFlat: { label: 'Corto', paths: [{ d: 'M179.15 39.92c-2.76-2.82-5.96-5.21-9.08-7.61q-1.04-.79-2.06-1.6c-.15-.12-1.72-1.24-1.9-1.66-.4-.99-.1-.22-.1-1.4.1-1.5 3.2-5.73.9-6.7-1-.43-2.8.7-3.73 1.08a60 60 0 0 1-5.73 1.9c.92-1.85 2.7-5.57-.64-4.58-2.6.78-5.04 2.77-7.65 3.7.86-1.4 4.32-5.8 1.2-6.05-.98-.07-3.8 1.75-4.86 2.14a56 56 0 0 1-9.63 2.51c-11.2 2.02-24.3 1.45-34.65 6.54-8 3.93-15.88 10.03-20.5 17.8-4.44 7.48-6.1 15.67-7.03 24.25-.7 6.3-.74 12.8-.42 19.12.1 2.07.34 11.61 3.34 8.72 1.5-1.44 1.5-7.25 1.87-9.22.75-3.91 1.47-7.85 2.72-11.64 2.2-6.68 4.8-13.8 10.3-18.4 3.53-2.94 6-6.93 9.4-9.9 1.5-1.35.35-1.2 2.8-1.03q2.44.16 4.9.2c3.8.1 7.6.08 11.4.1 7.63 0 15.24.1 22.89-.3 3.4-.2 6.8-.3 10.17-.6 1.9-.2 5.25-1.4 6.8-.5 1.43.84 2.9 3.61 3.94 4.75 2.4 2.67 5.3 4.72 8.12 6.92 5.9 4.57 8.86 10.33 10.65 17.48 1.8 7.13 1.3 13.75 3.5 20.76.38 1.24 1.4 3.36 2.67 1.46.25-.36.2-2.3.2-3.42 0-4.52 1.13-7.9 1.12-12.46-.06-13.83-.5-31.87-10.85-42.44', fill: 'HAIR' }] },
+  shortRound: { label: 'Corto redondo', paths: [{ d: 'M166.3 35c-20.18-11.7-40.17-9.78-55.26-5.97-15.1 3.8-24.02 14.62-31.68 30.62a68 68 0 0 0-6.34 25.83 34 34 0 0 0 1.25 10.22c.33 1.2 2.15 5.39 2.65 2 .17-1.12-.44-2.67-.5-3.86-.08-1.57 0-3.16.11-4.73q.28-4.4 1.65-8.59c1.33-3.98 3.02-8.3 5.6-11.67 6.4-8.33 17.5-8.8 26.3-13.39-.78 1.4-3.7 3.68-2.7 5.27.7 1.1 3.37.76 4.64.72 3.35-.1 6.72-.67 10.02-1.14a72 72 0 0 0 15-4.1c4.02-1.5 8.61-2.88 11.63-6.07a69 69 0 0 0 17.4 13c5.62 2.88 14.68 4.32 18.11 10.16 4.07 6.9 2.2 15.4 3.44 22.9.47 2.85 1.54 2.79 2.13.24 1-4.33 1.47-8.83 1.15-13.28-.72-10.05-4.4-36.45-24.6-48.15', fill: 'HAIR' }] },
+  curly: { label: 'Rizado', paths: [
+    { d: 'M66 105.02c11.38-.72 24.68-14.4 31.98-33.94A179 179 0 0 0 131 74c12.55 0 24.31-1.16 34.45-3.2 7.38 19.96 21.01 33.87 32.55 34.24V88a66 66 0 0 0-38-59.78A184 184 0 0 0 131 26c-9.2 0-17.99.63-26.01 1.76A66 66 0 0 0 66 88z', fill: 'black', fillOpacity: '.16' },
+    { d: 'M72 192a48 48 0 0 0 13.6-1.95 72 72 0 0 0 13.68 9.1A73 73 0 0 1 104 199h4v-18.39a56 56 0 0 1-31.8-45.74A12 12 0 0 1 66 123v-13a12 12 0 0 1 10-11.83v-.75c8.46-5.38 16.75-16.36 21.98-30.34A179 179 0 0 0 131 70c12.55 0 24.31-1.16 34.45-3.2 5.31 14.37 13.87 25.6 22.55 30.9v.46q.66.1 1.29.29a24 24 0 0 0 3.23 1.47A12 12 0 0 1 198 110v13a12 12 0 0 1-10.2 11.87A56 56 0 0 1 156 180.6V199h4q2.38 0 4.72.15a72 72 0 0 0 13.69-9.1 48 48 0 0 0 45.19-82.18 44 44 0 0 0-28.37-69.28A44.02 44.02 0 0 0 132 15.9a44.02 44.02 0 0 0-63.23 22.7 44 44 0 0 0-28.37 69.27A48 48 0 0 0 72 192', fill: 'HAIR' },
+  ] },
+  straight01: { label: 'Largo', paths: [
+    { d: 'M66 113c10.86-22.7 34.67-31.6 55.44-39.36 13.32-4.97 25.39-9.48 32-16.86 2.22 2.02 4.75 4.05 7.41 6.2C171.06 71.16 183.2 80.91 188 98v.17a12 12 0 0 1 9.81 9.72V86.04q0-1.94-.15-3.84c4.54-17-3.1-37.78-12.66-47.2-9.48-8.82-22.3-12.32-30.95-8.48C142.45 8.98 108.9 13.24 89 28c-13.22 9.8-24.79 25.72-27.84 45.75A46 46 0 0 0 60 84.05v88.5c-.2 31.5-7.4 82.49-21 90.45 62.36 16.8 71.93-38.15 69-82v-.39a56 56 0 0 1-31.8-45.74A12 12 0 0 1 66 123zm90 67.61a56 56 0 0 0 31.8-45.74 12 12 0 0 0 10.01-9.76v1.36A100 100 0 0 0 208.79 172l26.95 52.71a37.8 37.8 0 0 1-3.94 40.76A72 72 0 0 0 160 199h-4z', fill: 'HAIR' },
+    { d: 'M66 113c10.86-22.7 34.67-31.6 55.44-39.36 13.32-4.97 25.39-9.48 32-16.86 2.22 2.02 4.75 4.05 7.41 6.2 10.19 8.17 22.3 17.9 27.11 34.9-4.57-14.04-15.75-21.22-25.6-27.55-3.21-2.06-6.28-4.03-8.93-6.12-6.6 6.4-18.67 10.32-32 14.64C100.68 85.58 76.87 93.3 66 113', fill: 'black', fillOpacity: '.16' },
+  ] },
+  hat: { label: 'Gorro', paths: [
+    { d: 'M187.32 138.76C226.9 129.26 254 109.87 254 87.5c0-23.5-29.92-43.72-72.8-52.63l-.31-1.43A40 40 0 0 0 141.82 2h-18.64A40 40 0 0 0 84.1 33.44l-.27 1.21C40.4 43.45 10 63.8 10 87.5c0 22.37 27.1 41.76 66.68 51.26q-.3-1.92-.47-3.9A12 12 0 0 1 66.01 123v-13a12 12 0 0 1 10.01-11.83V92c0-8 1.68-15.62 4.7-22.51 8.61-15.69 92.74-16.49 102.66.16A56 56 0 0 1 188 92v6.17A12 12 0 0 1 198 110v13a12 12 0 0 1-10.2 11.87 56 56 0 0 1-.48 3.9', fill: 'HAIR' },
+    { d: 'M188 92.74c3.85-3.25 6-6.9 6-10.74 0-6.08-5.38-11.65-14.32-15.98a12 12 0 0 1 3.68 3.63A56 56 0 0 1 188 92zm-31.74-33.75a144 144 0 0 0-24.26-2c-8.98 0-17.52.78-25.22 2.17 15.16-2.2 34.11-2.3 49.48-.17m-72.57 7.34C75.12 70.63 70 76.07 70 82c0 3.85 2.15 7.49 6 10.74V92c0-8 1.68-15.62 4.7-22.51a10 10 0 0 1 2.99-3.16', fill: 'black', fillOpacity: '.5' },
+  ] },
+  turban: { label: 'Turbante', paths: [
+    { d: 'M189.47 97.5q1.51-3.62 1.53-7.5c0-18.23-26.41-33-59-33-32.58 0-59 14.77-59 33q.02 3.88 1.53 7.5C80.6 82.89 104.03 72 132 72s51.4 10.89 57.47 25.5', fill: '#EDECE3' },
+    { d: 'M48 94.32C47.93 133.5 77 141 77 141c-5.44-49.55 23.54-65.15 46.53-77.53 2.94-1.58 5.78-3.11 8.44-4.65a310 310 0 0 0 8.48 4.68C163.43 75.87 192.42 91.48 187 141c0 0 29.07-8.46 29-46.68C215.92 47.15 163.85 3 134 3q-1 0-2 .09-1-.1-2-.09c-29.93 0-81.92 44.15-82 91.32', fill: 'HAIR' },
+    { d: 'M48.01 95.9c.7 37.8 29 45.1 29 45.1s-29.05-7.07-29-43.97zm28.32 33.78c.15-37.86 26.18-51.05 47.2-61.71 11-5.58 20.64-10.47 24.47-17.83 4.13-7.25 5.39-13.94 4.65-19.67A39 39 0 0 1 148 44.54c-3.83 7.82-13.47 13-24.47 18.93-21.14 11.38-47.35 25.49-47.2 66.21', fill: 'black', fillOpacity: '.16' },
+  ] },
+};
+
+const AVATAR_EYEBROWS = {
+  default: { label: 'Normales', d: 'M7.77 17.16c3.91-5.51 14.64-8.6 23.89-6.33a2 2 0 0 0 .95-3.88c-10.73-2.64-23.16.94-28.1 7.9a2 2 0 0 0 3.3 2.3m80.73.01c-3.9-5.5-14.64-8.6-23.9-6.33a2 2 0 0 1-.94-3.88c10.74-2.64 23.17.94 28.1 7.9a2 2 0 0 1-3.25 2.3' },
+  angry: { label: 'Enojadas', d: 'M7.75 15.18c4.24-5.76 6.88-5.48 13.31-.62l.67.5c4.83 3.67 7.12 4.94 10.4 4.94a2 2 0 0 0 0-4c-2.06 0-3.9-1.02-7.98-4.12l-.68-.52C19.71 8.53 17.51 7.3 14.77 7c-3.68-.4-7.05 1.48-10.24 5.83a2 2 0 1 0 3.22 2.36m80.78 0c-4.24-5.77-6.88-5.49-13.32-.63l-.67.5c-4.82 3.67-7.1 4.94-10.4 4.94a2 2 0 0 1 0-4c2.06 0 3.9-1.02 7.99-4.12l.67-.52C76.56 8.53 78.76 7.3 81.5 7c3.68-.4 7.06 1.48 10.25 5.83a2 2 0 1 1-3.22 2.36' },
+  sadConcerned: { label: 'Preocupadas', d: 'M30.17 5.6c-1.48 8.38-14.1 14.17-23.24 10.42a2.04 2.04 0 0 0-2.63 1c-.44.97.03 2.1 1.05 2.5 11.44 4.7 26.83-2.37 28.76-13.3a1.9 1.9 0 0 0-1.64-2.2 2 2 0 0 0-2.3 1.57m35.93 0c1.5 8.39 14.1 14.18 23.25 10.43 1.01-.41 2.2.03 2.62 1s-.03 2.1-1.04 2.5c-11.45 4.7-26.84-2.37-28.77-13.3a1.9 1.9 0 0 1 1.65-2.2 2 2 0 0 1 2.32 1.57' },
+  raisedExcited: { label: 'Levantadas', d: 'M8.11 17.13C9.61 7.6 22.2 1.1 31.31 5.3a2 2 0 0 0 1.66-3.63C21.5-3.63 6.07 4.33 4.17 16.5a2 2 0 1 0 3.94.63m80.05 0C86.66 7.6 74.08 1.1 64.97 5.3a2 2 0 0 1-1.67-3.63c11.5-5.3 26.9 2.66 28.81 14.83a2 2 0 0 1-3.95.63' },
+  upDown: { label: 'Asimétricas', d: 'M7.73 14.16c4.5-6.32 14.01-9.5 23.75-6.36a2 2 0 1 0 1.23-3.81c-11.4-3.7-22.74.1-28.24 7.85a2 2 0 1 0 3.26 2.32m80.78 7c-3.91-5.51-14.64-8.6-23.89-6.33a2 2 0 0 1-.95-3.88c10.73-2.64 23.16.94 28.1 7.9a2 2 0 0 1-3.26 2.3' },
+  flatNatural: { label: 'Planas', d: 'M30.8 11.1c-5 .35-9.93.08-14.92-.13-3.83-.16-7.72-.68-11.37 1-.7.33-4.53 2.29-4.45 3.36.08.85 3.94 2.2 4.64 2.44 3.66 1.29 7.18.9 10.95.66 4.63-.27 9.23-.07 13.86-.2 3.18-.1 7.98-.63 9.5-4.4.48-1.14.1-3.42-.34-4.66-.2-.5-.72-.69-1.13-.4a15 15 0 0 1-6.68 2.32m34.67 0c4.99.36 9.9.09 14.9-.12 3.83-.16 7.72-.68 11.38 1 .7.33 4.53 2.29 4.44 3.36-.07.85-3.94 2.2-4.63 2.44-3.67 1.29-7.18.9-10.96.66-4.62-.27-9.23-.07-13.86-.2-3.11-.1-7.91-.63-9.45-4.4-.47-1.14-.1-3.42.36-4.66.18-.5.72-.69 1.12-.4a15 15 0 0 0 6.7 2.32' },
+};
+
+const AVATAR_EYES = {
+  default: { label: 'Normales', paths: [{ d: 'M22 14a6 6 0 1 1-12 0 6 6 0 0 1 12 0m52 0a6 6 0 1 1-12 0 6 6 0 0 1 12 0', fill: 'black', fillOpacity: '.6' }] },
+  happy: { label: 'Felices', paths: [{ d: 'M2.16 14.45C4.01 10.65 8.16 8 13 8c4.81 0 8.96 2.63 10.82 6.4.55 1.13-.24 2.05-1.03 1.37a15 15 0 0 0-9.8-3.43c-3.73 0-7.12 1.24-9.55 3.23-.9.73-1.82-.01-1.28-1.12m58 0C62.01 10.65 66.16 8 71 8c4.81 0 8.96 2.63 10.82 6.4.55 1.13-.24 2.05-1.03 1.37a15 15 0 0 0-9.8-3.43c-3.76 0-7.15 1.24-9.58 3.23-.9.73-1.82-.01-1.28-1.12', fill: 'black', fillOpacity: '.6' }] },
+  wink: { label: 'Guiño', paths: [
+    { d: 'M22 14a6 6 0 1 1-12 0 6 6 0 0 1 12 0', fill: 'black', fillOpacity: '.6' },
+    { d: 'M56.6 16.96c1.59-3.92 5.55-6.86 10.37-7.2 4.8-.33 9.12 2 11.24 5.64.63 1.1-.1 2.06-.93 1.43-2.6-1.93-6.15-3-10-2.73a15 15 0 0 0-9.33 3.9c-.84.79-1.81.11-1.35-1.03', fill: 'black', fillOpacity: '.6' },
+  ] },
+  surprised: { label: 'Sorprendidos', paths: [
+    { d: 'M30 14a14 14 0 1 1-28 0 14 14 0 0 1 28 0m52 0a14 14 0 1 1-28 0 14 14 0 0 1 28 0', fill: 'white' },
+    { d: 'M22 14a6 6 0 1 1-12 0 6 6 0 0 1 12 0m52 0a6 6 0 1 1-12 0 6 6 0 0 1 12 0', fill: 'black', fillOpacity: '.7' },
+  ] },
+  closed: { label: 'Cerrados', paths: [{ d: 'M2.16 19.55C4.01 23.35 8.16 26 13 26c4.81 0 8.96-2.63 10.82-6.4.55-1.13-.24-2.05-1.03-1.37a15 15 0 0 1-9.8 3.43c-3.73 0-7.12-1.24-9.55-3.23-.9-.73-1.82.01-1.28 1.12m58 0c1.85 3.8 6 6.45 10.84 6.45 4.81 0 8.96-2.63 10.82-6.4.55-1.13-.24-2.05-1.03-1.37a15 15 0 0 1-9.8 3.43c-3.76 0-7.15-1.24-9.58-3.23-.9-.73-1.82.01-1.28 1.12', fill: 'black', fillOpacity: '.6' }] },
+  side: { label: 'De lado', paths: [{ d: 'M13 8c-4.84 0-9 2.65-10.84 6.45-.54 1.1.39 1.85 1.28 1.12a15 15 0 0 1 9.8-3.22 6 6 0 1 0 10.7 2.8 2 2 0 0 0-.12-.74l-.15-.38a6 6 0 0 0-1.64-2.48C19.9 9.32 16.5 8 13 8m58 0c-4.84 0-9 2.65-10.84 6.45-.54 1.1.39 1.85 1.28 1.12a15 15 0 0 1 9.8-3.22 6 6 0 1 0 10.7 2.8 2 2 0 0 0-.12-.74l-.15-.38a6 6 0 0 0-1.64-2.48C77.9 9.32 74.5 8 71 8', fill: 'black', fillOpacity: '.6' }] },
+  squint: { label: 'Entrecerrados', paths: [
+    { d: 'M30 12.73c0 4.26-6.27 7.72-14 7.72S2 17 2 12.73 8.27 5 16 5s14 3.46 14 7.73m52 0c0 4.26-6.27 7.72-14 7.72S54 17 54 12.73 60.27 5 68 5s14 3.46 14 7.73', fill: 'white' },
+    { d: 'M18.82 20.3a25 25 0 0 1-5.64 0 6 6 0 1 1 5.64 0m52 0a25 25 0 0 1-5.64 0 6 6 0 1 1 5.64 0', fill: 'black', fillOpacity: '.7' },
+  ] },
+  hearts: { label: 'Corazones', paths: [{ d: 'M21.96 2c-2.55 0-5.08 1.98-6.46 3.82C14.1 3.98 11.6 2 9.04 2 3.55 2 0 5.33 0 9.64c0 5.73 4.41 9.13 9.04 12.74 1.66 1.23 4.78 4.4 5.17 5.1.4.68 2.13.7 2.62 0 .47-.73 3.5-3.87 5.16-5.1 4.63-3.6 9.04-7 9.04-12.74C31 5.34 27.46 2 21.97 2m53 0c-2.55 0-5.08 1.98-6.46 3.82C67.1 3.98 64.6 2 62.04 2 56.54 2 53 5.33 53 9.64c0 5.73 4.41 9.13 9.04 12.74 1.66 1.23 4.78 4.4 5.17 5.1.38.68 2.1.7 2.58 0 .48-.73 3.5-3.87 5.17-5.1 4.63-3.6 9.04-7 9.04-12.74C84 5.34 80.45 2 74.96 2', fill: '#FF5353', fillOpacity: '.8' }] },
+};
+
+const AVATAR_MOUTHS = {
+  default: { label: 'Normal', paths: [{ d: 'M32 9a14 14 0 1 0 28 0', fill: 'black', fillOpacity: '.7' }] },
+  smile: { label: 'Sonrisa', paths: [
+    { d: 'M27.12 9.13a19 19 0 0 0 37.77-.09c.08-.77-.77-2.04-1.85-2.04H29.1C28 7 27 8.18 27.12 9.13', fill: 'black', fillOpacity: '.7' },
+    { d: 'M62 7H31a5 5 0 0 0 5 5h21a5 5 0 0 0 5-5', fill: 'white' },
+    { d: 'M58.7 21.14A11 11 0 0 0 46 19.2a10.95 10.95 0 0 0-12.7 1.94A19 19 0 0 0 46 26c4.88 0 9.33-1.84 12.7-4.86', fill: '#FF4F6D' },
+  ] },
+  serious: { label: 'Serio', paths: [{ d: 'M34 12h24v6H34z', fill: 'black', fillOpacity: '.7' }] },
+  sad: { label: 'Triste', paths: [{ d: 'M32.06 21.72C32.7 14.7 38.7 10 46 10c7.34 0 13.36 4.75 13.95 11.85.03.38-.87.67-1.32.45Q50.32 18.14 46 18.14q-4.27 0-12.45 4.07c-.5.25-1.53-.07-1.5-.49', fill: 'black', fillOpacity: '.7' }] },
+  twinkle: { label: 'Pícara', paths: [{ d: 'M32 10c0 5.37 6.16 9 14 9s14-3.63 14-9c0-1.1-.95-2-2-2-1.3 0-1.87.9-2 2-1.24 2.94-4.32 4.72-10 5-5.68-.28-8.76-2.06-10-5-.13-1.1-.7-2-2-2-1.05 0-2 .9-2 2', fill: 'black', fillOpacity: '.6' }] },
+  disbelief: { label: 'Incrédulo', paths: [{ d: 'M32 23a14 14 0 1 1 28 0', fill: 'black', fillOpacity: '.7' }] },
+  concerned: { label: 'Preocupado', paths: [
+    { d: 'M27.12 23.87a19 19 0 0 1 37.77.09c.08.77-.77 2.04-1.85 2.04H29.1c-1.1 0-2.1-1.18-1.98-2.13', fill: 'black', fillOpacity: '.7' },
+    { d: 'M61.59 26H30.4A11 11 0 0 1 46 19.2 11 11 0 0 1 61.6 26', fill: '#FF4F6D' },
+  ] },
+};
+
+const AVATAR_FACIAL_HAIR = {
+  ninguno: { label: 'Ninguno', d: null },
+  beardLight: { label: 'Barba ligera', d: 'M77.43 72.17c-2.52 2.3-5.2 3.32-8.58 2.6-.58-.12-2.95-4.54-8.85-4.54s-8.27 4.42-8.85 4.54c-3.39.72-6.07-.3-8.58-2.6-4.72-4.31-8.65-10.26-6.3-16.75 1.24-3.38 3.24-7.1 6.88-8.17 3.9-1.15 9.35 0 13.26-.8a8.6 8.6 0 0 0 3.6-1.45 9 9 0 0 0 3.57 1.46c3.92.78 9.38-.36 13.27.79 3.64 1.07 5.64 4.79 6.87 8.17 2.36 6.49-1.57 12.44-6.3 16.75' },
+  beardMedium: { label: 'Barba media', d: 'M60.5 67.84c-11.5.38-16.64 5.88-20.5.29-2.91-4.2-1.7-11.26 1.01-15.23 3.86-5.65 9.1-2.92 14.95-3.56 1.6-.18 3.2-.62 4.54-1.34a13 13 0 0 0 4.55 1.34c5.85.64 11.08-2.09 14.94 3.56 2.72 3.97 3.93 11.03 1.03 15.23-3.87 5.6-9-.67-20.52-.29' },
+  moustacheFancy: { label: 'Bigote elegante', d: 'M60 43.3c6.8-3.59 16.42-4.15 21.61-2.17a32 32 0 0 1 4.84 2.55c4.13 2.47 8.55 5.12 14.91 3.15.37-.12.73.2.62.58-1.37 4.5-9 7.6-11.6 7.7-6.2.24-11.75-2.26-17.13-4.7-4.44-2-8.77-3.95-13.25-4.25-4.48.3-8.8 2.26-13.25 4.26-5.38 2.43-10.92 4.93-17.13 4.69-2.6-.1-10.23-3.2-11.6-7.7-.1-.37.25-.7.62-.58 6.36 1.97 10.78-.68 14.9-3.15a32 32 0 0 1 4.85-2.55c5.2-1.98 14.82-1.42 21.6 2.17' },
+  moustacheMagnum: { label: 'Bigote grande', d: 'M60 40.94c2.5-3.34 12.27-4.75 19.27-3.48 9.66 1.76 13.75 12.3 12.51 14.22-.77 1.19-2.48.8-4.26.38a15 15 0 0 0-2.4-.43c-1.5-.09-3.34.22-5.45.57-4.98.82-11.37 1.88-17.62-1.51A6 6 0 0 1 60 48.8a6 6 0 0 1-2.05 1.86c-6.25 3.4-12.65 2.33-17.63 1.5-2.1-.34-3.96-.65-5.44-.56-.76.05-1.6.24-2.4.43-1.78.4-3.5.8-4.26-.38-1.24-1.91 2.85-12.46 12.5-14.22 7.01-1.27 16.78.14 19.28 3.48' },
+};
+
+const AVATAR_ACCESSORIES = {
+  ninguno: { label: 'Ninguno', paths: [] },
+  round: { label: 'Redondos', paths: [
+    { d: 'M34.23 92a24 24 0 0 1-22.96-31H4.73a2.5 2.5 0 0 1 0-5h8q.34 0 .66.09a24 24 0 0 1 42.26 1.06A11.4 11.4 0 0 1 65.1 52c4 0 7.54 2.14 9.6 5.4a24 24 0 0 1 42.37-1.31q.31-.1.66-.1h8a2.5 2.5 0 1 1 0 5h-6.53a24 24 0 1 1-46.6 2.84c-.1-4.37-3.45-7.83-7.5-7.83-3.74 0-6.9 2.94-7.43 6.83q.56 2.51.56 5.17a24 24 0 0 1-24 24m0-4a20 20 0 1 0 0-40 20 20 0 0 0 0 40m82-20a20 20 0 1 1-40 0 20 20 0 0 1 40 0', fill: 'black', fillOpacity: '.1' },
+    { d: 'M34.23 90a24 24 0 0 1-22.96-31H4.73a2.5 2.5 0 0 1 0-5h8q.34 0 .66.09a24 24 0 0 1 42.26 1.06A11.4 11.4 0 0 1 65.1 50c4 0 7.54 2.14 9.6 5.4a24 24 0 0 1 42.37-1.31q.31-.1.66-.1h8a2.5 2.5 0 1 1 0 5h-6.53a24 24 0 1 1-46.6 2.84c-.1-4.37-3.45-7.83-7.5-7.83-3.74 0-6.9 2.94-7.43 6.83q.56 2.51.56 5.17a24 24 0 0 1-24 24m0-4a20 20 0 1 0 0-40 20 20 0 0 0 0 40m82-20a20 20 0 1 1-40 0 20 20 0 0 1 40 0', fill: 'ACCESSORY' },
+  ] },
+  prescription02: { label: 'Cuadrados', paths: [
+    { d: 'M32.73 48C11.44 48 3.88 53.1 3.2 53.77a2.9 2.9 0 0 0-2.96 2.89v2.88c0 1.6 1.33 2.9 2.96 2.9 0 0 5.9 0 5.9 2.87q0 .65.19.68a63 63 0 0 0-.05 2.5c0 12.82 8.32 20.5 22.25 20.5h2.73c14.72 0 25-8.45 25-20.5q0-2.28-.17-4.48l1.59-.77q.86-.43 1.89-.64c1.85-.38 3.95-.22 5.99.28.73.18 1.26.35 1.5.45l1.38.55q-.2 2.26-.18 4.6c0 12.84 8.32 20.5 22.25 20.5h2.75c14.72 0 25-8.43 25-20.5q0-2.32-.17-4.56c1.73-1.5 6.22-1.5 6.22-1.5a2.9 2.9 0 0 0 2.95-2.9v-2.88c0-1.6-1.32-2.89-2.95-2.89-.7-.67-8.26-5.77-29.55-5.77h-2.97q-2.68 0-4.97.2c-9.54.53-14.68 2.14-19.92 4.7a17 17 0 0 1-4.56.86 17 17 0 0 1-4.8-.9l-.43-.2v-.02c-4.94-2.42-8.43-4.13-20.78-4.55a61 61 0 0 0-3.6-.1zm-19.5 21.5c0-8.66 0-15.5 19.39-15.5h3.23c19.38 0 19.38 6.84 19.38 15.5 0 9.13-8.63 15.5-21 15.5H31.2c-14.85 0-17.97-8.43-17.97-15.5m62 0c0-8.66 0-15.5 19.39-15.5h3.23c19.38 0 19.38 6.84 19.38 15.5 0 9.13-8.63 15.5-21 15.5H93.2c-14.85 0-17.97-8.43-17.97-15.5', fill: 'black', fillOpacity: '.1' },
+    { d: 'M32.73 46C11.44 46 3.88 51.1 3.2 51.77a2.9 2.9 0 0 0-2.96 2.89v2.88c0 1.6 1.33 2.9 2.96 2.9 0 0 5.9 0 5.9 2.87q0 .67.19.71a63 63 0 0 0-.05 2.51c0 12.83 8.32 20.5 22.25 20.5h2.73c14.72 0 25-8.44 25-20.5q0-2.27-.17-4.47l1.59-.77q.86-.43 1.89-.64c1.85-.38 3.95-.22 5.99.28.73.18 1.26.35 1.5.45l1.38.55q-.2 2.26-.18 4.6c0 12.85 8.32 20.51 22.25 20.51h2.75c14.72 0 25-8.43 25-20.5q0-2.32-.17-4.56c1.73-1.51 6.22-1.51 6.22-1.51a2.9 2.9 0 0 0 2.95-2.89V54.7c0-1.6-1.32-2.89-2.95-2.89-.7-.67-8.26-5.77-29.55-5.77h-2.97q-2.68 0-4.97.2c-9.54.54-14.68 2.15-19.92 4.7a17 17 0 0 1-4.56.87 17 17 0 0 1-4.8-.9l-.43-.2c-4.94-2.44-8.43-4.15-20.78-4.57a61 61 0 0 0-3.6-.1zm-19.5 21.5c0-8.66 0-15.5 19.39-15.5h3.23c19.38 0 19.38 6.84 19.38 15.5 0 9.13-8.63 15.5-21 15.5H31.2c-14.85 0-17.97-8.43-17.97-15.5m62 0c0-8.66 0-15.5 19.39-15.5h3.23c19.38 0 19.38 6.84 19.38 15.5 0 9.13-8.63 15.5-21 15.5H93.2c-14.85 0-17.97-8.43-17.97-15.5', fill: 'ACCESSORY' },
+  ] },
+};
+
+const AVATAR_CLOTHES = {
+  shirtCrewNeck: { label: 'Playera redonda', paths: [
+    { d: 'M100.5 37.13c18.5 0 33.5-9.61 33.5-21.48q0-.52-.04-1.05A72 72 0 0 1 200 86.36v8.95H0v-8.95a72 72 0 0 1 67.05-71.83q-.05.55-.05 1.12c0 11.87 15 21.48 33.5 21.48', fill: 'CLOTHES' },
+    { d: 'M100.5 44.07c21.89 0 39.63-12.05 39.63-26.92q0-.9-.08-1.79-3-.52-6.1-.76.06.52.05 1.05c0 11.87-15 21.48-33.5 21.48S67 27.52 67 15.65q0-.57.05-1.13-3.08.21-6.08.68-.1.97-.1 1.95c0 14.87 17.74 26.92 39.63 26.92', fill: 'black', fillOpacity: '.08' },
+  ] },
+  shirtVNeck: { label: 'Playera con cuello V', paths: [{ d: 'M60.68 15.24A72 72 0 0 0 0 86.36v8.95h200v-8.95a72 72 0 0 0-60.68-71.12 24 24 0 0 1-7.56 13.6l-29.08 26.23a4 4 0 0 1-5.36 0L68.24 28.84a24 24 0 0 1-7.56-13.6', fill: 'CLOTHES' }] },
+  shirtScoopNeck: { label: 'Playera cuello amplio', paths: [{ d: 'M100.5 51.13c27.34 0 49.5-13.2 49.5-29.48q0-2.04-.46-4A72 72 0 0 1 200 86.35v8.95H0v-8.95A72 72 0 0 1 51.53 17.3a18 18 0 0 0-.53 4.34c0 16.28 22.16 29.48 49.5 29.48', fill: 'CLOTHES' }] },
+  hoodie: { label: 'Sudadera', paths: [
+    { d: 'M76 0C60.48 3.7 48.9 10.83 45.23 19.45A72 72 0 0 0 0 86.3v9h200v-9a72 72 0 0 0-45.23-66.86C151.1 10.83 139.52 3.69 124 0v17.3a24 24 0 1 1-48 0z', fill: 'CLOTHES' },
+    { d: 'M70 48.64a67 67 0 0 1-7-2.81V95.3h7zm60 0a67 67 0 0 0 7-2.81V83.8a3.5 3.5 0 1 1-7 0z', fill: '#F4F4F4' },
+    { d: 'M155.62 19.8a72 72 0 0 1 10.83 5.62c-1.34 15.5-30.58 27.89-66.45 27.89 30.93 0 56-13.44 56-30q0-1.79-.38-3.52m-111.24.01a17 17 0 0 0-.38 3.5c0 16.57 25.07 30 56 30-35.87 0-65.1-12.38-66.45-27.88a72 72 0 0 1 10.83-5.63', fill: 'black', fillOpacity: '.16' },
+  ] },
+  overall: { label: 'Overol', paths: [
+    { d: 'M164 23.94V95.3H36V23.94a72 72 0 0 1 26-8.95v44.28h76V15a72 72 0 0 1 26 8.94', fill: 'CLOTHES' },
+    { d: 'M54 68.3a5 5 0 1 1-10 0 5 5 0 0 1 10 0m102 0a5 5 0 1 1-10 0 5 5 0 0 1 10 0', fill: '#F4F4F4' },
+  ] },
+};
+
 const AVATAR_DEFAULT = {
-  skin: AVATAR_SKIN_TONES[2], hair: 'corto', hairColor: AVATAR_HAIR_COLORS[0], eyeColor: AVATAR_EYE_COLORS[0],
-  expression: 'feliz', glassesStyle: 'ninguno', glassesColor: AVATAR_GLASSES_COLORS[0],
-  facialHair: 'ninguno', facialHairColor: AVATAR_HAIR_COLORS[0], hat: 'ninguno', shirtColor: AVATAR_SHIRT_COLORS[0], bg: AVATAR_BG_COLORS[0],
+  skin: AVATAR_SKIN_TONES[2], top: 'shortFlat', hairColor: AVATAR_HAIR_COLORS[0],
+  eyebrow: 'default', eye: 'happy', mouth: 'smile',
+  accessory: 'ninguno', accessoryColor: AVATAR_ACCESSORY_COLORS[0],
+  facialHair: 'ninguno', facialHairColor: AVATAR_HAIR_COLORS[0],
+  clothes: 'shirtCrewNeck', clothesColor: AVATAR_CLOTHES_COLORS[0],
+  bg: AVATAR_BG_COLORS[0],
 };
-// Dibuja el cabello según el estilo elegido; todo en el mismo sistema de
-// coordenadas de 100x100 que usa el resto de la cara.
-const drawAvatarHair = (style, color) => {
-  switch (style) {
-    case 'rizado':
-      return <g fill={color}>{[22, 30, 38, 46, 54, 62, 70, 78].map((cx, i) => <circle key={cx} cx={cx} cy={30 - Math.abs(i - 3.5) * 2.4} r={8} />)}</g>;
-    case 'largo':
-      return <path fill={color} d="M24 44 Q22 16 50 14 Q78 16 76 44 L76 78 Q68 62 70 44 Q68 26 50 25 Q32 26 30 44 Q32 62 24 78 Z" />;
-    case 'afro':
-      return <circle fill={color} cx="50" cy="34" r="27" />;
-    case 'coleta':
-      return (
-        <g fill={color}>
-          <path d="M27 40 Q50 15 73 40 Q75 28 64 22 Q50 12 36 22 Q25 28 27 40 Z" />
-          <ellipse cx="78" cy="50" rx="6" ry="13" transform="rotate(25 78 50)" />
-        </g>
-      );
-    case 'calvo':
-      return null;
-    case 'corto':
-    default:
-      return <path fill={color} d="M27 40 Q50 15 73 40 Q75 28 64 22 Q50 12 36 22 Q25 28 27 40 Z" />;
-  }
-};
-const drawAvatarEye = (cx, expression, isRight, eyeColor) => {
-  if (expression === 'guino' && isRight) {
-    return <path key={cx} d={`M${cx - 5} 58 Q${cx} 61 ${cx + 5} 58`} stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />;
-  }
-  return (
-    <g key={cx}>
-      <circle cx={cx} cy="58" r="4.4" fill="#fff" />
-      <circle cx={cx} cy="58" r="3" fill={eyeColor} />
-      <circle cx={cx} cy="58" r="1.3" fill="#111" />
-    </g>
-  );
-};
-const drawAvatarMouth = (expression) => {
-  switch (expression) {
-    case 'sorprendido':
-      return <ellipse cx="50" cy="71" rx="3.4" ry="4.4" fill="#5A3A2E" />;
-    case 'serio':
-      return <line x1="44" y1="71" x2="56" y2="71" stroke="#2A2A28" strokeWidth="2" strokeLinecap="round" />;
-    case 'guino':
-    case 'feliz':
-    default:
-      return <path d="M43 70 Q50 74 57 70" stroke="#2A2A28" strokeWidth="2" fill="none" strokeLinecap="round" />;
-  }
-};
-const drawAvatarGlasses = (style, color) => {
-  if (style === 'ninguno') return null;
-  if (style === 'cuadrados') {
-    return (
-      <g fill="none" stroke={color} strokeWidth="2.2">
-        <rect x="34" y="52" width="14" height="12" rx="3" />
-        <rect x="52" y="52" width="14" height="12" rx="3" />
-        <line x1="48" y1="58" x2="52" y2="58" />
-      </g>
-    );
-  }
-  return (
-    <g fill="none" stroke={color} strokeWidth="2.2">
-      <circle cx="41" cy="58" r="8" />
-      <circle cx="59" cy="58" r="8" />
-      <line x1="49" y1="58" x2="51" y2="58" />
-    </g>
-  );
-};
-const drawAvatarFacialHair = (style, color) => {
-  switch (style) {
-    case 'bigote':
-      return <path fill={color} d="M40 67 Q50 63 60 67 Q56 70 50 68 Q44 70 40 67 Z" />;
-    case 'candado':
-      return (
-        <g fill={color}>
-          <path d="M40 67 Q50 63 60 67 Q56 70 50 68 Q44 70 40 67 Z" />
-          <path d="M45 74 Q50 82 55 74 Q52 79 50 79 Q48 79 45 74 Z" />
-        </g>
-      );
-    case 'barba':
-      return <path fill={color} opacity="0.92" d="M28 62 Q28 84 50 88 Q72 84 72 62 Q72 74 64 78 Q60 68 58 70 Q54 80 50 80 Q46 80 42 70 Q40 68 36 78 Q28 74 28 62 Z" />;
-    default:
-      return null;
-  }
-};
-const drawAvatarHat = (style, color, skinShade) => {
-  if (style === 'gorro') {
-    return (
-      <g>
-        <path fill={color} d="M25 34 Q25 8 50 8 Q75 8 75 34 L75 40 Q50 30 25 40 Z" />
-        <rect x="24" y="32" width="52" height="8" rx="4" fill={color} opacity="0.75" />
-      </g>
-    );
-  }
-  if (style === 'gorra') {
-    return (
-      <g fill={color}>
-        <path d="M25 36 Q25 10 50 10 Q75 10 75 36 Q75 30 50 30 Q25 30 25 36 Z" />
-        <path d="M48 28 Q68 28 78 34 Q68 38 48 34 Z" />
-      </g>
-    );
-  }
-  return null;
-};
+
+const AvPaths = ({ paths, dyn }) => paths.map((p, i) => (
+  <path key={i} d={p.d} fill={p.fill === 'HAIR' || p.fill === 'ACCESSORY' || p.fill === 'CLOTHES' ? dyn : p.fill} fillOpacity={p.fillOpacity} />
+));
+
 const AvatarSVG = ({ cfg, size = 40 }) => {
   const c = { ...AVATAR_DEFAULT, ...cfg };
+  const top = AVATAR_TOPS[c.top] || AVATAR_TOPS.ninguno;
+  const eyebrow = AVATAR_EYEBROWS[c.eyebrow] || AVATAR_EYEBROWS.default;
+  const eye = AVATAR_EYES[c.eye] || AVATAR_EYES.default;
+  const mouth = AVATAR_MOUTHS[c.mouth] || AVATAR_MOUTHS.default;
+  const facialHair = AVATAR_FACIAL_HAIR[c.facialHair] || AVATAR_FACIAL_HAIR.ninguno;
+  const accessory = AVATAR_ACCESSORIES[c.accessory] || AVATAR_ACCESSORIES.ninguno;
+  const clothes = AVATAR_CLOTHES[c.clothes] || AVATAR_CLOTHES.shirtCrewNeck;
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" style={{ borderRadius: '50%', flexShrink: 0, background: c.bg }}>
-      <circle cx="50" cy="50" r="49" fill={c.bg} />
-      <path fill={c.shirtColor} stroke="#00000014" strokeWidth="1" d="M22 92 Q22 66 50 66 Q78 66 78 92 Z" />
-      <circle cx="28" cy="60" r="6" fill={c.skin} />
-      <circle cx="72" cy="60" r="6" fill={c.skin} />
-      <ellipse cx="50" cy="56" rx="22" ry="26" fill={c.skin} />
-      {drawAvatarHair(c.hair, c.hairColor)}
-      {drawAvatarEye(41, c.expression, false, c.eyeColor)}
-      {drawAvatarEye(59, c.expression, true, c.eyeColor)}
-      {drawAvatarMouth(c.expression)}
-      {drawAvatarFacialHair(c.facialHair, c.facialHairColor)}
-      {drawAvatarGlasses(c.glassesStyle, c.glassesColor)}
-      {drawAvatarHat(c.hat, c.hairColor)}
+    <svg width={size} height={size} viewBox="0 0 280 280" style={{ borderRadius: '50%', flexShrink: 0, background: c.bg }}>
+      <path d={AVATAR_BASE_SKIN} fill={c.skin} />
+      <path d={AVATAR_BASE_SHADOW} fill="black" fillOpacity=".1" />
+      <g transform="translate(40 184.7)"><AvPaths paths={clothes.paths} dyn={c.clothesColor} /></g>
+      <g transform="translate(94 140)"><AvPaths paths={mouth.paths} dyn={c.mouthColor} /></g>
+      <path transform="translate(128 130)" d="M0 0c0 4.42 5.37 8 12 8s12-3.58 12-8" fill="black" fillOpacity=".16" />
+      <g transform="translate(98 98)"><AvPaths paths={eye.paths} dyn={c.eyeColor} /></g>
+      <path transform="translate(91.86 82)" d={eyebrow.d} fill="black" fillOpacity=".6" />
+      <g transform="translate(8 0)"><AvPaths paths={top.paths} dyn={c.hairColor} /></g>
+      {facialHair.d && <path transform="translate(81 98)" d={facialHair.d} fill={c.facialHairColor} />}
+      <g transform="translate(75.77 46)"><AvPaths paths={accessory.paths} dyn={c.accessoryColor} /></g>
     </svg>
   );
 };
+
 
 
 const GASTO_CATS = [
@@ -8168,22 +8166,19 @@ function LibroDiario() {
             <div className="sheet-handle" onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} />
             <div className="sheet-header"><span className="sheet-title">Personalizar avatar</span><button className="icon-btn" style={{ background: 'var(--paper-dim)', color: 'var(--ink)' }} onClick={() => setSheet(null)}><Icon name="X" size={16} /></button></div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6, background: avatarDraft.bg, borderRadius: 20, padding: '14px 0' }}>
-              <AvatarSVG cfg={avatarDraft} size={120} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, margin: '10px 0 16px' }}>
-              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'corto', hat: 'ninguno' }))}>👦 Empezar como niño</button>
-              <button type="button" className="cat-manage-link" style={{ color: 'var(--ink-soft)' }} onClick={() => setAvatarDraft((d) => ({ ...d, hair: 'largo', hat: 'ninguno' }))}>👧 Empezar como niña</button>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, background: avatarDraft.bg, borderRadius: 20, padding: '14px 0' }}>
+              <AvatarSVG cfg={avatarDraft} size={140} />
             </div>
 
             <div className="avatar-tab-bar">
               {[
                 { id: 'piel', label: 'Piel' },
+                { id: 'cejas', label: 'Cejas' },
                 { id: 'ojos', label: 'Ojos' },
+                { id: 'boca', label: 'Boca' },
                 { id: 'cabello', label: 'Cabello' },
                 { id: 'lentes', label: 'Lentes' },
                 { id: 'vello', label: 'Vello facial' },
-                { id: 'gorro', label: 'Gorro' },
                 { id: 'ropa', label: 'Ropa' },
                 { id: 'fondo', label: 'Fondo' },
               ].map((t) => (
@@ -8202,20 +8197,42 @@ function LibroDiario() {
               </>
             )}
 
-            {avatarTab === 'ojos' && (
+            {avatarTab === 'cejas' && (
               <>
-                <div className="field-label" style={{ marginTop: 14 }}>Color de ojos</div>
-                <div className="cat-color-picker" style={{ marginBottom: 12 }}>
-                  {AVATAR_EYE_COLORS.map((col) => (
-                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.eyeColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, eyeColor: col }))} />
+                <div className="field-label" style={{ marginTop: 14 }}>Cejas</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {Object.entries(AVATAR_EYEBROWS).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, eyebrow: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.eyebrow === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, eyebrow: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
+                    </button>
                   ))}
                 </div>
-                <div className="field-label">Expresión</div>
+              </>
+            )}
+
+            {avatarTab === 'ojos' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Ojos</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {AVATAR_EXPRESSIONS.map((ex) => (
-                    <button key={ex.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, expression: ex.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.expression === ex.id ? '2px solid var(--green)' : 'none' }}>
-                      <AvatarSVG cfg={{ ...avatarDraft, expression: ex.id }} size={48} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{ex.label}</span>
+                  {Object.entries(AVATAR_EYES).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, eye: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.eye === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, eye: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {avatarTab === 'boca' && (
+              <>
+                <div className="field-label" style={{ marginTop: 14 }}>Boca</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {Object.entries(AVATAR_MOUTHS).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, mouth: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.mouth === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, mouth: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
                     </button>
                   ))}
                 </div>
@@ -8224,12 +8241,12 @@ function LibroDiario() {
 
             {avatarTab === 'cabello' && (
               <>
-                <div className="field-label" style={{ marginTop: 14 }}>Peinado</div>
+                <div className="field-label" style={{ marginTop: 14 }}>Peinado (incluye gorros)</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-                  {AVATAR_HAIRSTYLES.map((h) => (
-                    <button key={h.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, hair: h.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hair === h.id ? '2px solid var(--green)' : 'none' }}>
-                      <AvatarSVG cfg={{ ...avatarDraft, hair: h.id }} size={48} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
+                  {Object.entries(AVATAR_TOPS).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, top: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.top === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, top: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
                     </button>
                   ))}
                 </div>
@@ -8246,19 +8263,19 @@ function LibroDiario() {
               <>
                 <div className="field-label" style={{ marginTop: 14 }}>Estilo</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-                  {AVATAR_GLASSES_STYLES.map((g) => (
-                    <button key={g.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, glassesStyle: g.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.glassesStyle === g.id ? '2px solid var(--green)' : 'none' }}>
-                      <AvatarSVG cfg={{ ...avatarDraft, glassesStyle: g.id }} size={48} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{g.label}</span>
+                  {Object.entries(AVATAR_ACCESSORIES).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, accessory: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.accessory === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, accessory: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
                     </button>
                   ))}
                 </div>
-                {avatarDraft.glassesStyle !== 'ninguno' && (
+                {avatarDraft.accessory !== 'ninguno' && (
                   <>
                     <div className="field-label">Color de lentes</div>
                     <div className="cat-color-picker">
-                      {AVATAR_GLASSES_COLORS.map((col) => (
-                        <button key={col} type="button" className={`cat-color-choice ${avatarDraft.glassesColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, glassesColor: col }))} />
+                      {AVATAR_ACCESSORY_COLORS.map((col) => (
+                        <button key={col} type="button" className={`cat-color-choice ${avatarDraft.accessoryColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32 }} onClick={() => setAvatarDraft((d) => ({ ...d, accessoryColor: col }))} />
                       ))}
                     </div>
                   </>
@@ -8270,10 +8287,10 @@ function LibroDiario() {
               <>
                 <div className="field-label" style={{ marginTop: 14 }}>Vello facial</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-                  {AVATAR_FACIAL_HAIR.map((f) => (
-                    <button key={f.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, facialHair: f.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.facialHair === f.id ? '2px solid var(--green)' : 'none' }}>
-                      <AvatarSVG cfg={{ ...avatarDraft, facialHair: f.id }} size={48} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{f.label}</span>
+                  {Object.entries(AVATAR_FACIAL_HAIR).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, facialHair: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.facialHair === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, facialHair: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
                     </button>
                   ))}
                 </div>
@@ -8290,26 +8307,21 @@ function LibroDiario() {
               </>
             )}
 
-            {avatarTab === 'gorro' && (
+            {avatarTab === 'ropa' && (
               <>
-                <div className="field-label" style={{ marginTop: 14 }}>Gorro</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {AVATAR_HATS.map((h) => (
-                    <button key={h.id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, hat: h.id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.hat === h.id ? '2px solid var(--green)' : 'none' }}>
-                      <AvatarSVG cfg={{ ...avatarDraft, hat: h.id }} size={48} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{h.label}</span>
+                <div className="field-label" style={{ marginTop: 14 }}>Estilo de ropa</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  {Object.entries(AVATAR_CLOTHES).map(([id, o]) => (
+                    <button key={id} type="button" onClick={() => setAvatarDraft((d) => ({ ...d, clothes: id }))} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 12, outline: avatarDraft.clothes === id ? '2px solid var(--green)' : 'none' }}>
+                      <AvatarSVG cfg={{ ...avatarDraft, clothes: id }} size={48} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>{o.label}</span>
                     </button>
                   ))}
                 </div>
-              </>
-            )}
-
-            {avatarTab === 'ropa' && (
-              <>
-                <div className="field-label" style={{ marginTop: 14 }}>Color de playera</div>
+                <div className="field-label">Color de ropa</div>
                 <div className="cat-color-picker">
-                  {AVATAR_SHIRT_COLORS.map((col) => (
-                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.shirtColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32, border: col === '#FFFFFF' ? '1px solid var(--line)' : undefined }} onClick={() => setAvatarDraft((d) => ({ ...d, shirtColor: col }))} />
+                  {AVATAR_CLOTHES_COLORS.map((col) => (
+                    <button key={col} type="button" className={`cat-color-choice ${avatarDraft.clothesColor === col ? 'selected' : ''}`} style={{ background: col, width: 32, height: 32, border: col === '#FFFFFF' ? '1px solid var(--line)' : undefined }} onClick={() => setAvatarDraft((d) => ({ ...d, clothesColor: col }))} />
                   ))}
                 </div>
               </>
