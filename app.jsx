@@ -5129,7 +5129,15 @@ function LibroDiario() {
                 <Icon name="Zap" size={12} /> {streakDays}
               </button>
             )}
-            {profile && <div title={profile.name}>{avatarNode(profile.name, 26)}</div>}
+            {profile && (
+              <button
+                onClick={() => openAvatarEditor(profile.name)}
+                title={`Personalizar avatar de ${profile.name}`}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 0, borderRadius: '50%', boxShadow: '0 0 0 2px rgba(255,255,255,0.25)' }}
+              >
+                {avatarNode(profile.name, 34)}
+              </button>
+            )}
             <button className="icon-btn" onClick={loadShared} title="Sincronizar con la familia"><Icon name="RefreshCw" size={15} /></button>
             <button className="icon-btn" onClick={() => { setSettingsSection(null); setSettingsOpen(true); }}><Icon name="Settings" size={16} /></button>
           </div>
