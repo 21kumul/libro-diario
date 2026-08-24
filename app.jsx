@@ -5131,8 +5131,8 @@ function LibroDiario() {
             )}
             {profile && (
               <button
-                onClick={() => openAvatarEditor(profile.name)}
-                title={`Personalizar avatar de ${profile.name}`}
+                onClick={() => { setSettingsSection('perfil'); setSettingsOpen(true); }}
+                title={`Ver perfil de ${profile.name}`}
                 style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 0, borderRadius: '50%', boxShadow: '0 0 0 2px rgba(255,255,255,0.25)' }}
               >
                 {avatarNode(profile.name, 34)}
