@@ -59,9 +59,6 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-<!-- Babel: para poder escribir la app en JSX sin paso de compilación -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
 <!-- Tus claves de Firebase (edita este archivo, ver LEEME.md) -->
 <script src="firebase-config.js"></script>
 
@@ -79,25 +76,13 @@
 <!-- Iconos -->
 <script src="icons.js"></script>
 
-<!-- La app: la cargamos y transformamos a mano (en vez del escaneo automático de
-     Babel) para forzar el "runtime clásico" de JSX. Las versiones nuevas de Babel
-     usan por defecto el "runtime automático", que inserta un import invisible al
-     principio del código y rompe los scripts clásicos que usamos aquí. -->
-<script>
-(async function () {
-  try {
-    const res = await fetch('app.jsx');
-    const src = await res.text();
-    const { code } = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] });
-    const s = document.createElement('script');
-    s.textContent = code;
-    document.body.appendChild(s);
-  } catch (err) {
-    document.getElementById('root').textContent = 'Error al cargar la app: ' + err.message;
-    console.error(err);
-  }
-})();
-</script>
+<!-- La app, ya traducida de JSX a JavaScript de una vez (en vez de traducirla
+     en el celular cada vez que abres la app). Antes usábamos Babel dentro del
+     navegador para esto, pero con la app ya tan grande, traducirla en vivo en
+     un celular se volvía lenta o incluso se quedaba en blanco en equipos con
+     menos memoria. Si editas app.jsx, hay que volver a generar
+     app.compiled.js a partir de él antes de subirlo (pide ayuda para eso). -->
+<script src="app.compiled.js" onerror="document.getElementById('root').textContent = 'No se pudo cargar app.compiled.js — revisa que ese archivo exista en el repositorio.'"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
