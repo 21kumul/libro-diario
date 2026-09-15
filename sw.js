@@ -1,6 +1,6 @@
 // sw.js
 // Estrategia:
-// 1) Archivos PROPIOS de la app (los que editas en GitHub: index.html, app.jsx,
+// 1) Archivos PROPIOS de la app (los que editas en GitHub: index.html, app.compiled.js,
 //    storage.js, icons.js, firebase-config.js, manifest.json, iconos) -> "red
 //    primero": si hay internet, siempre trae la versión más reciente que
 //    subiste a GitHub y la deja guardada; si no hay internet, usa la última
@@ -15,7 +15,7 @@ const CACHE_NAME = 'libro-diario-shell'; // fijo: ya no se incrementa a mano
 const APP_SHELL = [
   './',
   './index.html',
-  './app.jsx',
+  './app.compiled.js',
   './storage.js',
   './icons.js',
   './firebase-config.js',
@@ -27,7 +27,7 @@ const APP_SHELL = [
 
 // Nombres de archivo (sin carpeta) que cuentan como "propios" para la
 // estrategia de red primero. '' cubre la ruta raíz ('/').
-const OWN_FILENAMES = new Set(['', 'index.html', 'app.jsx', 'storage.js', 'icons.js', 'firebase-config.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png']);
+const OWN_FILENAMES = new Set(['', 'index.html', 'app.compiled.js', 'storage.js', 'icons.js', 'firebase-config.js', 'manifest.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
